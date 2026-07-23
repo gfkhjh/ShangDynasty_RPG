@@ -418,7 +418,7 @@ export class LearningHall extends Component {
       const x = startX + i * 110;
       const curSub = t.night ? t.sub : new Color(74, 48, 24);
       const curInk = t.night ? t.ink : new Color(58, 36, 16);
-      this.label(root, `HallCurName-${i}`, name, x - 22, y, 44, 22, 13, curSub, 'right', 6);
+      this.label(root, `HallCurName-${i}`, name, x - 8, y, 44, 22, 13, curSub, 'right', 6);
       this.label(root, `HallCurVal-${i}`, `${val}`, x + 20, y, 50, 22, 16, curInk, 'left', 6);
     });
   }
@@ -532,7 +532,7 @@ export class LearningHall extends Component {
     // 顶部：标题（左上角）+ 计数
     const topY = y + h / 2 - 18;
     this.titleLabel(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 8, topY, 120, 20, 14, t.goldInk, 6);
-    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 18, topY, 90, 22, 16, t.goldInk, 'right', 6);
+    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 12, topY, 120, 22, 16, t.goldInk, 'right', 6);
     // 进度条
     const barW = 300, barH = 6; const pct = total > 0 ? collected / total : 0;
     const barY = y + 4;
@@ -545,7 +545,7 @@ export class LearningHall extends Component {
     // 底部：左说明 + 右百分比，避免重叠
     const bottomY = y - h / 2 + 20;
     this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 93, bottomY, 150, 18, 12, t.goldSub, 'left', 6);
-    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, bottomY, 50, 18, 12, t.goldSub, 'right', 6);
+    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 12, bottomY, 50, 18, 12, t.goldSub, 'right', 6);
   }
 
   private drawBottomNav(root: Node, mode: HallMode, t: ReturnType<LearningHall['theme']>) {
@@ -1521,11 +1521,14 @@ export class LearningHall extends Component {
    * 因此传 left 时 x 会被当成文字框中心，文字框会向左延伸，容易导致标题出框。
    * 若需要「x 即文字真实左边缘」的贴左标题，请用 titleLabel()。
    */
-  private label(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' = 'center', z = 2) {
-    const node = new Node(name); node.parent = parent; node.setPosition(x, y, z); node.addComponent(UITransform).setContentSize(width, height);
+  private label(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' | 'right' = 'center', z = 2) {
+    const node = new Node(name); node.parent = parent; node.setPosition(x, y, z);
+    const transform = node.addComponent(UITransform); transform.setContentSize(width, height);
+    if (align === 'right') transform.setAnchorPoint(1, 0.5);
     const label = node.addComponent(Label); label.string = text; label.fontSize = fontSize; label.lineHeight = fontSize + 7; label.color = color;
     label.enableWrapText = true; label.overflow = Label.Overflow.SHRINK;
-    label.horizontalAlign = align === 'left' ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER; label.verticalAlign = Label.VerticalAlign.CENTER;
+    label.horizontalAlign = align === 'left' ? Label.HorizontalAlign.LEFT : (align === 'right' ? Label.HorizontalAlign.RIGHT : Label.HorizontalAlign.CENTER);
+    label.verticalAlign = Label.VerticalAlign.CENTER;
     return label;
   }
 
