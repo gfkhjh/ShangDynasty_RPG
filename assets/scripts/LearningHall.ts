@@ -1096,7 +1096,7 @@ export class LearningHall extends Component {
     this.poemOptions = this.shuffle([question.card, ...this.shuffle(wrong).slice(0, 3)]);
     this.label(root, 'HallPoemLine', question.definition.poem, 0, 132, 880, 70, 31, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemHint', '请选择一张甲骨字卡填入【】', 0, 82, 600, 28, 17, t.goldSub, 'center', 6);
-    const positions: Array<[number, number]> = [[-395, -52], [-165, -52], [65, -52], [295, -52]];
+    const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
     this.poemOptions.forEach((card, index) => {
       const [x, y] = positions[index];
       const option = this.graphics(root, `HallPoemOption-${index}`, x, y, 190, 208, 4);
@@ -1640,7 +1640,7 @@ export class LearningHall extends Component {
       else if (this.selectedWrongBookId && this.hit(x, y, 350, -210, 190, 44)) { this.playSfx('tap'); this.callbacks?.clearWrongBook(this.selectedWrongBookId); this.selectedWrongBookId = null; this.render('parent'); }
     } else if (this.mode === 'poem') {
       if (this.poemQuestions.length === 0 && this.hit(x, y, 0, -110, 220, 56)) { this.playSfx('confirm'); this.beginYinXuTransition(); return; }
-      const positions: Array<[number, number]> = [[-395, -52], [-165, -52], [65, -52], [295, -52]];
+      const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
       positions.forEach(([optionX, optionY], index) => {
         if (this.hit(x, y, optionX, optionY, 190, 208)) { this.playSfx('tap'); this.answerPoemChallenge(index); }
       });
