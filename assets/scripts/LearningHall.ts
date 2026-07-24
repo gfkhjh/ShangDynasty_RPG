@@ -22,6 +22,7 @@ import {
   view,
 } from 'cc';
 import { poemChallengeBank, type PoemChallengeDefinition } from './data/PoemChallengeBank';
+import { chapterOneDefinition, CHAPTER_ONE_FRAGMENT_CARDS, CHAPTER_ONE_ID } from './story/ChapterOne';
 
 const { ccclass } = _decorator;
 
@@ -54,13 +55,21 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'enteringYinXu' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'parent' | 'settings' | 'ranks' | 'avatarCrop';
+type HallMode = 'home' | 'enteringYinXu' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'story' | 'parent' | 'settings' | 'ranks' | 'avatarCrop';
 type HallWrongBookEntry = { cardId: string; wrongCount: number; lastWrongAt: number };
+type HallStoryProgress = {
+  currentChapterId: string | null;
+  currentStepId: string | null;
+  completedChapterIds: string[];
+  unlockedOracleIds: string[];
+  destinyPower: number;
+};
 type HallCallbacks = {
   getCards: () => HallCard[];
   /** All catalog entries count toward progress, while getCards may hide undiscovered entries. */
   getCatalogProgress?: () => { collected: number; total: number };
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
+  getStoryProgress?: () => HallStoryProgress;
   recordReview: (cardId: string, correct: boolean) => void;
   getWrongBook: () => HallWrongBookEntry[];
   clearWrongBook: (cardId: string) => void;
@@ -127,6 +136,11 @@ export class LearningHall extends Component {
   // 图鉴分页
   private codexPage = 0;
   private readonly codexPageSize = 8;
+  private chapterRoadmapContent: Node | null = null;
+  private chapterRoadmapOffset = 0;
+  private chapterRoadmapDragStartX = 0;
+  private chapterRoadmapOffsetStart = 0;
+  private chapterRoadmapDragging = false;
 
   get isOpen() {
     return this.root?.isValid ?? false;
@@ -328,6 +342,7 @@ export class LearningHall extends Component {
     else if (mode === 'poem') this.renderPoemChallenge();
     else if (mode === 'poemResult') this.renderPoemResult();
     else if (mode === 'progress') this.renderProgress();
+    else if (mode === 'story') this.renderStoryRoadmap();
     else if (mode === 'ranks') this.renderRanks();
     else if (mode === 'avatarCrop') this.drawAvatarCrop();
     else this.renderPlaceholder(mode);
@@ -641,6 +656,7 @@ export class LearningHall extends Component {
       ['codex', '🏺', '图鉴', mode === 'codex'],
       ['parent', '⭐', '错题本', mode === 'parent'],
       ['progress', '📈', '进度', mode === 'progress'],
+      ['story', '📜', '剧情', mode === 'story'],
     ];
     // 项数变化自动居中（去掉设置后剩 5 项）
     const y = -this.vh(0.390); const gap = this.vh(0.120); const startX = -((items.length - 1) * gap) / 2;
@@ -853,14 +869,15 @@ export class LearningHall extends Component {
 
   private renderProgress() {
     const root = this.createRoot('HallProgress', 'progress');
-    const { total, collected } = this.catalogProgress(); const progress = this.progress();
+    const { total, collected } = this.catalogProgress();
+    const progress = this.progress();
     const t = this.theme();
     this.drawHeader(root, '学习进度', '你的甲骨文字收集与复习记录', true);
     this.panel(root, 'HallProgressPanel', 0, -10, 980, 440, t.card, false);
-    const items: Array<[string, string, string, number, Color]> = [
-      ['收集图鉴', `${collected} / ${total}`, '已发现真实甲骨文字', -310, new Color(86, 133, 174)],
-      ['复习答题', `${progress.correct} / ${progress.attempts}`, '累计答对 / 累计作答', 0, new Color(180, 105, 61)],
-      ['探索资源', `${progress.ink}`, '当前持有墨料', 310, new Color(104, 145, 99)],
+    const items: Array<[string, string, string, number]> = [
+      ['收集图鉴', `${collected} / ${total}`, '已发现真实甲骨文字', -310],
+      ['复习答题', `${progress.correct} / ${progress.attempts}`, '累计答对 / 累计作答', 0],
+      ['探索资源', `${progress.ink}`, '当前持有墨料', 310],
     ];
     items.forEach(([title, value, detail, x]) => {
       const card = this.graphics(root, `HallProgress-${title}`, x, 30, 260, 260, 4);
@@ -870,6 +887,154 @@ export class LearningHall extends Component {
       this.label(root, `HallProgressValue-${title}`, value, x, 15, 220, 72, 40, t.goldInk);
       this.label(root, `HallProgressDetail-${title}`, detail, x, -65, 220, 45, 15, t.goldSub);
     });
+  }
+
+  private renderStoryRoadmap() {
+    const root = this.createRoot('HallStoryRoadmap', 'story');
+    const { collected } = this.catalogProgress();
+    const story = this.callbacks?.getStoryProgress?.() ?? {
+      currentChapterId: null,
+      currentStepId: null,
+      completedChapterIds: [],
+      unlockedOracleIds: [],
+      destinyPower: 0,
+    };
+    const t = this.theme();
+    this.drawHeader(root, '甲骨命途', '沿着神甲裂纹，回望已经走过与尚未开启的故事', true);
+
+    const summary = this.graphics(root, 'HallStorySummary', 0, 190, 1000, 72, 3);
+    summary.fillColor = t.card; summary.roundRect(-500, -36, 1000, 72, 14); summary.fill();
+    summary.strokeColor = t.cardStroke; summary.lineWidth = 2; summary.roundRect(-498, -34, 996, 68, 12); summary.stroke();
+    const chapterDone = story.completedChapterIds.length;
+    const summaryItems = [
+      ['故事', `${chapterDone} 章完成`],
+      ['识字', `${collected} / 300`],
+      ['本章骨纹', `${CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment => story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length} / 5`],
+      ['命途卜力', `${story.destinyPower}`],
+    ];
+    summaryItems.forEach(([name, value], index) => {
+      const x = -370 + index * 245;
+      if (index > 0) {
+        const divider = this.graphics(root, `HallStorySummaryDivider-${index}`, x - 122, 190, 2, 38, 5);
+        divider.fillColor = new Color(214, 174, 100, 90); divider.rect(-1, -19, 2, 38); divider.fill();
+      }
+      this.label(root, `HallStorySummaryName-${index}`, name, x - 36, 202, 90, 22, 12, t.goldSub, 'right', 6);
+      this.label(root, `HallStorySummaryValue-${index}`, value, x + 52, 185, 150, 34, 18, t.goldInk, 'left', 6);
+    });
+
+    const viewport = new Node('HallChapterRoadmapViewport');
+    viewport.parent = root;
+    viewport.setPosition(0, -30, 3);
+    viewport.addComponent(UITransform).setContentSize(1060, 360);
+    const mask = viewport.addComponent(Mask);
+    mask.type = MaskType.GRAPHICS_RECT;
+    const content = new Node('HallChapterRoadmapContent');
+    content.parent = viewport;
+    content.addComponent(UITransform).setContentSize(1540, 360);
+    this.chapterRoadmapContent = content;
+
+    const firstChapterIndex = Math.max(0, chapterOneDefinition.steps.findIndex(step => step.id === story.currentStepId));
+    const chapterOneCompleted = story.completedChapterIds.indexOf(CHAPTER_ONE_ID) >= 0;
+    const chapterOnePercent = chapterOneCompleted
+      ? 100
+      : Math.round(firstChapterIndex / Math.max(1, chapterOneDefinition.steps.length - 1) * 100);
+    const chapterOneChars = CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment =>
+      story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
+    const prologueCurrent = story.currentStepId === 'prologue-silent-heaven';
+    const roadmap = [
+      {
+        eyebrow: '序章', title: '天道失语', detail: '神甲崩碎，万骨无声',
+        percent: prologueCurrent ? 50 : 100, state: prologueCurrent ? 'current' : 'complete',
+      },
+      {
+        eyebrow: '第一章', title: '失语的甲骨', detail: `剧情骨纹 ${chapterOneChars} / 5`,
+        percent: chapterOnePercent, state: chapterOneCompleted ? 'complete' : prologueCurrent ? 'locked' : 'current',
+      },
+      { eyebrow: '第二章', title: '河畔余兆', detail: '循水声追查新的碎甲', percent: 0, state: 'locked' },
+      { eyebrow: '第三章', title: '山林问路', detail: '未解锁', percent: 0, state: 'locked' },
+      { eyebrow: '第四章', title: '古墟残火', detail: '未解锁', percent: 0, state: 'locked' },
+      { eyebrow: '第五章', title: '王陵之谜', detail: '未解锁', percent: 0, state: 'locked' },
+      { eyebrow: '终章', title: '重续通天之契', detail: '未解锁', percent: 0, state: 'locked' },
+    ];
+
+    const gap = 220;
+    const startX = -650;
+    const routeY = [42, -22, 52, -30, 45, -18, 35];
+    const currentRoadIndex = Math.max(0, roadmap.findIndex(chapter => chapter.state === 'current'));
+    const mist = this.graphics(content, 'HallChapterRoadmapMist', 0, 0, 1510, 300, 2);
+    mist.fillColor = new Color(38, 31, 28, 88);
+    mist.roundRect(-745, -145, 1490, 290, 80); mist.fill();
+    const line = this.graphics(content, 'HallChapterRoadmapLine', 0, 0, 1510, 300, 3);
+    line.strokeColor = new Color(90, 78, 68, 230); line.lineWidth = 7;
+    line.moveTo(startX - 80, routeY[0]);
+    for (let index = 1; index < roadmap.length; index++) {
+      const previousX = startX + (index - 1) * gap;
+      const x = startX + index * gap;
+      const middle = (previousX + x) / 2;
+      line.bezierCurveTo(middle, routeY[index - 1], middle, routeY[index], x, routeY[index]);
+    }
+    line.lineTo(startX + (roadmap.length - 1) * gap + 80, routeY[roadmap.length - 1]);
+    line.stroke();
+    if (currentRoadIndex > 0) {
+      const lit = this.graphics(content, 'HallChapterRoadmapLitLine', 0, 0, 1510, 300, 4);
+      lit.strokeColor = new Color(224, 165, 68, 245); lit.lineWidth = 4;
+      lit.moveTo(startX - 80, routeY[0]);
+      for (let index = 1; index <= currentRoadIndex; index++) {
+        const previousX = startX + (index - 1) * gap;
+        const x = startX + index * gap;
+        const middle = (previousX + x) / 2;
+        lit.bezierCurveTo(middle, routeY[index - 1], middle, routeY[index], x, routeY[index]);
+      }
+      lit.stroke();
+    }
+    roadmap.forEach((chapter, index) => {
+      const x = startX + index * gap;
+      const y = routeY[index];
+      const current = chapter.state === 'current';
+      const complete = chapter.state === 'complete';
+      if (current) {
+        const glow = this.graphics(content, `HallChapterGlow-${index}`, x, y, 104, 104, 4);
+        glow.fillColor = new Color(231, 104, 44, 54); glow.circle(0, 0, 50); glow.fill();
+        glow.strokeColor = new Color(255, 199, 91, 150); glow.lineWidth = 3; glow.circle(0, 0, 46); glow.stroke();
+        tween(glow.node)
+          .repeatForever(tween().to(1.1, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+            .to(1.1, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }))
+          .start();
+      }
+      const shard = this.graphics(content, `HallChapterShard-${index}`, x, y, 82, 92, 5);
+      shard.fillColor = current ? new Color(188, 76, 45, 255)
+        : complete ? new Color(164, 125, 67, 255) : new Color(66, 62, 61, 248);
+      shard.moveTo(-33, 29); shard.lineTo(-21, 43); shard.lineTo(25, 38); shard.lineTo(38, 8);
+      shard.lineTo(29, -37); shard.lineTo(-12, -44); shard.lineTo(-39, -18); shard.close(); shard.fill();
+      shard.strokeColor = current ? new Color(255, 213, 122) : complete ? new Color(222, 188, 115) : new Color(119, 111, 102);
+      shard.lineWidth = current ? 4 : 2; shard.stroke();
+      const seal = this.graphics(content, `HallChapterSeal-${index}`, x, y, 58, 58, 6);
+      seal.fillColor = current ? new Color(199, 62, 42) : complete ? new Color(155, 111, 48) : new Color(68, 64, 64);
+      seal.circle(0, 0, 27); seal.fill();
+      seal.strokeColor = current || complete ? new Color(255, 220, 145) : new Color(130, 122, 110);
+      seal.lineWidth = 2; seal.circle(0, 0, 25); seal.stroke();
+      this.label(content, `HallChapterSealText-${index}`, complete ? '✓' : current ? '行' : '锁',
+        x, y, 44, 44, 22, complete || current ? new Color(255, 238, 193) : new Color(154, 146, 135), 'center', 7);
+
+      const labelY = y > 0 ? y - 82 : y + 88;
+      this.label(content, `HallChapterEyebrow-${index}`, chapter.eyebrow, x, labelY + 20, 150, 22, 13,
+        current ? new Color(255, 211, 119) : t.goldSub, 'center', 6);
+      this.label(content, `HallChapterTitle-${index}`, chapter.title, x, labelY - 4, 176, 30, current ? 20 : 17,
+        chapter.state === 'locked' ? new Color(147, 139, 128) : t.goldInk, 'center', 6);
+      this.label(content, `HallChapterDetail-${index}`, chapter.detail, x, labelY - 30, 180, 24, 12,
+        chapter.state === 'locked' ? new Color(120, 115, 108) : t.goldSub, 'center', 6);
+      this.label(content, `HallChapterPercent-${index}`,
+        chapter.state === 'locked' ? '尚未解锁' : `${chapter.percent}%`,
+        x, labelY - 51, 140, 18, 11, chapter.state === 'locked' ? new Color(130, 124, 116) : t.goldSub, 'center', 7);
+    });
+
+    // Open with the current first chapter near the center. Dragging is clamped in onTouchMove.
+    this.chapterRoadmapOffset = prologueCurrent ? 650 : 430;
+    content.setPosition(this.chapterRoadmapOffset, 0, 1);
+    this.label(root, 'HallStorySwipeHint', '‹  按住残卷左右拖动  ›', 0, -220, 260, 24, 13, t.goldSub, 'center', 6);
+    this.label(root, 'HallChapterRoadmapFootnote',
+      '后续章节标题与文字分配会随正式剧本继续完善，未解锁内容不会提前剧透。',
+      0, -248, 900, 24, 12, t.goldSub, 'center', 6);
   }
 
   private renderWrongBook() {
@@ -931,7 +1096,7 @@ export class LearningHall extends Component {
     this.poemOptions = this.shuffle([question.card, ...this.shuffle(wrong).slice(0, 3)]);
     this.label(root, 'HallPoemLine', question.definition.poem, 0, 132, 880, 70, 31, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemHint', '请选择一张甲骨字卡填入【】', 0, 82, 600, 28, 17, t.goldSub, 'center', 6);
-    const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
+    const positions: Array<[number, number]> = [[-395, -52], [-165, -52], [65, -52], [295, -52]];
     this.poemOptions.forEach((card, index) => {
       const [x, y] = positions[index];
       const option = this.graphics(root, `HallPoemOption-${index}`, x, y, 190, 208, 4);
@@ -1249,6 +1414,14 @@ export class LearningHall extends Component {
   }
 
   private onTouchMove(event: EventTouch) {
+    if (this.mode === 'story' && this.chapterRoadmapDragging) {
+      const point = event.getUILocation(); const size = view.getVisibleSize();
+      const x = point.x - size.width / 2;
+      this.chapterRoadmapOffset = Math.max(-390, Math.min(650,
+        this.chapterRoadmapOffsetStart + x - this.chapterRoadmapDragStartX));
+      this.chapterRoadmapContent?.setPosition(this.chapterRoadmapOffset, 0, 1);
+      return;
+    }
     if (this.mode !== 'avatarCrop' || this.cropDragMode === 'none') return;
     const point = event.getUILocation(); const size = view.getVisibleSize();
     const x = point.x - size.width / 2; const y = point.y - size.height / 2;
@@ -1273,6 +1446,7 @@ export class LearningHall extends Component {
 
   private onTouchEnd() {
     this.cropDragMode = 'none';
+    this.chapterRoadmapDragging = false;
   }
 
   /** 设置页昵称展示行：点击后弹出编辑弹窗 */
@@ -1385,11 +1559,19 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
       else if (this.hit(x, y, -330, -192, 250, 104)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
       else if (this.hit(x, y, 540, 320, 46, 46)) { this.playSfx('tap'); this.render('settings'); }
-      else if (this.hit(x, y, -173, -281, 60, 60)) { this.playSfx('back'); this.render('home'); }
-      else if (this.hit(x, y, -86, -281, 60, 60)) { this.playSfx('tap'); this.openReviewLibrary(); }
-      else if (this.hit(x, y, 0, -281, 60, 60)) { this.playSfx('tap'); this.render('codex'); }
-      else if (this.hit(x, y, 86, -281, 60, 60)) { this.playSfx('tap'); this.render('parent'); }
-      else if (this.hit(x, y, 173, -281, 60, 60)) { this.playSfx('tap'); this.render('progress'); }
+      else {
+        const navModes: HallMode[] = ['home', 'review', 'codex', 'parent', 'progress', 'story'];
+        const gap = this.vh(0.120);
+        const startX = -((navModes.length - 1) * gap) / 2;
+        for (let index = 0; index < navModes.length; index++) {
+          if (!this.hit(x, y, startX + index * gap, -281, 64, 64)) continue;
+          const target = navModes[index];
+          this.playSfx(target === 'home' ? 'back' : 'tap');
+          if (target === 'review') this.openReviewLibrary();
+          else this.render(target);
+          break;
+        }
+      }
       return;
     }
     if (this.mode === 'ranks') {
@@ -1433,6 +1615,12 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, 252, 288, 30, 30)) { this.playSfx('back'); this.render('home'); }
       return;
     }
+    if (this.mode === 'story' && this.hit(x, y, 0, -30, 1060, 360)) {
+      this.chapterRoadmapDragging = true;
+      this.chapterRoadmapDragStartX = x;
+      this.chapterRoadmapOffsetStart = this.chapterRoadmapOffset;
+      return;
+    }
     if (this.hit(x, y, 480, 286, 150, 48)) { this.playSfx('back'); this.render('home'); return; }
     if (this.mode === 'codex') {
       if (this.codexPage > 0 && this.hit(x, y, -330, -232, 112, 38)) { this.playSfx('tap'); this.codexPage--; this.render('codex', null); return; }
@@ -1452,7 +1640,7 @@ export class LearningHall extends Component {
       else if (this.selectedWrongBookId && this.hit(x, y, 350, -210, 190, 44)) { this.playSfx('tap'); this.callbacks?.clearWrongBook(this.selectedWrongBookId); this.selectedWrongBookId = null; this.render('parent'); }
     } else if (this.mode === 'poem') {
       if (this.poemQuestions.length === 0 && this.hit(x, y, 0, -110, 220, 56)) { this.playSfx('confirm'); this.beginYinXuTransition(); return; }
-      const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
+      const positions: Array<[number, number]> = [[-395, -52], [-165, -52], [65, -52], [295, -52]];
       positions.forEach(([optionX, optionY], index) => {
         if (this.hit(x, y, optionX, optionY, 190, 208)) { this.playSfx('tap'); this.answerPoemChallenge(index); }
       });
