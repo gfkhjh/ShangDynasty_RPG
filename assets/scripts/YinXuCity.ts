@@ -110,7 +110,7 @@ type HorseCart = {
   phase: number; radius: number; turnPending: boolean;
 };
 type OracleQuality = 'blue' | 'red' | 'gold';
-type CityOverlay = 'none' | 'shopConfirm' | 'shop' | 'backpack' | 'divination' | 'excavationLearning';
+type CityOverlay = 'none' | 'shopConfirm' | 'shop' | 'backpack' | 'chapterProgress' | 'divination' | 'excavationLearning';
 type DivinationStage = 'none' | 'waiting' | 'question' | 'animating' | 'review';
 type ExcavationLearningStage = 'none' | 'question' | 'detail';
 type ShopCategory = 'shell' | 'decoration' | 'rubbing';
@@ -132,7 +132,6 @@ type CitySave = {
   unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
-  wechats: { nickname: string; avatarUrl?: string }[];
   story: StorySaveState;
 };
 
@@ -660,7 +659,6 @@ export class YinXuCity extends Component {
         musicOn: this.save.musicOn,
         sfxOn: this.save.sfxOn,
         nightMode: this.save.nightMode,
-        wechats: this.save.wechats,
       }),
       setName: (name) => {
         const trimmed = name.trim();
@@ -686,24 +684,6 @@ export class YinXuCity extends Component {
       },
       toggleNight: () => {
         this.save.nightMode = !this.save.nightMode;
-        this.persistCitySave();
-      },
-      // 微信绑定（阶段1：本地占位；真实微信授权待后端/平台就绪后替换）
-      // index: 要操作的账号槽位（0 或 1），bound=true 时写入该槽位，bound=false 时删除该槽位
-      bindWechat: (bound: boolean, index: number, info?: { nickname?: string; avatarUrl?: string }) => {
-        const list = this.save.wechats || [];
-        if (bound) {
-          const item = { nickname: info?.nickname?.trim() || '微信用户', avatarUrl: info?.avatarUrl };
-          if (index >= 0 && index <= list.length) {
-            list[index] = item;
-          } else {
-            list.push(item);
-          }
-          this.save.wechats = list.slice(0, 2);
-        } else if (typeof index === 'number' && index >= 0 && index < list.length) {
-          list.splice(index, 1);
-          this.save.wechats = list;
-        }
         this.persistCitySave();
       },
       getWeakCards: () => {
@@ -904,9 +884,11 @@ export class YinXuCity extends Component {
       const openDialogue = () => {
         if (presentationToken !== this.storyPresentationToken
           || this.storyController.currentStep()?.id !== step.id) return;
-        this.storyDialogue.open(step.dialogue ?? [], () => {
-          this.storyController.handle({ type: 'dialogue-completed' });
-        });
+        this.storyDialogue.open(
+          step.dialogue ?? [],
+          () => this.storyController.handle({ type: 'dialogue-completed' }),
+          isPrologueOpening,
+        );
       };
       if (isPrologueOpening) {
         // Cross-fade both dark layers so the cinematic never flashes back to
@@ -4718,7 +4700,6 @@ export class YinXuCity extends Component {
       return {
         ...databaseSave,
         version: 3,
-        wechats: Array.isArray(databaseSave.wechats) ? databaseSave.wechats : [],
         wrongBook: databaseSave.wrongBook && typeof databaseSave.wrongBook === 'object' ? databaseSave.wrongBook : {},
         story: migrateStorySave(databaseSave.story),
       } as CitySave;
@@ -4748,7 +4729,6 @@ export class YinXuCity extends Component {
       musicOn: true,
       sfxOn: true,
       nightMode: false,
-      wechats: [],
       story: migrateStorySave(null),
     };
     try {
@@ -4774,20 +4754,6 @@ export class YinXuCity extends Component {
         sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
         nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,
         story: migrateStorySave(parsed.story),
-        // 微信绑定：从单对象旧字段迁移到数组；最多保留 2 个
-        wechats: Array.isArray(parsed.wechats)
-          ? parsed.wechats.filter((w: any) => w && typeof w.nickname === 'string').slice(0, 2).map((w: any) => ({
-              nickname: w.nickname.trim() || '微信用户',
-              avatarUrl: typeof w.avatarUrl === 'string' && w.avatarUrl.length > 0 ? w.avatarUrl : undefined,
-            }))
-          : (((parsed as any).wechat && typeof (parsed as any).wechat === 'object' && (parsed as any).wechat.bound)
-              ? [{
-                  nickname: typeof (parsed as any).wechat.nickname === 'string' && (parsed as any).wechat.nickname.trim().length > 0
-                    ? (parsed as any).wechat.nickname.trim() : '微信用户',
-                  avatarUrl: typeof (parsed as any).wechat.avatarUrl === 'string' && (parsed as any).wechat.avatarUrl.length > 0
-                    ? (parsed as any).wechat.avatarUrl : undefined,
-                }]
-              : defaults.wechats),
       };
     } catch (error) {
       console.warn('[YinXuCity] save data could not be read, using a safe new profile.', error);
@@ -5845,6 +5811,111 @@ export class YinXuCity extends Component {
     this.buildBackpackUi();
   }
 
+  private openChapterProgress() {
+    if (this.overlay !== 'none' || this.seated) return;
+    this.stopPlayerInput();
+    this.overlay = 'chapterProgress';
+    this.buildChapterProgressUi();
+  }
+
+  private chapterStageName(stepId: string | null, completed: boolean) {
+    if (completed) return '第一章已完成';
+    if (!stepId || stepId.startsWith('prologue-')) return '序章 · 天道失语';
+    if (['chapter-1-opening', 'chapter-1-meet-xiaoshitou', 'chapter-1-xiaoshitou-dialogue'].indexOf(stepId) >= 0) {
+      return '第一幕 · 异光之地';
+    }
+    if (stepId.indexOf('seek-') >= 0 || stepId.indexOf('lesson') >= 0) return '第二幕 · 五字寻骨';
+    if (['chapter-1-fragment-awakens', 'chapter-1-first-request'].indexOf(stepId) >= 0) return '第三幕 · 卜力苏醒';
+    if (stepId.indexOf('temple') >= 0 || stepId.indexOf('divination') >= 0) return '第四幕 · 第一次问卜';
+    return '尾声 · 水声掩埋之处';
+  }
+
+  private chapterTaskText(stepId: string | null, completed: boolean) {
+    if (completed) return { title: '第一章完成', detail: '失语的甲骨已经重新回应你，第二章尚未开启。' };
+    const step = this.storyController?.currentStep();
+    if (step?.objective) {
+      return {
+        title: step.objective.title,
+        detail: step.objective.detail ?? '跟随地图上的剧情标记继续调查。',
+      };
+    }
+    const dialogueTasks: Record<string, { title: string; detail: string }> = {
+      'prologue-silent-heaven': { title: '观看序章：天道失语', detail: '了解通天灵龟甲崩碎、世间占卜失声的开端。' },
+      'chapter-1-opening': { title: '听取贞人师的指引', detail: '得知城外异光与失落碎甲的线索。' },
+      'chapter-1-xiaoshitou-dialogue': { title: '询问异光落点', detail: '与城门外的小石头交谈，确认碎甲坠落的位置。' },
+      'chapter-1-fragment-awakens': { title: '聆听碎甲低语', detail: '五枚骨纹已经聚拢，听清它们传来的声音。' },
+      'chapter-1-first-request': { title: '接受阿禾的求雨委托', detail: '带着苏醒的卜力前往宗庙，替村民询问雨期。' },
+      'chapter-1-clue-revealed': { title: '追查西侧河畔线索', detail: '卜兆指向水声掩埋之处，新的碎甲正在等待你。' },
+    };
+    return dialogueTasks[stepId ?? ''] ?? {
+      title: '继续当前剧情',
+      detail: '完成眼前的对话或互动，解锁下一段章节目标。',
+    };
+  }
+
+  private buildChapterProgressUi() {
+    this.destroyOverlayRoot();
+    const root = new Node('ChapterProgressOverlay');
+    root.parent = this.node;
+    root.setPosition(0, 0, 400);
+    root.addComponent(UITransform).setContentSize(1280, 720);
+    this.overlayRoot = root;
+
+    this.drawWoodPanel(root, 'ChapterProgressPanel', 0, 0, 920, 560, 0, false);
+    this.drawUiButton(root, 'ChapterProgressCloseButton', '关闭', 392, 238, 104, 44, false);
+    this.createUiLabel(root, 'ChapterProgressTitle', '第一章 · 失语的甲骨', 0, 232, 560, 48, 29, new Color(255, 224, 148));
+
+    const snapshot = this.storyController?.snapshot();
+    const completed = (snapshot?.completedChapterIds.indexOf(CHAPTER_ONE_ID) ?? -1) >= 0;
+    const stepId = snapshot?.currentStepId ?? null;
+    const currentIndex = completed
+      ? chapterOneDefinition.steps.length - 1
+      : Math.max(0, chapterOneDefinition.steps.findIndex(step => step.id === stepId));
+    const chapterPercent = completed
+      ? 100
+      : Math.round(currentIndex / Math.max(1, chapterOneDefinition.steps.length - 1) * 100);
+
+    this.createUiLabel(root, 'ChapterStage', this.chapterStageName(stepId, completed),
+      -345, 167, 430, 40, 22, new Color(250, 211, 125), 'left');
+    this.createUiLabel(root, 'ChapterPercent', `章节进度 ${chapterPercent}%`,
+      318, 167, 180, 36, 18, new Color(242, 216, 163));
+    const progressBack = this.localGraphics('ChapterProgressBack', root, 0, 132, 730, 22, 3);
+    progressBack.fillColor = new Color(48, 37, 31, 230); progressBack.roundRect(-365, -9, 730, 18, 9); progressBack.fill();
+    const progressWidth = Math.max(10, 718 * chapterPercent / 100);
+    const progressFill = this.localGraphics('ChapterProgressFill', root, -359 + progressWidth / 2, 132, progressWidth, 18, 4);
+    progressFill.fillColor = new Color(211, 151, 65); progressFill.roundRect(-progressWidth / 2, -6, progressWidth, 12, 6); progressFill.fill();
+
+    const task = this.chapterTaskText(stepId, completed);
+    this.drawWoodPanel(root, 'ChapterTaskPanel', 0, 48, 770, 126, 2, true);
+    this.createUiLabel(root, 'ChapterTaskCaption', '当前任务', -322, 82, 130, 30, 17, new Color(119, 67, 37), 'left', 5);
+    this.createUiLabel(root, 'ChapterTaskTitle', task.title, -175, 79, 470, 36, 21, new Color(84, 45, 28), 'left', 5);
+    this.createUiLabel(root, 'ChapterTaskDetail', task.detail, 0, 37, 690, 48, 16, new Color(96, 58, 38), 'left', 5);
+
+    this.createUiLabel(root, 'ChapterGlyphCaption', '本章碎甲文字', -324, -50, 220, 32, 18, new Color(245, 211, 145), 'left');
+    CHAPTER_ONE_FRAGMENT_CARDS.forEach((fragment, index) => {
+      const x = -280 + index * 140;
+      const unlocked = this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0;
+      const plate = this.localGraphics(`ChapterGlyphPlate-${fragment.cardId}`, root, x, -112, 94, 94, 4);
+      plate.fillColor = unlocked ? new Color(223, 195, 137) : new Color(65, 54, 47);
+      plate.roundRect(-43, -43, 86, 86, 10); plate.fill();
+      plate.strokeColor = unlocked ? new Color(238, 176, 71) : new Color(117, 94, 70);
+      plate.lineWidth = 3; plate.roundRect(-43, -43, 86, 86, 10); plate.stroke();
+      this.createUiLabel(root, `ChapterGlyph-${fragment.cardId}`, unlocked ? fragment.character : '？',
+        x, -106, 70, 60, 34, unlocked ? new Color(70, 40, 27) : new Color(157, 137, 108));
+      this.createUiLabel(root, `ChapterGlyphState-${fragment.cardId}`, unlocked ? '已唤醒' : '未发现',
+        x, -145, 90, 24, 13, unlocked ? new Color(255, 221, 135) : new Color(169, 151, 124));
+    });
+
+    const chapterUnlocked = CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment =>
+      this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
+    const totalUnlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.indexOf(card.id) >= 0).length;
+    this.createUiLabel(root, 'ChapterCollectionSummary',
+      `本章骨纹 ${chapterUnlocked} / ${CHAPTER_ONE_FRAGMENT_CARDS.length}     甲骨总收集 ${totalUnlocked} / 300     卜力 ${snapshot?.destinyPower ?? 0}`,
+      0, -207, 760, 36, 17, new Color(247, 217, 154));
+    this.createUiLabel(root, 'ChapterProgressHint', '跟随当前任务推进剧情；挖掘并学习碎甲文字会逐步点亮本章骨纹。',
+      0, -246, 760, 30, 14, new Color(207, 186, 148));
+  }
+
   private buildBackpackUi() {
     this.destroyOverlayRoot();
     const root = new Node('BackpackOverlay');
@@ -6130,6 +6201,16 @@ export class YinXuCity extends Component {
     const backpack = this.graphics('BackpackButton', this.node, 200); backpack.fillColor = new Color(84, 67, 48, 225); backpack.circle(0, 0, 44); backpack.fill(); backpack.strokeColor = new Color(229, 192, 111); backpack.lineWidth = 4; backpack.circle(0, 0, 44); backpack.stroke(); backpack.node.setPosition(380, -230, 200);
     this.pixelSprite('BackpackButtonPixelIcon', 'backpack-icon-v1', this.node, 380, -222, 42, 49, 204);
     this.screenSmallLabel('背包', 380, -264, 13, new Color(255, 239, 202), 80, 24, 205);
+
+    const chapter = this.graphics('ChapterProgressButton', this.node, 200);
+    chapter.fillColor = new Color(91, 62, 43, 230); chapter.circle(0, 0, 44); chapter.fill();
+    chapter.strokeColor = new Color(229, 192, 111); chapter.lineWidth = 4; chapter.circle(0, 0, 44); chapter.stroke();
+    chapter.fillColor = new Color(225, 194, 130);
+    chapter.roundRect(-23, -24, 46, 48, 5); chapter.fill();
+    chapter.strokeColor = new Color(104, 65, 39); chapter.lineWidth = 3; chapter.roundRect(-23, -24, 46, 48, 5); chapter.stroke();
+    chapter.moveTo(-13, 9); chapter.lineTo(13, 9); chapter.moveTo(-13, -1); chapter.lineTo(13, -1); chapter.moveTo(-13, -11); chapter.lineTo(7, -11); chapter.stroke();
+    chapter.node.setPosition(260, -230, 200);
+    this.screenSmallLabel('章节', 260, -264, 13, new Color(255, 239, 202), 80, 24, 205);
 
     const action = this.graphics('ActionButton', this.node, 200); action.fillColor = new Color(151, 61, 47, 220); action.circle(0, 0, 52); action.fill(); action.strokeColor = new Color(255, 222, 147); action.lineWidth = 4; action.circle(0, 0, 52); action.stroke(); action.node.setPosition(500, -230, 200);
     this.actionButtonNode = action.node;
@@ -6516,6 +6597,10 @@ export class YinXuCity extends Component {
       this.openBackpack();
       return;
     }
+    if (Math.hypot(localX - 260, localY + 230) <= 66) {
+      this.openChapterProgress();
+      return;
+    }
     const joystickCenter = new Vec2(size.width / 2 - 500, size.height / 2 - 230);
     if (Vec2.distance(new Vec2(p.x, p.y), joystickCenter) <= 115) {
       this.touchOrigin = new Vec2(p.x, p.y);
@@ -6552,6 +6637,10 @@ export class YinXuCity extends Component {
   }
 
   private handleOverlayTap(x: number, y: number) {
+    if (this.overlay === 'chapterProgress') {
+      if (this.pointInUiRect(x, y, 392, 238, 104, 44)) this.closeCityOverlay();
+      return;
+    }
     if (this.overlay === 'shopConfirm') {
       if (this.pointInUiRect(x, y, -125, -65, 180, 58)) this.closeCityOverlay();
       else if (this.pointInUiRect(x, y, 125, -65, 180, 58)) this.openShop();

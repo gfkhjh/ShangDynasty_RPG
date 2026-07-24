@@ -65,13 +65,12 @@ type HallCallbacks = {
   getWrongBook: () => HallWrongBookEntry[];
   clearWrongBook: (cardId: string) => void;
   enterYinXu: () => void;
-  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean; wechats: { nickname: string; avatarUrl?: string }[] };
+  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
   setName: (name: string) => void;
   setAvatar: (avatarId: string, avatarUrl?: string) => void;
   toggleMusic: () => void;
   toggleSfx: () => void;
   toggleNight: () => void;
-  bindWechat: (bound: boolean, index: number, info?: { nickname?: string; avatarUrl?: string }) => void;
   getWeakCards: () => string[];
 };
 
@@ -980,14 +979,6 @@ export class LearningHall extends Component {
   private renderPlaceholder(mode: 'parent' | 'settings') {
     if (mode === 'settings') { this.drawSettingsPanel(); return; }
     this.renderWrongBook();
-  }
-
-  private drawWechatButton(root: Node, name: string, x: number, y: number, w: number, h: number, text: string) {
-    const node = this.graphics(root, name, x, y, w, h, 6);
-    node.fillColor = new Color(7, 193, 96, 255); node.roundRect(-w / 2, -h / 2, w, h, 12); node.fill();
-    node.strokeColor = new Color(6, 165, 82, 255); node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); node.stroke();
-    this.label(root, `${name}Icon`, '💬', x - w / 2 + 24, y, 28, 28, 18, new Color(255, 255, 255), 'center', 7);
-    this.label(root, `${name}Txt`, text, x + 10, y, w - 52, 28, 18, new Color(255, 255, 255), 'center', 7);
   }
 
   /** 通用弹窗骨架：遮罩 + 居中圆角面板。所有弹窗共用，颜色/尺寸/圆角由调用处
