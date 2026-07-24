@@ -1,5 +1,6 @@
 import {
   _decorator,
+  BlockInputEvents,
   Color,
   Component,
   DebugMode,
@@ -27,6 +28,18 @@ import { HallCard, LearningHall } from './LearningHall';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
+import { DialoguePanel } from './story/DialoguePanel';
+import { ChapterBanner } from './story/ChapterBanner';
+import { QuestGuide } from './story/QuestGuide';
+import { StoryController } from './story/StoryController';
+import {
+  chapterOneDefinition,
+  CHAPTER_ONE_FRAGMENT_CARDS,
+  CHAPTER_ONE_ID,
+  XIAO_SHITOU_POSITION,
+} from './story/ChapterOne';
+import { migrateStorySave } from './story/StoryState';
+import { StorySaveState, StoryStepDefinition } from './story/StoryTypes';
 
 const { ccclass } = _decorator;
 
@@ -120,6 +133,7 @@ type CitySave = {
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   wechats: { nickname: string; avatarUrl?: string }[];
+  story: StorySaveState;
 };
 
 /**
@@ -580,6 +594,16 @@ export class YinXuCity extends Component {
   private decorationNodes = new Map<string, Node>();
   private previewDepthSpot = 0;
   private learningHall!: LearningHall;
+  private storyController!: StoryController;
+  private storyDialogue!: DialoguePanel;
+  private chapterBanner!: ChapterBanner;
+  private questGuide!: QuestGuide;
+  private storyNpc: Node | null = null;
+  private presentedStoryStepId: string | null = null;
+  private storyArrivalLocked = false;
+  private storyWorldEntered = false;
+  private storyPresentationToken = 0;
+  private storyTestResetButton: Node | null = null;
 
   onLoad() {
     this.enabled = false;
@@ -709,14 +733,26 @@ export class YinXuCity extends Component {
           this.save.wrongBook[cardId] = wrong;
         }
         this.persistCitySave();
+        const expectedLesson = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
+          item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === cardId);
+        if (correct && expectedLesson
+          && this.storyController?.handle({ type: 'learning-completed', cardId, correct })) {
+          this.scheduleOnce(() => {
+            this.learningHall.returnToCity();
+            this.presentStoryStep(this.storyController.currentStep());
+          }, .08);
+        }
       },
       enterYinXu: () => {
+        this.storyWorldEntered = true;
         this.playerPos.set(0, 20);
         this.cameraPos.set(0, 20);
         this.player?.setPosition(0, 20, 80);
         this.followCamera(1);
+        this.beginChapterOneIfNeeded();
       },
     });
+    this.initializeStoryInfrastructure();
     const previewSearch = (globalThis as { location?: { search?: string } }).location?.search ?? '';
     if (sys.isBrowser && /(?:^|[?&])oracleQa=1(?:&|$)/.test(previewSearch)) {
       this.scheduleOnce(() => this.openOracleQaPreview(), .65);
@@ -725,6 +761,10 @@ export class YinXuCity extends Component {
   }
 
   onDestroy() {
+    this.storyDialogue?.destroy();
+    this.chapterBanner?.destroy();
+    this.questGuide?.destroy();
+    this.storyTestResetButton?.destroy();
     input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
@@ -736,7 +776,8 @@ export class YinXuCity extends Component {
   update(dt: number) {
     this.elapsed += dt;
     this.updateCityGameplay(dt);
-    const movementAllowed = this.overlay === 'none' && !this.seated && this.toolActionTimer <= 0 && !this.learningHall?.isOpen;
+    const movementAllowed = this.overlay === 'none' && !this.seated && this.toolActionTimer <= 0
+      && !this.learningHall?.isOpen && !this.storyDialogue?.isOpen;
     const direction = movementAllowed
       ? (this.keyboard.lengthSqr() > 0 ? this.keyboard.clone() : this.stick.clone())
       : new Vec2();
@@ -781,8 +822,208 @@ export class YinXuCity extends Component {
     this.updateWeather(dt);
     this.updateToolEffects(dt);
     this.statusNoticeTimer = Math.max(0, this.statusNoticeTimer - dt);
+    if (this.storyTestResetButton?.isValid) {
+      this.storyTestResetButton.active = this.overlay === 'none'
+        && !this.storyDialogue?.isOpen
+        && !this.chapterBanner?.isOpen;
+    }
     this.followCamera(dt);
+    this.updateChapterOneStory();
+    const visibleSize = view.getVisibleSize();
+    this.questGuide?.update(dt, this.playerPos, visibleSize.width, visibleSize.height);
     this.updateHud();
+  }
+
+  private initializeStoryInfrastructure() {
+    this.storyController = new StoryController([chapterOneDefinition], this.save.story, story => {
+      this.save.story = story;
+      this.persistCitySave();
+    });
+    this.storyDialogue = new DialoguePanel(this.node);
+    this.chapterBanner = new ChapterBanner(this.node);
+    this.questGuide = new QuestGuide(this.world, this.node);
+    this.createChapterOneNpc();
+    this.createStoryTestResetButton();
+    this.storyController.subscribe((_snapshot, step) => this.presentStoryStep(step));
+  }
+
+  private beginChapterOneIfNeeded() {
+    const snapshot = this.storyController.snapshot();
+    if (!snapshot.currentChapterId && !snapshot.completedChapterIds.includes(CHAPTER_ONE_ID)) {
+      this.storyController.startChapter(CHAPTER_ONE_ID);
+      return;
+    }
+    this.presentStoryStep(this.storyController.currentStep());
+  }
+
+  private presentStoryStep(step: StoryStepDefinition | null) {
+    if (!this.storyWorldEntered) {
+      this.questGuide.setObjective(null);
+      if (this.storyNpc?.isValid) this.storyNpc.active = false;
+      return;
+    }
+    let objective = step?.objective ? { ...step.objective } : null;
+    if (CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
+      item.seekStepId === step?.id || item.lessonStepId === step?.id)) {
+      const site = this.reserveChapterOneExcavationSite();
+      if (site && objective) {
+        objective.targetX = site.x;
+        objective.targetY = site.y;
+      }
+    }
+    this.questGuide.setObjective(objective);
+    const xiaoShitouVisible = step?.id === 'chapter-1-meet-xiaoshitou'
+      || step?.id === 'chapter-1-xiaoshitou-dialogue';
+    if (this.storyNpc?.isValid) this.storyNpc.active = xiaoShitouVisible;
+    this.storyArrivalLocked = false;
+
+    if (!step || !step.dialogue || this.presentedStoryStepId === step.id) return;
+    this.presentedStoryStepId = step.id;
+    const presentationToken = ++this.storyPresentationToken;
+    const isPrologueOpening = step.id === 'prologue-silent-heaven';
+    const isChapterOpening = step.id === 'chapter-1-opening';
+    const hasOpeningBanner = isPrologueOpening || isChapterOpening;
+    if (isPrologueOpening) {
+      this.chapterBanner.show(
+        '序章',
+        '天道失语',
+        '通天灵龟甲崩碎，天地、人神与先祖之间的声音一夜断绝。',
+        'prologue',
+      );
+    } else if (isChapterOpening) {
+      this.chapterBanner.show(
+        '第一章',
+        '失语的甲骨',
+        '当所有龟甲失去兆纹，只有散落荒野的碎骨仍在低语。',
+        'chapter',
+      );
+    }
+    this.scheduleOnce(() => {
+      if (presentationToken !== this.storyPresentationToken
+        || this.storyController.currentStep()?.id !== step.id) return;
+      const openDialogue = () => {
+        if (presentationToken !== this.storyPresentationToken
+          || this.storyController.currentStep()?.id !== step.id) return;
+        this.storyDialogue.open(step.dialogue ?? [], () => {
+          this.storyController.handle({ type: 'dialogue-completed' });
+        });
+      };
+      if (isPrologueOpening) {
+        // Cross-fade both dark layers so the cinematic never flashes back to
+        // the bright game world between the title and the first narration.
+        openDialogue();
+        this.chapterBanner.close();
+      } else {
+        this.chapterBanner.close(openDialogue);
+      }
+    }, hasOpeningBanner ? 2.8 : .08);
+  }
+
+  private createStoryTestResetButton() {
+    if (!sys.isBrowser || this.storyTestResetButton?.isValid) return;
+    const root = new Node('StoryTestResetButton');
+    root.parent = this.node;
+    root.setPosition(-492, 316, 720);
+    root.addComponent(UITransform).setContentSize(230, 44);
+    root.addComponent(BlockInputEvents);
+    const background = root.addComponent(Graphics);
+    background.fillColor = new Color(55, 39, 31, 242);
+    background.roundRect(-113, -20, 226, 40, 9);
+    background.fill();
+    background.strokeColor = new Color(218, 170, 82, 255);
+    background.lineWidth = 3;
+    background.roundRect(-111, -18, 222, 36, 8);
+    background.stroke();
+    this.createUiLabel(
+      root, 'StoryTestResetButtonLabel', '测试：重置第一章',
+      0, 0, 208, 32, 16, new Color(255, 231, 177), 'center', 2,
+    );
+    root.on(Node.EventType.TOUCH_END, this.resetStoryForTesting, this);
+    this.storyTestResetButton = root;
+  }
+
+  private resetStoryForTesting() {
+    if (this.overlay !== 'none') return;
+    this.storyPresentationToken++;
+    this.chapterBanner.close();
+    this.storyDialogue.close();
+    this.presentedStoryStepId = null;
+    this.storyArrivalLocked = false;
+    const restartImmediately = this.storyWorldEntered && !this.learningHall.isOpen;
+    this.storyController.resetForTesting();
+    const storyCardIds = new Set<string>(CHAPTER_ONE_FRAGMENT_CARDS.map(item => item.cardId));
+    this.save.unlockedOracleIds = this.save.unlockedOracleIds.filter(id => !storyCardIds.has(id));
+    CHAPTER_ONE_FRAGMENT_CARDS.forEach(item => delete this.save.mastery[item.cardId]);
+    this.excavationSites.filter(site => site.region === 'field').slice(0, CHAPTER_ONE_FRAGMENT_CARDS.length)
+      .forEach(site => {
+        site.active = true;
+        site.awaitingStudy = false;
+        site.respawnTimer = 0;
+        site.holeTimer = 0;
+        this.redrawExcavationSite(site);
+      });
+    this.persistCitySave();
+    if (restartImmediately) {
+      this.beginChapterOneIfNeeded();
+      return;
+    }
+    this.showStatusNotice('剧情进度已重置。点击“进入殷墟”即可重新体验第一章。', 4);
+  }
+
+  private createChapterOneNpc() {
+    const root = new Node('StoryNpc-XiaoShitou');
+    root.parent = this.world;
+    root.setPosition(XIAO_SHITOU_POSITION.x, XIAO_SHITOU_POSITION.y, 82);
+    root.addComponent(UITransform).setContentSize(44, 60);
+    const shadow = this.localGraphics('StoryNpc-XiaoShitou-Shadow', root, 0, 0, 34, 14, -3);
+    shadow.fillColor = new Color(28, 34, 31, 72);
+    shadow.ellipse(0, 1, 11, 3.5);
+    shadow.fill();
+    const visual = new Node('StoryNpc-XiaoShitou-Sprite');
+    visual.parent = root;
+    visual.setPosition(0, 30, 4);
+    visual.addComponent(UITransform).setContentSize(64, 64);
+    const sprite = visual.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    // Reuse the same pixel-character sheet as the city's authored NPCs so the
+    // story guide cannot drift away from the established game art direction.
+    this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
+      if (sprite.isValid) sprite.spriteFrame = frame;
+    });
+    this.createUiLabel(
+      root, 'StoryNpc-XiaoShitou-Name', '小石头',
+      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
+    );
+    root.active = false;
+    this.storyNpc = root;
+  }
+
+  private reserveChapterOneExcavationSite() {
+    const stepId = this.storyController.currentStep()?.id;
+    const fragmentIndex = CHAPTER_ONE_FRAGMENT_CARDS.findIndex(item =>
+      item.seekStepId === stepId || item.lessonStepId === stepId);
+    if (fragmentIndex < 0) return null;
+    const fragment = CHAPTER_ONE_FRAGMENT_CARDS[fragmentIndex];
+    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
+    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
+    const card = this.oracleCards.find(item => item.id === fragment.cardId);
+    if (!site || !card) return null;
+    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
+    this.storyController.reserveStorySite(site.id);
+    return site;
+  }
+
+  private updateChapterOneStory() {
+    const step = this.storyController?.currentStep();
+    if (!step || this.storyArrivalLocked) return;
+    const isMeeting = step.id === 'chapter-1-meet-xiaoshitou';
+    if (!isMeeting) return;
+    const radius = step.objective?.targetRadius ?? 78;
+    const dx = this.playerPos.x - XIAO_SHITOU_POSITION.x;
+    const dy = this.playerPos.y - XIAO_SHITOU_POSITION.y;
+    if (dx * dx + dy * dy > radius * radius) return;
+    this.storyArrivalLocked = true;
+    this.storyController.handle({ type: 'npc-reached', npcId: 'xiaoshitou' });
   }
 
   private buildWorld() {
@@ -1549,6 +1790,7 @@ export class YinXuCity extends Component {
     this.updateTreeDepthOrdering();
     this.templeInterior.active = true;
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = false;
+    this.storyController?.handle({ type: 'temple-entered' });
   }
 
   private exitTempleInterior() {
@@ -2614,6 +2856,15 @@ export class YinXuCity extends Component {
     if (reward.kind === 'oracle' && reward.cardId) {
       const card = this.oracleCards.find(item => item.id === reward.cardId);
       if (card) {
+        const expectedFragment = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
+          item.seekStepId === this.storyController?.currentStep()?.id && item.cardId === reward.cardId);
+        if (expectedFragment) {
+          this.storyController.handle({
+            type: 'excavation-completed',
+            cardId: reward.cardId,
+            siteId: site.id,
+          });
+        }
         site.awaitingStudy = true;
         this.showExcavationLearning(site, card);
         return;
@@ -4466,9 +4717,10 @@ export class YinXuCity extends Component {
     if (databaseSave) {
       return {
         ...databaseSave,
-        version: 2,
+        version: 3,
         wechats: Array.isArray(databaseSave.wechats) ? databaseSave.wechats : [],
         wrongBook: databaseSave.wrongBook && typeof databaseSave.wrongBook === 'object' ? databaseSave.wrongBook : {},
+        story: migrateStorySave(databaseSave.story),
       } as CitySave;
     }
 
@@ -4479,13 +4731,13 @@ export class YinXuCity extends Component {
 
   private loadLegacyCitySave(): CitySave {
     const defaults: CitySave = {
-      version: 2,
+      version: 3,
       ink: 8,
       coins: 0,
       experience: 0,
       // The three teaching cards remain the starter set. Temporary field finds
       // stay dark in the codex until the player actually excavates them.
-      unlockedOracleIds: ['rain', 'sun', 'field'],
+      unlockedOracleIds: ['sun'],
       mastery: {},
       wrongBook: {},
       ownedProductIds: ['shell-clay'],
@@ -4497,6 +4749,7 @@ export class YinXuCity extends Component {
       sfxOn: true,
       nightMode: false,
       wechats: [],
+      story: migrateStorySave(null),
     };
     try {
       const raw = sys.localStorage.getItem(this.saveKey);
@@ -4505,7 +4758,7 @@ export class YinXuCity extends Component {
       return {
         ...defaults,
         ...parsed,
-        version: 2,
+        version: 3,
         ink: Math.max(0, Number(parsed.ink ?? defaults.ink)),
         coins: Math.max(0, Number(parsed.coins ?? defaults.coins)),
         experience: Math.max(0, Number(parsed.experience ?? defaults.experience)),
@@ -4520,6 +4773,7 @@ export class YinXuCity extends Component {
         musicOn: typeof parsed.musicOn === 'boolean' ? parsed.musicOn : defaults.musicOn,
         sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
         nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,
+        story: migrateStorySave(parsed.story),
         // 微信绑定：从单对象旧字段迁移到数组；最多保留 2 个
         wechats: Array.isArray(parsed.wechats)
           ? parsed.wechats.filter((w: any) => w && typeof w.nickname === 'string').slice(0, 2).map((w: any) => ({
@@ -4734,6 +4988,7 @@ export class YinXuCity extends Component {
     this.divinationStage = 'waiting';
     this.queueTimer = .8;
     this.buildDivinationFrame();
+    this.storyController?.handle({ type: 'temple-seat-reached' });
     if (this.save.ink < this.divinationInkCost && this.divinationText?.isValid) {
       this.divinationText.string = `墨料不足。每次占卜需要 ${this.divinationInkCost} 点墨料，请先去城外探索。`;
     }
@@ -4806,9 +5061,12 @@ export class YinXuCity extends Component {
       if (this.divinationText?.isValid) this.divinationText.string = '背包中还没有能够回应村民问题的甲骨，请先去野外学习。';
       return;
     }
+    const storyQuestion = this.storyController?.currentStep()?.id === 'chapter-1-first-divination'
+      ? available.find(question => question.answerId === 'rain' && question.villager === '阿禾')
+      : null;
     let next = Math.floor(Math.random() * available.length);
     if (available.length > 1 && available[next] === this.currentQuestion) next = (next + 1) % available.length;
-    this.currentQuestion = available[next];
+    this.currentQuestion = storyQuestion ?? available[next];
     this.currentQuestionIndex = this.divinationQuestions.indexOf(this.currentQuestion);
     this.createSupplicant(this.currentQuestion);
     if (this.divinationText?.isValid) this.divinationText.string = `${this.currentQuestion.villager}正向占卜席走来……`;
@@ -5054,7 +5312,11 @@ export class YinXuCity extends Component {
     this.divinationStage = 'animating';
     this.draggingCardIndex = -1;
     this.divinationAnimationTimer = 0;
-    this.save.ink = Math.max(0, this.save.ink - this.divinationInkCost);
+    const firstStoryDivination = this.storyController?.currentStep()?.id === 'chapter-1-first-divination';
+    const inkCost = firstStoryDivination && this.storyController.useFirstFreeDivination()
+      ? 0
+      : this.divinationInkCost;
+    this.save.ink = Math.max(0, this.save.ink - inkCost);
     this.currentMasteryStars = this.currentAttempts === 0 ? 3 : this.currentAttempts === 1 ? 2 : 1;
     const multiplier = card.quality === 'gold' ? 2 : card.quality === 'red' ? 1.5 : 1;
     this.currentRewardCoins = Math.round(20 * multiplier);
@@ -5211,9 +5473,22 @@ export class YinXuCity extends Component {
 
   private finishDivinationReview() {
     if (this.divinationStage !== 'review') return;
+    const completedQuestion = this.currentQuestion;
+    const storyAdvanced = this.storyController?.handle({
+      type: 'divination-completed',
+      cardId: completedQuestion?.answerId,
+      npcId: completedQuestion?.villager,
+      correct: true,
+    }) ?? false;
+    if (storyAdvanced) {
+      this.storyController.setFlag('clue.west-river-fragment', true);
+      this.storyController.addDestinyPower(1);
+    }
     this.overlayRoot?.getChildByName('DivinationReviewPanel')?.destroy();
     if (this.divinationText?.isValid) {
-      this.divinationText.string = this.save.ink >= this.divinationInkCost
+      this.divinationText.string = storyAdvanced
+        ? '“雨”字兆纹之外浮现出一道陌生裂纹，似乎正指向西侧河畔。请起身查看。'
+        : this.save.ink >= this.divinationInkCost
         ? `${this.currentQuestion?.villager ?? '村民'}谢过卜官，下一位村民稍后前来。此时可以起身离开。`
         : '本次学习已经完成，但墨料不足，无法继续接待村民。现在可以起身离开。';
     }
@@ -5221,7 +5496,7 @@ export class YinXuCity extends Component {
     this.currentQuestion = null;
     this.currentDivinationCards = [];
     this.divinationStage = 'waiting';
-    this.queueTimer = this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
+    this.queueTimer = storyAdvanced ? 9999 : this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
     this.updateRiseButtonState();
   }
 
@@ -5245,6 +5520,7 @@ export class YinXuCity extends Component {
     this.animatePlayer(false, new Vec2(), 0);
     this.updateTempleSeatDepthOrdering();
     this.destroyOverlayRoot();
+    this.storyController?.handle({ type: 'result-confirmed' });
   }
 
   private resolveTempleRisePoint() {
@@ -5554,6 +5830,11 @@ export class YinXuCity extends Component {
     this.excavationWrongChoices = [];
     this.destroyOverlayRoot();
     this.showStatusNotice(`${card ? this.oracleModernCharacter(card) : '甲骨文'}的完整学习档案已收入背包图鉴。`, 4.2);
+    const expectedLesson = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
+      item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === card?.id);
+    if (expectedLesson && card) {
+      this.storyController?.handle({ type: 'learning-completed', cardId: card.id, correct: true });
+    }
   }
 
   private openBackpack() {
