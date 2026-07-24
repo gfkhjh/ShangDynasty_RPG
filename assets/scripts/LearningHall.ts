@@ -357,7 +357,7 @@ export class LearningHall extends Component {
     this.drawEnterYinXu(root, -16, -6, t);
     this.drawReviewSuggestion(root, 424, 55, t);
     this.drawCodexEntry(root, total, collected, 424, -140, t);
-    this.drawPoemEntry(root, -330, -192, t);
+    this.drawPoemEntry(root, -442, -196, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -1557,7 +1557,7 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, -442, -6, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
       else if (this.hit(x, y, 540, 109, 86, 30)) { this.playSfx('tap'); this.openReviewLibrary(); }
       else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
-      else if (this.hit(x, y, -330, -192, 250, 104)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
+      else if (this.hit(x, y, -442, -196, 250, 104)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
       else if (this.hit(x, y, 540, 320, 46, 46)) { this.playSfx('tap'); this.render('settings'); }
       else {
         const navModes: HallMode[] = ['home', 'review', 'codex', 'parent', 'progress', 'story'];
