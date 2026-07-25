@@ -905,10 +905,6 @@ export class YinXuCity extends Component {
     this.drawRiver();
     this.drawTransitionForest();
 this.drawCityWallsAndGate();
-    // Delete residual short wall tile (WestWallBottomVisualTile0) that protrudes outside
-    // the city boundary into the southwest outskirts area at X=-1351, Y=-134.
-    const westWallStrip = this.cityWallVisualRoot?.getChildByName('WestWallBottomVisual');
-    westWallStrip?.getChildByName('WestWallBottomVisualTile0')?.destroy();
     this.drawTemple();
     this.drawVillage();
     this.drawMarket();
@@ -1685,6 +1681,19 @@ this.drawCityWallsAndGate();
     }
 
     this.staticCityBoundaryNodes.push(visualRoot);
+
+    // Reorder south wall visuals to render above west wall at corner intersection
+    const southLeft = visualRoot.getChildByName('SouthWallLeftVisual');
+    const southRight = visualRoot.getChildByName('SouthWallRightVisual');
+    if (southLeft) southLeft.setSiblingIndex(visualRoot.children.length - 1);
+    if (southRight) southRight.setSiblingIndex(visualRoot.children.length - 1);
+
+    // Remove residual partial tile at top of west wall bottom (Tile2 shows a 68px horizontal band artifact)
+    const westBottom = visualRoot.getChildByName('WestWallBottomVisual');
+    if (westBottom) {
+      const tile2 = westBottom.getChildByName('WestWallBottomVisualTile2');
+      if (tile2) tile2.destroy();
+    }
 
     // South gate detailed visuals (preserved)
     this.pixelSprite('SouthGateThreshold', 'south-gate-threshold-v2', visualRoot, -28, -252, 260, 180, 39);
