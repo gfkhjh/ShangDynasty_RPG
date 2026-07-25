@@ -929,6 +929,21 @@ this.drawCityWallsAndGate();
     // HIGHLAND north and south boundary colliders
     this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
     this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
+    // OUTSKIRTS north boundary colliders with road gap at X=-47..47
+    this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft');
+    this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight');
+    this.addObstacle(0, 2155, 112, 16, 'OutskirtsNorthTransitionBoundary');
+    this.addObstacle(-2020, 1800, 64, 740, 'OutskirtsNorthWestBoundary');
+    this.addObstacle(2020, 1800, 64, 740, 'OutskirtsNorthEastBoundary');
+    // OUTSKIRTS east boundary colliders with road gap at Y=560..660 (east exit)
+    this.addObstacle(2020, 1045, 64, 770, 'OutskirtsEastBoundaryUpper');
+    this.addObstacle(2020, -200, 64, 1520, 'OutskirtsEastBoundaryLower');
+    // ROYAL_TOMB boundary colliders with road gap at X=2205..2395 (north entry)
+    this.addObstacle(1402, -2484, 1604, 32, 'TombNorthBoundaryLeft');
+    this.addObstacle(3798, -2484, 2804, 32, 'TombNorthBoundaryRight');
+    this.addObstacle(2900, -4100, 4600, 32, 'TombSouthBoundary');
+    this.addObstacle(600, -3270, 32, 1630, 'TombWestBoundary');
+    this.addObstacle(5200, -3270, 32, 1630, 'TombEastBoundary');
     this.auditStaticStructureFootprints();
     this.createWeatherOverlay();
     this.createTempleInterior();
@@ -1123,7 +1138,7 @@ this.drawCityWallsAndGate();
   private drawPixelGroundOverlay() {
     const chunk = 384;
     const halfW = this.mapWidth / 2;
-    for (let y = -4200 + chunk / 2; y < 1400; y += chunk) {
+    for (let y = -4200 + chunk / 2; y < 2200; y += chunk) {
       for (let x = -halfW + chunk / 2; x < halfW; x += chunk) {
         const insideCity = y > -240 && y < 1240 && Math.abs(x) < 1080;
         const insideField = this.inRegion(x, y, this.fieldRegion);
