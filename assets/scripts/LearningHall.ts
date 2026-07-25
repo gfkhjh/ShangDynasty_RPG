@@ -23,6 +23,7 @@ import {
 } from 'cc';
 import { poemChallengeBank, type PoemChallengeDefinition } from './data/PoemChallengeBank';
 import { chapterOneDefinition, CHAPTER_ONE_FRAGMENT_CARDS, CHAPTER_ONE_ID } from './story/ChapterOne';
+import { CHAPTER_ROADMAP } from './story/ChapterRoadmap';
 
 const { ccclass } = _decorator;
 
@@ -141,6 +142,7 @@ export class LearningHall extends Component {
   private chapterRoadmapDragStartX = 0;
   private chapterRoadmapOffsetStart = 0;
   private chapterRoadmapDragging = false;
+  private chapterRoadmapMinOffset = -390;
 
   get isOpen() {
     return this.root?.isValid ?? false;
@@ -353,11 +355,11 @@ export class LearningHall extends Component {
     const { total, collected } = this.catalogProgress();
     const t = this.theme();
     this.drawTopBar(root, t);
-    this.drawCharacterCard(root, -442, -6, t);
+    this.drawCharacterCard(root, -442, 14, t);
     this.drawEnterYinXu(root, -16, -6, t);
     this.drawReviewSuggestion(root, 424, 55, t);
     this.drawCodexEntry(root, total, collected, 424, -140, t);
-    this.drawPoemEntry(root, -442, -196, t);
+    this.drawPoemEntry(root, -442, -164, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -640,7 +642,7 @@ export class LearningHall extends Component {
   }
 
   private drawPoemEntry(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    const w = 250, h = 104;
+    const w = 250, h = 96;
     const panel = this.graphics(root, 'HallPoemEntry', x, y, w, h, 3);
     panel.fillColor = t.card; panel.roundRect(-w / 2, -h / 2, w, h, 12); panel.fill();
     panel.strokeColor = new Color(214, 168, 86); panel.lineWidth = 2; panel.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); panel.stroke();
@@ -930,7 +932,7 @@ export class LearningHall extends Component {
     mask.type = MaskType.GRAPHICS_RECT;
     const content = new Node('HallChapterRoadmapContent');
     content.parent = viewport;
-    content.addComponent(UITransform).setContentSize(1540, 360);
+    content.addComponent(UITransform).setContentSize(3000, 360);
     this.chapterRoadmapContent = content;
 
     const firstChapterIndex = Math.max(0, chapterOneDefinition.steps.findIndex(step => step.id === story.currentStepId));
@@ -941,30 +943,38 @@ export class LearningHall extends Component {
     const chapterOneChars = CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment =>
       story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
     const prologueCurrent = story.currentStepId === 'prologue-silent-heaven';
-    const roadmap = [
-      {
-        eyebrow: '序章', title: '天道失语', detail: '神甲崩碎，万骨无声',
-        percent: prologueCurrent ? 50 : 100, state: prologueCurrent ? 'current' : 'complete',
-      },
-      {
-        eyebrow: '第一章', title: '失语的甲骨', detail: `剧情骨纹 ${chapterOneChars} / 5`,
-        percent: chapterOnePercent, state: chapterOneCompleted ? 'complete' : prologueCurrent ? 'locked' : 'current',
-      },
-      { eyebrow: '第二章', title: '河畔余兆', detail: '循水声追查新的碎甲', percent: 0, state: 'locked' },
-      { eyebrow: '第三章', title: '山林问路', detail: '未解锁', percent: 0, state: 'locked' },
-      { eyebrow: '第四章', title: '古墟残火', detail: '未解锁', percent: 0, state: 'locked' },
-      { eyebrow: '第五章', title: '王陵之谜', detail: '未解锁', percent: 0, state: 'locked' },
-      { eyebrow: '终章', title: '重续通天之契', detail: '未解锁', percent: 0, state: 'locked' },
-    ];
+    type RoadmapEntry = { eyebrow: string; title: string; detail: string; percent: number; state: 'complete' | 'current' | 'locked' };
+    const roadmap: RoadmapEntry[] = CHAPTER_ROADMAP.map((node): RoadmapEntry => {
+      let state: RoadmapEntry['state'];
+      let percent: number;
+      if (node.id === 'prologue') {
+        state = prologueCurrent ? 'current' : 'complete';
+        percent = prologueCurrent ? 50 : 100;
+      } else if (node.chapterId === CHAPTER_ONE_ID) {
+        state = chapterOneCompleted ? 'complete' : prologueCurrent ? 'locked' : 'current';
+        percent = chapterOnePercent;
+      } else if (node.chapterId) {
+        if (story.completedChapterIds.indexOf(node.chapterId) >= 0) { state = 'complete'; percent = 100; }
+        else if (story.currentChapterId === node.chapterId) { state = 'current'; percent = 0; }
+        else { state = 'locked'; percent = 0; }
+      } else {
+        state = 'locked'; percent = 0;
+      }
+      const detail = node.chapterId === CHAPTER_ONE_ID
+        ? `剧情骨纹 ${chapterOneChars} / ${node.charCount}`
+        : node.detail;
+      return { eyebrow: node.eyebrow, title: node.title, detail, percent, state };
+    });
 
     const gap = 220;
     const startX = -650;
-    const routeY = [42, -22, 52, -30, 45, -18, 35];
+    const routeY = [44, -20, 50, -28, 44, -18, 52, -26, 40, -14];
     const currentRoadIndex = Math.max(0, roadmap.findIndex(chapter => chapter.state === 'current'));
-    const mist = this.graphics(content, 'HallChapterRoadmapMist', 0, 0, 1510, 300, 2);
+    this.chapterRoadmapMinOffset = -(startX + (roadmap.length - 1) * gap);
+    const mist = this.graphics(content, 'HallChapterRoadmapMist', 0, 0, 3000, 300, 2);
     mist.fillColor = new Color(38, 31, 28, 88);
-    mist.roundRect(-745, -145, 1490, 290, 80); mist.fill();
-    const line = this.graphics(content, 'HallChapterRoadmapLine', 0, 0, 1510, 300, 3);
+    mist.roundRect(-1500, -145, 3000, 290, 80); mist.fill();
+    const line = this.graphics(content, 'HallChapterRoadmapLine', 0, 0, 2300, 300, 3);
     line.strokeColor = new Color(90, 78, 68, 230); line.lineWidth = 7;
     line.moveTo(startX - 80, routeY[0]);
     for (let index = 1; index < roadmap.length; index++) {
@@ -976,7 +986,7 @@ export class LearningHall extends Component {
     line.lineTo(startX + (roadmap.length - 1) * gap + 80, routeY[roadmap.length - 1]);
     line.stroke();
     if (currentRoadIndex > 0) {
-      const lit = this.graphics(content, 'HallChapterRoadmapLitLine', 0, 0, 1510, 300, 4);
+      const lit = this.graphics(content, 'HallChapterRoadmapLitLine', 0, 0, 2300, 300, 4);
       lit.strokeColor = new Color(224, 165, 68, 245); lit.lineWidth = 4;
       lit.moveTo(startX - 80, routeY[0]);
       for (let index = 1; index <= currentRoadIndex; index++) {
@@ -992,6 +1002,15 @@ export class LearningHall extends Component {
       const y = routeY[index];
       const current = chapter.state === 'current';
       const complete = chapter.state === 'complete';
+      if (complete) {
+        const halo = this.graphics(content, `HallChapterHalo-${index}`, x, y, 124, 124, 3);
+        halo.fillColor = new Color(224, 165, 68, 32);
+        halo.circle(0, 0, 58); halo.fill();
+        tween(halo.node)
+          .repeatForever(tween().to(2.0, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'sineInOut' })
+            .to(2.0, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }))
+          .start();
+      }
       if (current) {
         const glow = this.graphics(content, `HallChapterGlow-${index}`, x, y, 104, 104, 4);
         glow.fillColor = new Color(231, 104, 44, 54); glow.circle(0, 0, 50); glow.fill();
@@ -999,6 +1018,14 @@ export class LearningHall extends Component {
         tween(glow.node)
           .repeatForever(tween().to(1.1, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
             .to(1.1, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }))
+          .start();
+        const ring = this.graphics(content, `HallChapterRing-${index}`, x, y, 134, 134, 4);
+        ring.strokeColor = new Color(255, 220, 140, 140);
+        ring.lineWidth = 2;
+        ring.arc(0, 0, 64, 0, Math.PI * 1.65, false);
+        ring.stroke();
+        tween(ring.node)
+          .repeatForever(tween().to(2.4, { angle: -360 }, { easing: 'linear' }))
           .start();
       }
       const shard = this.graphics(content, `HallChapterShard-${index}`, x, y, 82, 92, 5);
@@ -1029,11 +1056,11 @@ export class LearningHall extends Component {
     });
 
     // Open with the current first chapter near the center. Dragging is clamped in onTouchMove.
-    this.chapterRoadmapOffset = prologueCurrent ? 650 : 430;
+    this.chapterRoadmapOffset = prologueCurrent ? 650 : Math.max(this.chapterRoadmapMinOffset, 650 - currentRoadIndex * gap);
     content.setPosition(this.chapterRoadmapOffset, 0, 1);
     this.label(root, 'HallStorySwipeHint', '‹  按住残卷左右拖动  ›', 0, -220, 260, 24, 13, t.goldSub, 'center', 6);
     this.label(root, 'HallChapterRoadmapFootnote',
-      '后续章节标题与文字分配会随正式剧本继续完善，未解锁内容不会提前剧透。',
+      '循神甲裂纹，九段命途已铺就；未解锁章节将在剧本落地后依次开启。',
       0, -248, 900, 24, 12, t.goldSub, 'center', 6);
   }
 
@@ -1417,7 +1444,7 @@ export class LearningHall extends Component {
     if (this.mode === 'story' && this.chapterRoadmapDragging) {
       const point = event.getUILocation(); const size = view.getVisibleSize();
       const x = point.x - size.width / 2;
-      this.chapterRoadmapOffset = Math.max(-390, Math.min(650,
+      this.chapterRoadmapOffset = Math.max(this.chapterRoadmapMinOffset, Math.min(650,
         this.chapterRoadmapOffsetStart + x - this.chapterRoadmapDragStartX));
       this.chapterRoadmapContent?.setPosition(this.chapterRoadmapOffset, 0, 1);
       return;
@@ -1554,10 +1581,10 @@ export class LearningHall extends Component {
     if (this.mode === 'enteringYinXu') return;
     if (this.mode === 'home') {
       if (this.hitCircle(x, y, -16, -6, 72)) { this.playSfx('confirm'); this.beginYinXuTransition(); }
-      else if (this.hit(x, y, -442, -6, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
+      else if (this.hit(x, y, -442, 14, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
       else if (this.hit(x, y, 540, 109, 86, 30)) { this.playSfx('tap'); this.openReviewLibrary(); }
       else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
-      else if (this.hit(x, y, -442, -196, 250, 104)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
+      else if (this.hit(x, y, -442, -164, 250, 96)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
       else if (this.hit(x, y, 540, 320, 46, 46)) { this.playSfx('tap'); this.render('settings'); }
       else {
         const navModes: HallMode[] = ['home', 'review', 'codex', 'parent', 'progress', 'story'];
