@@ -166,6 +166,8 @@ export class YinXuCity extends Component {
     dug: 112 * 468 / 746,
   };
   private readonly EXCAVATION_VISUAL_GROUND_Y = -12;
+  /** Shared southward shift for all temple nodes, collision, and triggers. */
+  private readonly templeMoveDeltaY = -200;
   private readonly excavationFramePaths: Record<ExcavationVisualState, string> = {
     idle: 'art/environment/excavation/excavation_mound_idle/spriteFrame',
     dug: 'art/environment/excavation/excavation_mound_dug/spriteFrame',
@@ -1859,9 +1861,15 @@ this.drawCityWallsAndGate();
 
   private drawTemple() {
     this.createTempleForecourt();
-    this.createBuilding('占卜宗庙', 0, 1190, 360, 210, new Color(181, 117, 68), new Color(86, 55, 39), null);
-    this.pixelSprite('占卜宗庙PixelArt', 'divination-temple', this.world, 0, 1210, 440, 375, 34);
-    this.worldLabel('占卜宗庙', 0, 1400, 22, new Color(100, 48, 31));
+    this.createBuilding('占卜宗庙', 0, 1190 + this.templeMoveDeltaY, 360, 210, new Color(181, 117, 68), new Color(86, 55, 39), null);
+    this.pixelSprite('占卜宗庙PixelArt', 'divination-temple', this.world, 0, 1210 + this.templeMoveDeltaY, 440, 375, 34);
+    this.worldLabel('占卜宗庙', 0, 1400 + this.templeMoveDeltaY, 22, new Color(100, 48, 31));
+    // Split temple collision into left/right halves to clear the north road passage (X:-56~56)
+    const footprintY = 1190 + this.templeMoveDeltaY + 35;
+    const footprintH = 350;
+    this.obstacles = this.obstacles.filter(o => o.name !== 'StructureFootprint:占卜宗庙PixelArt');
+    this.addObstacle(-122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Left');
+    this.addObstacle(122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Right');
   }
 
   private createTempleForecourt() {
@@ -1875,7 +1883,7 @@ this.drawCityWallsAndGate();
     for (let row = 0; row < 4; row++) {
       for (let col = 0; col < 7; col++) {
         const x = -210 + col * 70 + (row % 2 === 0 ? 0 : 10);
-        const y = 898 + row * 36 + ((col * 7 + row * 3) % 5 - 2);
+        const y = (898 + this.templeMoveDeltaY) + row * 36 + ((col * 7 + row * 3) % 5 - 2);
         const width = 58 + (col + row) % 3 * 3;
         const height = 28 + (col * 2 + row) % 3 * 2;
         court.fillColor = stoneColors[(col + row * 2) % stoneColors.length];
@@ -1890,7 +1898,7 @@ this.drawCityWallsAndGate();
     // The central processional path continues the town road through a shallow
     // drain and up to the temple threshold.
     for (let row = 0; row < 7; row++) {
-      const y = 858 + row * 29;
+      const y = (858 + this.templeMoveDeltaY) + row * 29;
       const x = row % 2 === 0 ? -3 : 4;
       court.fillColor = row % 3 === 0 ? new Color(177, 149, 96) : new Color(151, 128, 88);
       court.roundRect(x - 34, y - 12, 68, 25, 4); court.fill();
@@ -1898,20 +1906,20 @@ this.drawCityWallsAndGate();
       court.rect(x - 22, y + 5, 24, 2); court.fill();
     }
     court.fillColor = new Color(70, 71, 58, 180);
-    court.rect(-245, 875, 490, 7); court.fill();
+    court.rect(-245, 875 + this.templeMoveDeltaY, 490, 7); court.fill();
     court.fillColor = new Color(109, 126, 77, 190);
     for (let x = -235; x <= 235; x += 47) {
       if (Math.abs(x) < 48) continue;
-      court.rect(x, 881 + Math.abs(x % 3), 3, 12 + Math.abs(x % 7));
-      court.rect(x + 6, 880, 2, 8); court.fill();
+      court.rect(x, (881 + this.templeMoveDeltaY) + Math.abs(x % 3), 3, 12 + Math.abs(x % 7));
+      court.rect(x + 6, 880 + this.templeMoveDeltaY, 2, 8); court.fill();
     }
     court.fillColor = new Color(86, 66, 47, 170);
     [-248, 248].forEach(x => {
-      for (let y = 900; y <= 1005; y += 28) court.roundRect(x - 7, y - 9, 14, 19, 3);
+      for (let y = (900 + this.templeMoveDeltaY); y <= (1005 + this.templeMoveDeltaY); y += 28) court.roundRect(x - 7, y - 9, 14, 19, 3);
     });
     court.fill();
 
-    const threshold = this.localGraphics('TempleDoorThresholdDetail', this.world, 0, 1025, 130, 42, 36);
+    const threshold = this.localGraphics('TempleDoorThresholdDetail', this.world, 0, 1025 + this.templeMoveDeltaY, 130, 42, 36);
     threshold.fillColor = new Color(63, 48, 38, 175); threshold.rect(-61, -12, 122, 24); threshold.fill();
     threshold.fillColor = new Color(177, 151, 101); threshold.rect(-55, -5, 110, 13); threshold.fill();
     threshold.strokeColor = new Color(91, 71, 50); threshold.lineWidth = 2;
@@ -2229,9 +2237,9 @@ this.drawCityWallsAndGate();
     this.world.active = true;
     this.player.parent = this.world;
     this.worldMode = 'outside';
-    this.playerPos.set(0, 950);
-    this.player.setPosition(0, 950, 80);
-    this.cameraPos.set(0, 950);
+    this.playerPos.set(0, 950 + this.templeMoveDeltaY);
+    this.player.setPosition(0, 950 + this.templeMoveDeltaY, 80);
+    this.cameraPos.set(0, 950 + this.templeMoveDeltaY);
     this.facing = 'down'; this.displayedPlayerFrame = -1; this.showPlayerFrame(0);
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = true;
     this.drawWeatherParticles(this.weather !== '晴');
@@ -6633,7 +6641,7 @@ this.drawCityWallsAndGate();
       zone = '占卜宗庙 · 贞人卜室';
     } else if (y > -240 && y < 1450 && Math.abs(x) < 1300) {
       zone = '殷墟城内';
-      if (y > 1010 && Math.abs(x) < 260) zone = '占卜宗庙';
+      if (y > (1010 + this.templeMoveDeltaY) && Math.abs(x) < 260) zone = '占卜宗庙';
       else if (x > 690 && y > 500) zone = '商代集市';
       else if (x > 175 && x < 375 && y > 510 && y < 730) zone = '村落水井';
     }
@@ -6656,7 +6664,7 @@ this.drawCityWallsAndGate();
       if (this.worldMode === 'templeInterior') {
         if (Math.hypot(x, y + 265) <= 76) this.actionKind = 'templeExit';
         else if (Math.hypot(x - this.templeSeatPoint.x, y - this.templeSeatPoint.y) <= 76) this.actionKind = 'templeSeat';
-      } else if (Math.hypot(x, y - 1010) <= 105) this.actionKind = 'temple';
+      } else if (Math.hypot(x, y - (1010 + this.templeMoveDeltaY)) <= 105) this.actionKind = 'temple';
       else if (Math.hypot(x - 1030, y - 510) <= 150) this.actionKind = 'shop';
     }
     if (this.actionLabel?.isValid) {
@@ -6779,8 +6787,8 @@ this.drawCityWallsAndGate();
     }
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_V && this.overlay === 'none') {
       if (this.worldMode === 'templeInterior') this.exitTempleInterior();
-      this.playerPos.set(0, 1010);
-      this.player.setPosition(0, 1010, 80);
+      this.playerPos.set(0, 1010 + this.templeMoveDeltaY);
+      this.player.setPosition(0, 1010 + this.templeMoveDeltaY, 80);
       return;
     }
     if (sys.isBrowser && e.keyCode === KeyCode.DIGIT_9 && this.overlay === 'none') {
