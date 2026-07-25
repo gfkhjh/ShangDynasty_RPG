@@ -917,6 +917,9 @@ this.drawCityWallsAndGate();
     this.createExcavationSites();
     this.scatterDynamicGrass();
     this.drawWorldBoundary();
+    // OUTSKIRTS west boundary colliders with road gap at Y=384-496 (exit trigger area)
+    this.addObstacle(-2020, 1333, 64, 1674, 'OutskirtsWestBoundaryUpper');
+    this.addObstacle(-2020, -288, 64, 1344, 'OutskirtsWestBoundaryLower');
     this.auditStaticStructureFootprints();
     this.createWeatherOverlay();
     this.createTempleInterior();
@@ -2547,8 +2550,9 @@ this.drawCityWallsAndGate();
     outerCliff.moveTo(3000, -448); outerCliff.lineTo(5660, -448);
     outerCliff.moveTo(3000, -2152); outerCliff.lineTo(5660, -2152);
     outerCliff.moveTo(5652, -448); outerCliff.lineTo(5652, -2152); outerCliff.stroke();
-    // Keep only the eastern world boundary collider to prevent leaving the world
-    this.addObstacle(5690, -1300, 90, 1800, '山林东侧世界边界');
+    // HIGHLAND east boundary split for road gap at Y=-1346 to -1254 (exit trigger area)
+    this.addObstacle(5700, -873, 64, 946, 'HighlandBoundaryEastTop');
+    this.addObstacle(5700, -1727, 64, 946, 'HighlandBoundaryEastBottom');
 
     const mountainRoads = this.graphics('MountainLoopRoads', this.world, 14);
     const mainRoad: Array<[number, number]> = [[3000, -760], [3370, -820], [3730, -1030], [4100, -1210], [4600, -1320], [4920, -1300], [5350, -1120], [5580, -1260]];

@@ -23,10 +23,8 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: RegionId.OUTSKIRTS,
       displayName: '城外',
-      currentWorldBounds: { minX: -1300, maxX: 1300, minY: -960, maxY: -240 },
-      // CITY and OUTSKIRTS share this bound, so crossing the gate only changes
-      // the runtime label/RegionId and never moves the camera or player.
-      cameraBounds: { minX: -1300, maxX: 1300, minY: -960, maxY: 1450 },
+      currentWorldBounds: { minX: -2020, maxX: 2020, minY: -960, maxY: 2170 },
+      cameraBounds: { minX: -2020, maxX: 2020, minY: -960, maxY: 2170 },
     },
     {
       id: RegionId.HIGHLAND,
@@ -65,6 +63,21 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
       facingDirection: 'down',
       safeOffset: 80,
     },
+    // -- OUTSKIRTS west ↔ HIGHLAND --
+    {
+      id: 'outskirts-west-road-entry',
+      regionId: RegionId.OUTSKIRTS,
+      worldPosition: new Vec2(-1960, 440),
+      facingDirection: 'right',
+      safeOffset: 80,
+    },
+    {
+      id: 'highland-east-road-entry',
+      regionId: RegionId.HIGHLAND,
+      worldPosition: new Vec2(5600, -1300),
+      facingDirection: 'left',
+      safeOffset: 80,
+    },
   ],
   exits: [
     {
@@ -84,6 +97,23 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
       travelDirection: 'up',
       targetRegionId: RegionId.OUTSKIRTS,
       targetEntryId: 'outskirts-south-road-entry',
+    },
+    // -- West: OUTSKIRTS ↔ HIGHLAND --
+    {
+      id: 'outskirts-west-road-to-highland',
+      sourceRegionId: RegionId.OUTSKIRTS,
+      triggerBounds: { minX: -2020, maxX: -1972, minY: 384, maxY: 496 },
+      travelDirection: 'left',
+      targetRegionId: RegionId.HIGHLAND,
+      targetEntryId: 'highland-east-road-entry',
+    },
+    {
+      id: 'highland-east-road-to-outskirts',
+      sourceRegionId: RegionId.HIGHLAND,
+      triggerBounds: { minX: 5652, maxX: 5700, minY: -1346, maxY: -1254 },
+      travelDirection: 'right',
+      targetRegionId: RegionId.OUTSKIRTS,
+      targetEntryId: 'outskirts-west-road-entry',
     },
   ],
 });
