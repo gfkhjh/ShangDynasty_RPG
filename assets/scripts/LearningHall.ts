@@ -971,9 +971,9 @@ export class LearningHall extends Component {
     const routeY = [44, -20, 50, -28, 44, -18, 52, -26, 40, -14];
     const currentRoadIndex = Math.max(0, roadmap.findIndex(chapter => chapter.state === 'current'));
     this.chapterRoadmapMinOffset = -(startX + (roadmap.length - 1) * gap);
-    const mist = this.graphics(content, 'HallChapterRoadmapMist', 0, 0, 3000, 300, 2);
+    const mist = this.graphics(viewport, 'HallChapterRoadmapMist', 0, 0, 1060, 300, 0);
     mist.fillColor = new Color(38, 31, 28, 88);
-    mist.roundRect(-1500, -145, 3000, 290, 80); mist.fill();
+    mist.roundRect(-530, -145, 1060, 290, 80); mist.fill();
     const line = this.graphics(content, 'HallChapterRoadmapLine', 0, 0, 2300, 300, 3);
     line.strokeColor = new Color(90, 78, 68, 230); line.lineWidth = 7;
     line.moveTo(startX - 80, routeY[0]);
