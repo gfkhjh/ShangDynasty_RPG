@@ -905,6 +905,10 @@ export class YinXuCity extends Component {
     this.drawRiver();
     this.drawTransitionForest();
 this.drawCityWallsAndGate();
+    // Delete residual short wall tile (WestWallBottomVisualTile0) that protrudes outside
+    // the city boundary into the southwest outskirts area at X=-1351, Y=-134.
+    const westWallStrip = this.cityWallVisualRoot?.getChildByName('WestWallBottomVisual');
+    westWallStrip?.getChildByName('WestWallBottomVisualTile0')?.destroy();
     this.drawTemple();
     this.drawVillage();
     this.drawMarket();
@@ -920,6 +924,13 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS west boundary colliders with road gap at Y=384-496 (exit trigger area)
     this.addObstacle(-2020, 1333, 64, 1674, 'OutskirtsWestBoundaryUpper');
     this.addObstacle(-2020, -288, 64, 1344, 'OutskirtsWestBoundaryLower');
+    // OUTSKIRTS south boundary colliders with road gap at X=-47..47 (matching south exit triggerBounds)
+    this.addObstacle(-1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryLeft');
+    this.addObstacle(1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryRight');
+    this.addObstacle(0, -972, 112, 16, 'OutskirtsSouthTransitionBoundary');
+    // HIGHLAND north and south boundary colliders
+    this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
+    this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
     this.auditStaticStructureFootprints();
     this.createWeatherOverlay();
     this.createTempleInterior();
