@@ -155,6 +155,8 @@ export class YinXuCity extends Component {
   private readonly templeWalkBounds = { left: -548, right: 548, bottom: -282, top: 214 };
   private readonly templeSeatPoint = new Vec2(0, -24);
   private readonly templeRiseSafePoint = new Vec2(0, -185);
+  /** Center Y of the main east-west thoroughfare (drawRoads: 60, 440, 820). */
+  private readonly cityEastWestRoadCenterY = 440;
   private readonly excavationNodeWidth = 44;
   private readonly excavationNodeHeight = 32;
   private readonly EXCAVATION_VISUAL_WIDTH = 112;
@@ -230,10 +232,10 @@ export class YinXuCity extends Component {
     left: -1300, right: 1300, bottom: -240, top: 1450, thickness: 64,
     cornerVisualSize: 154,
     gates: {
-      north: { enabled: false, center: 0, passageWidth: 112 },
+      north: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
       south: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
-      west: { enabled: false, center: 605, passageWidth: 112 },
-      east: { enabled: false, center: 605, passageWidth: 112 },
+      west:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
+      east:  { enabled: true, center: 605, passageWidth: 112, gatehouseHalfWidth: 190 },
     },
   } as const;
 
@@ -902,7 +904,7 @@ export class YinXuCity extends Component {
     this.drawRoads();
     this.drawRiver();
     this.drawTransitionForest();
-    this.drawCityWallsAndGate();
+this.drawCityWallsAndGate();
     this.drawTemple();
     this.drawVillage();
     this.drawMarket();
@@ -911,7 +913,7 @@ export class YinXuCity extends Component {
     this.drawFields();
     this.drawForest();
     this.drawOraclePit();
-    this.drawSouthOutskirtsTrial();
+    this.drawOutskirtsGroundAndRoads();
     this.createExcavationSites();
     this.scatterDynamicGrass();
     this.drawWorldBoundary();
@@ -1037,6 +1039,72 @@ export class YinXuCity extends Component {
       debug.moveTo(bounds.left + 32, bounds.bottom); debug.lineTo(bounds.left + 32, -330);
       debug.moveTo(bounds.right - 32, bounds.bottom); debug.lineTo(bounds.right - 32, -330);
       debug.stroke();
+    }
+  }
+
+  /**
+   * Draw OUTSKIRTS ring around CITY: ground fill + four roads.
+   * South arm already existed; now extended to full ring.
+   */
+  private drawOutskirtsGroundAndRoads() {
+    const o = { left: -2020, right: 2020, bottom: -960, top: 2170 };
+    const city = { left: -1300, right: 1300, bottom: -240, top: 1450 };
+    const roadW = 112;
+    const halfW = roadW / 2;
+
+    // Ground fill for the four arms (Graphics, low z)
+    const ground = this.graphics('OutskirtsGround', this.world, 60);
+    ground.fillColor = new Color(98, 148, 73);
+
+    // South arm
+    ground.rect(o.left, o.bottom, o.right - o.left, city.bottom - o.bottom);
+    // North arm
+    ground.rect(o.left, city.top, o.right - o.left, o.top - city.top);
+    // West arm
+    ground.rect(o.left, o.bottom, city.left - o.left, o.top - o.bottom);
+    // East arm
+    ground.rect(city.right, o.bottom, o.right - city.right, o.top - o.bottom);
+    ground.fill();
+
+    // Grass tiles overlay (same pattern as south trial)
+    const tileStep = 192;
+    const tileSize = 200;
+    for (let y = o.bottom + 96; y < o.top; y += tileStep) {
+      for (let x = o.left + 96; x < o.right; x += tileStep) {
+        // Only draw in the four arms (outside city rect)
+        if (x > city.left && x < city.right && y > city.bottom && y < city.top) continue;
+        const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.world, x, y, tileSize, tileSize, 61);
+        tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
+      }
+    }
+
+    // Four roads using road-straight sprites (matching city TownStreetTile: 92x112, rotated 90°, z=4, 100px spacing)
+    const townRoadW = 92;
+    const townRoadH = 112;
+    const townRoadZ = 4;
+    const townSpacing = 100;
+
+    // South road: X=0, from city.bottom down to o.bottom
+    for (let y = city.bottom - halfW; y >= o.bottom + halfW; y -= townSpacing) {
+      this.pixelSprite('OutskirtsRoadSouth', 'road-straight', this.world, 0, y, roadW, roadW, 63);
+    }
+
+    // North road: X=0, from city.top up to o.top
+    for (let y = city.top + halfW; y <= o.top - halfW; y += townSpacing) {
+      this.pixelSprite('OutskirtsRoadNorth', 'road-straight', this.world, 0, y, roadW, roadW, 63);
+    }
+
+    // West road: Y = cityEastWestRoadCenterY (440), from city's last tile (-1220) left to o.left
+    // Match TownStreetTile: 92x112, rotated 90°, z=4, spacing 100px
+    // Continue until tile's left edge reaches o.left (-2020)
+    for (let x = -1220; x - townRoadW / 2 >= o.left; x -= townSpacing) {
+      const tile = this.pixelSprite('OutskirtsRoadWest', 'road-straight', this.world, x, this.cityEastWestRoadCenterY, townRoadW, townRoadH, townRoadZ);
+      tile.setRotationFromEuler(0, 0, 90);
+    }
+
+    // East road: Y = 605 (east gate center), from city.right right to o.right
+    for (let x = city.right + halfW; x <= o.right - halfW; x += townSpacing) {
+      this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, 605, roadW, roadW, 63);
     }
   }
 
@@ -1558,55 +1626,149 @@ export class YinXuCity extends Component {
 
   private drawCityWallsAndGate() {
     const boundary = this.cityBoundary;
-    const southGate = boundary.gates.south;
-    const southGateLeft = southGate.center - southGate.gatehouseHalfWidth;
-    const southGateRight = southGate.center + southGate.gatehouseHalfWidth;
-    this.createCityWallCollisions(southGateLeft, southGateRight);
+    this.createCityWallCollisions();
     const visualRoot = this.createCityWallVisualRoot();
     if (!visualRoot) return;
-    this.createHorizontalWallVisual('NorthWallVisual', visualRoot, boundary.left, boundary.right, boundary.top);
-    this.createHorizontalWallVisual('SouthWallLeftVisual', visualRoot, boundary.left, southGateLeft, boundary.bottom);
-    this.createHorizontalWallVisual('SouthWallRightVisual', visualRoot, southGateRight, boundary.right, boundary.bottom);
-    this.createVerticalWallVisual('WestWallVisual', visualRoot, boundary.left, boundary.bottom, boundary.top);
-    this.createVerticalWallVisual('EastWallVisual', visualRoot, boundary.right, boundary.bottom, boundary.top);
+
+    // North wall visual
+    const northGate = boundary.gates.north;
+    if (northGate.enabled) {
+      const left = northGate.center - northGate.gatehouseHalfWidth;
+      const right = northGate.center + northGate.gatehouseHalfWidth;
+      if (left > boundary.left) this.createHorizontalWallVisual('NorthWallLeftVisual', visualRoot, boundary.left, left, boundary.top);
+      if (right < boundary.right) this.createHorizontalWallVisual('NorthWallRightVisual', visualRoot, right, boundary.right, boundary.top);
+    } else {
+      this.createHorizontalWallVisual('NorthWallVisual', visualRoot, boundary.left, boundary.right, boundary.top);
+    }
+
+    // South wall visual
+    const southGate = boundary.gates.south;
+    const sLeft = southGate.center - southGate.gatehouseHalfWidth;
+    const sRight = southGate.center + southGate.gatehouseHalfWidth;
+    this.createHorizontalWallVisual('SouthWallLeftVisual', visualRoot, boundary.left, sLeft, boundary.bottom);
+    this.createHorizontalWallVisual('SouthWallRightVisual', visualRoot, sRight, boundary.right, boundary.bottom);
+
+    // West wall visual
+    const westGate = boundary.gates.west;
+    if (westGate.enabled) {
+      const bottom = westGate.center - westGate.gatehouseHalfWidth;
+      const top = westGate.center + westGate.gatehouseHalfWidth;
+      if (bottom > boundary.bottom) this.createVerticalWallVisual('WestWallBottomVisual', visualRoot, boundary.left, boundary.bottom, bottom);
+      if (top < boundary.top) this.createVerticalWallVisual('WestWallTopVisual', visualRoot, boundary.left, top, boundary.top);
+    } else {
+      this.createVerticalWallVisual('WestWallVisual', visualRoot, boundary.left, boundary.bottom, boundary.top);
+    }
+
+    // East wall visual
+    const eastGate = boundary.gates.east;
+    if (eastGate.enabled) {
+      const bottom = eastGate.center - eastGate.gatehouseHalfWidth;
+      const top = eastGate.center + eastGate.gatehouseHalfWidth;
+      if (bottom > boundary.bottom) this.createVerticalWallVisual('EastWallBottomVisual', visualRoot, boundary.right, boundary.bottom, bottom);
+      if (top < boundary.top) this.createVerticalWallVisual('EastWallTopVisual', visualRoot, boundary.right, top, boundary.top);
+    } else {
+      this.createVerticalWallVisual('EastWallVisual', visualRoot, boundary.right, boundary.bottom, boundary.top);
+    }
+
     this.staticCityBoundaryNodes.push(visualRoot);
-    // The old SouthGateVisual Graphics placeholder duplicated the finished
-    // pixel art as opaque brown slabs. The authored sprites are now the only
-    // formal-mode gate rendering.
-    // The threshold source contains an isolated remnant at x=10..32; its real
-    // stair body is x=75..291, so compensate the resulting 28px visual offset.
+
+    // South gate detailed visuals (preserved)
     this.pixelSprite('SouthGateThreshold', 'south-gate-threshold-v2', visualRoot, -28, -252, 260, 180, 39);
     this.pixelSprite('SouthGatePixelArt', 'south-gate', visualRoot, 0, -165, 420, 325, 44);
-    // The foreground canopy renders above the player so crossing the opening
-    // reads as walking underneath a gatehouse rather than over a flat picture.
     const gateCanopy = this.pixelSprite('SouthGateForegroundCanopy', 'south-gate-canopy-v2', this.world, 0, -112, 400, 176, 106);
     this.fixedForegroundNodes.push(gateCanopy);
-    // Keep one road-width (112px) vertical passage through the gate.  The two
-    // side bodies cover every other part of the gate artwork and meet the
-    // south-wall segments at x=+-190 without sealing the central opening.
+
+    // Gate collision bodies for all four gates
+    this.addGateBodyCollisions('north', northGate, boundary);
+    this.addGateBodyCollisions('south', southGate, boundary);
+    this.addGateBodyCollisions('west', westGate, boundary);
+    this.addGateBodyCollisions('east', eastGate, boundary);
+
+    // South gate additional details (plinths, stairs)
     const passageHalf = southGate.passageWidth / 2;
     const sideWidth = southGate.gatehouseHalfWidth - passageHalf;
-    this.addObstacle(southGate.center - passageHalf - sideWidth / 2, -185, sideWidth, 226, 'SouthGateLeftBody');
-    this.addObstacle(southGate.center + passageHalf + sideWidth / 2, -185, sideWidth, 226, 'SouthGateRightBody');
     this.addObstacle(-154, -296, 108, 34, 'SouthGateLeftPlinth');
     this.addObstacle(154, -296, 108, 34, 'SouthGateRightPlinth');
     this.addObstacle(southGate.center - passageHalf - 19, -286, 38, 90, 'SouthGateLeftStairRail');
     this.addObstacle(southGate.center + passageHalf + 19, -286, 38, 90, 'SouthGateRightStairRail');
+
+    // Gate labels
+    this.worldLabel('北城门', northGate.center, boundary.top - 38, 18, new Color(255, 239, 190));
     this.worldLabel('南城门', 0, -38, 18, new Color(255, 239, 190));
+    this.worldLabel('西城门', boundary.left + 38, westGate.center, 18, new Color(255, 239, 190));
+    this.worldLabel('东城门', boundary.right - 38, eastGate.center, 18, new Color(255, 239, 190));
   }
 
-  private createCityWallCollisions(southGateLeft: number, southGateRight: number) {
+  private addGateBodyCollisions(key: string, gate: any, boundary: any) {
+    if (!gate.enabled) return;
+    const passageHalf = gate.passageWidth / 2;
+    const sideWidth = gate.gatehouseHalfWidth - passageHalf;
+
+    if (key === 'north' || key === 'south') {
+      const y = key === 'north' ? boundary.top : boundary.bottom;
+      const offsetY = key === 'north' ? 185 : -185;
+      this.addObstacle(gate.center - passageHalf - sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateLeftBody`);
+      this.addObstacle(gate.center + passageHalf + sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateRightBody`);
+    } else {
+      const x = key === 'west' ? boundary.left : boundary.right;
+      const offsetX = key === 'west' ? 185 : -185;
+      this.addObstacle(x + offsetX, gate.center - passageHalf - sideWidth / 2, 226, sideWidth, `${key}GateBottomBody`);
+      this.addObstacle(x + offsetX, gate.center + passageHalf + sideWidth / 2, 226, sideWidth, `${key}GateTopBody`);
+    }
+  }
+
+  private createCityWallCollisions() {
     const b = this.cityBoundary;
-    const horizontalThickness = 160;
-    const verticalThickness = 144;
-    const verticalHeight = b.top - b.bottom;
-    this.addObstacle((b.left + b.right) / 2, b.top, b.right - b.left, horizontalThickness, 'NorthWallCollision');
-    this.addObstacle(b.left, (b.bottom + b.top) / 2, verticalThickness, verticalHeight, 'WestWallCollision');
-    this.addObstacle(b.right, (b.bottom + b.top) / 2, verticalThickness, verticalHeight, 'EastWallCollision');
-    const leftWidth = southGateLeft - b.left;
-    const rightWidth = b.right - southGateRight;
-    this.addObstacle(b.left + leftWidth / 2, b.bottom, leftWidth, horizontalThickness, 'SouthWallLeftCollision');
-    this.addObstacle(southGateRight + rightWidth / 2, b.bottom, rightWidth, horizontalThickness, 'SouthWallRightCollision');
+    const hThick = 160;
+    const vThick = 144;
+
+    // North wall
+    const northGate = b.gates.north;
+    if (northGate.enabled) {
+      const left = northGate.center - northGate.gatehouseHalfWidth;
+      const right = northGate.center + northGate.gatehouseHalfWidth;
+      const leftW = left - b.left;
+      const rightW = b.right - right;
+      if (leftW > 0) this.addObstacle(b.left + leftW / 2, b.top, leftW, hThick, 'NorthWallLeftCollision');
+      if (rightW > 0) this.addObstacle(right + rightW / 2, b.top, rightW, hThick, 'NorthWallRightCollision');
+    } else {
+      this.addObstacle((b.left + b.right) / 2, b.top, b.right - b.left, hThick, 'NorthWallCollision');
+    }
+
+    // South wall
+    const southGate = b.gates.south;
+    const sLeft = southGate.center - southGate.gatehouseHalfWidth;
+    const sRight = southGate.center + southGate.gatehouseHalfWidth;
+    const sLeftW = sLeft - b.left;
+    const sRightW = b.right - sRight;
+    if (sLeftW > 0) this.addObstacle(b.left + sLeftW / 2, b.bottom, sLeftW, hThick, 'SouthWallLeftCollision');
+    if (sRightW > 0) this.addObstacle(sRight + sRightW / 2, b.bottom, sRightW, hThick, 'SouthWallRightCollision');
+
+    // West wall
+    const westGate = b.gates.west;
+    if (westGate.enabled) {
+      const bottom = westGate.center - westGate.gatehouseHalfWidth;
+      const top = westGate.center + westGate.gatehouseHalfWidth;
+      const bottomH = bottom - b.bottom;
+      const topH = b.top - top;
+      if (bottomH > 0) this.addObstacle(b.left, b.bottom + bottomH / 2, vThick, bottomH, 'WestWallBottomCollision');
+      if (topH > 0) this.addObstacle(b.left, top + topH / 2, vThick, topH, 'WestWallTopCollision');
+    } else {
+      this.addObstacle(b.left, (b.bottom + b.top) / 2, vThick, b.top - b.bottom, 'WestWallCollision');
+    }
+
+    // East wall
+    const eastGate = b.gates.east;
+    if (eastGate.enabled) {
+      const bottom = eastGate.center - eastGate.gatehouseHalfWidth;
+      const top = eastGate.center + eastGate.gatehouseHalfWidth;
+      const bottomH = bottom - b.bottom;
+      const topH = b.top - top;
+      if (bottomH > 0) this.addObstacle(b.right, b.bottom + bottomH / 2, vThick, bottomH, 'EastWallBottomCollision');
+      if (topH > 0) this.addObstacle(b.right, top + topH / 2, vThick, topH, 'EastWallTopCollision');
+    } else {
+      this.addObstacle(b.right, (b.bottom + b.top) / 2, vThick, b.top - b.bottom, 'EastWallCollision');
+    }
   }
 
   private createCityWallVisualRoot() {
@@ -2385,41 +2547,8 @@ export class YinXuCity extends Component {
     outerCliff.moveTo(3000, -448); outerCliff.lineTo(5660, -448);
     outerCliff.moveTo(3000, -2152); outerCliff.lineTo(5660, -2152);
     outerCliff.moveTo(5652, -448); outerCliff.lineTo(5652, -2152); outerCliff.stroke();
-    this.addObstacle(4350, -410, 2700, 90, '山林北侧陡崖');
-    this.addObstacle(4350, -2190, 2700, 90, '山林南侧陡崖');
-    this.addObstacle(5690, -1300, 90, 1800, '山林东侧陡崖');
-
-    for (let x = 3090; x <= 5600; x += 170) {
-      this.pixelSprite('MountainNorthCliffPixel', 'wall-horizontal', this.world, x, -442, 178, 84, 13);
-      this.pixelSprite('MountainSouthCliffPixel', 'wall-horizontal', this.world, x, -2158, 178, 84, 13);
-    }
-    for (let y = -540; y >= -2070; y -= 166) {
-      this.pixelSprite('MountainEastCliffPixel', 'wall-vertical', this.world, 5655, y, 86, 174, 13);
-    }
-
-    const tierCliffs = this.graphics('MountainTierCliffs', this.world, 11);
-    tierCliffs.strokeColor = new Color(83, 61, 42, 72); tierCliffs.lineWidth = 82;
-    this.strokeSmoothPath(tierCliffs, [[3785, -420], [3820, -690], [3770, -950]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[3840, -1120], [3780, -1510], [3820, -2180]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[4685, -420], [4730, -820], [4675, -1230]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[4740, -1410], [4680, -1770], [4720, -2180]]); tierCliffs.stroke();
-    tierCliffs.strokeColor = new Color(167, 118, 62, 132); tierCliffs.lineWidth = 30;
-    this.strokeSmoothPath(tierCliffs, [[3760, -420], [3790, -690], [3740, -950]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[3810, -1120], [3750, -1510], [3790, -2180]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[4660, -420], [4700, -820], [4645, -1230]]); tierCliffs.stroke();
-    this.strokeSmoothPath(tierCliffs, [[4710, -1410], [4650, -1770], [4690, -2180]]); tierCliffs.stroke();
-    this.addObstacle(3800, -685, 105, 540, '第一层台地崖壁');
-    this.addObstacle(3800, -1650, 105, 1060, '第一层台地崖壁');
-    this.addObstacle(4700, -825, 105, 810, '第二层台地崖壁');
-    this.addObstacle(4700, -1795, 105, 770, '第二层台地崖壁');
-
-    // Pixel cliff faces leave intentional two-tile ramp gaps in each terrace.
-    [-540, -705, -870, -1285, -1450, -1615, -1780, -1945, -2100].forEach(y => {
-      this.pixelSprite('MountainTierOneCliffPixel', 'wall-vertical', this.world, 3800, y, 88, 176, 13);
-    });
-    [-540, -705, -870, -1035, -1585, -1750, -1915, -2080].forEach(y => {
-      this.pixelSprite('MountainTierTwoCliffPixel', 'wall-vertical', this.world, 4700, y, 88, 176, 13);
-    });
+    // Keep only the eastern world boundary collider to prevent leaving the world
+    this.addObstacle(5690, -1300, 90, 1800, '山林东侧世界边界');
 
     const mountainRoads = this.graphics('MountainLoopRoads', this.world, 14);
     const mainRoad: Array<[number, number]> = [[3000, -760], [3370, -820], [3730, -1030], [4100, -1210], [4600, -1320], [4920, -1300], [5350, -1120], [5580, -1260]];
@@ -4664,10 +4793,19 @@ export class YinXuCity extends Component {
     this.cameraPos.y += (this.playerPos.y - this.cameraPos.y) * follow;
     const visible = view.getVisibleSize();
     const regionBounds = this.regionTransitionManager?.cameraBounds;
-    const bounds = regionBounds ?? {
+    let bounds = regionBounds ?? {
       minX: -this.mapWidth / 2, maxX: this.mapWidth / 2,
       minY: -this.mapHeight / 2, maxY: this.mapHeight / 2,
     };
+    // Expand CITY camera bounds westward to include OUTSKIRTS ring so player
+    // can see the outside ground when standing at west/east/north gates.
+    const currentRegion = this.regionTransitionManager?.currentRegionId;
+    if (currentRegion === 'CITY') {
+      bounds = {
+        minX: -2020, maxX: 2020,
+        minY: -960, maxY: 2170,
+      };
+    }
     const minCameraX = bounds.minX + visible.width / 2;
     const maxCameraX = bounds.maxX - visible.width / 2;
     const minCameraY = bounds.minY + visible.height / 2;
