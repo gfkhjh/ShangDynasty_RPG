@@ -39,20 +39,18 @@ import {
   chapterOneDefinition,
   CHAPTER_ONE_FRAGMENT_CARDS,
   CHAPTER_ONE_ID,
-  XIAO_SHITOU_POSITION,
 } from './story/ChapterOne';
 import {
   chapterTwoDefinition,
   CHAPTER_TWO_FRAGMENT_CARDS,
   CHAPTER_TWO_ID,
-  CHAPTER_TWO_FISHER_POSITION,
 } from './story/ChapterTwo';
 import {
   chapterThreeDefinition,
   CHAPTER_THREE_FRAGMENT_CARDS,
   CHAPTER_THREE_ID,
-  CHAPTER_THREE_NPC_POSITION,
 } from './story/ChapterThree';
+import { storyLocation } from './story/StoryLocations';
 import { migrateStorySave } from './story/StoryState';
 import { StorySaveState, StoryStepDefinition } from './story/StoryTypes';
 
@@ -162,6 +160,9 @@ type CitySave = {
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   story: StorySaveState;
+  currentRegionId?: RegionId;
+  playerWorldPosition?: { x: number; y: number };
+  playerFacing?: Facing;
 };
 
 /**
@@ -702,6 +703,7 @@ export class YinXuCity extends Component {
 
   private async initializeGame() {
     this.save = await this.loadCitySave();
+    this.restoreSavedRegionPosition();
     this.buildWorld();
     this.createRegionTransitionManager();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
@@ -826,10 +828,7 @@ export class YinXuCity extends Component {
       },
       enterYinXu: () => {
         this.storyWorldEntered = true;
-        this.playerPos.set(0, 20);
-        this.cameraPos.set(0, 20);
-        this.player?.setPosition(0, 20, 80);
-        this.followCamera(1);
+        this.goToStoryLocation('new-game-city-entry');
         this.beginChapterOneIfNeeded();
       },
     });
@@ -964,7 +963,10 @@ export class YinXuCity extends Component {
         if (locked) this.stopPlayerInput();
       },
       getWorldNode: () => this.world,
-      onRegionChanged: () => this.updateOutskirtsVisibility(),
+      onRegionChanged: () => {
+        this.updateOutskirtsVisibility();
+        this.persistCitySave();
+      },
     });
     this.updateTerrainElevationState(true);
   }
@@ -1004,14 +1006,14 @@ export class YinXuCity extends Component {
     if (!snapshot.completedChapterIds.includes(CHAPTER_TWO_ID)) {
       this.storyController.startChapter(CHAPTER_TWO_ID);
       // 第二章：玩家直接传送到渔娘阿潍身旁，避免自行跋涉 4600 像素却找不到人
-      this.spawnPlayerAt(CHAPTER_TWO_FISHER_POSITION.x + 160, CHAPTER_TWO_FISHER_POSITION.y);
+      this.goToStoryLocation('chapter-2-riverbank-investigation');
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_THREE_ID)) {
       this.storyController.startChapter(CHAPTER_THREE_ID);
       // 第三章：玩家直接传送到守峡人阿沚身旁（右边 80px，明确落在 200 触发半径内），
       // 放完开场对话即自动触发，无需自行走位找人。
-      this.spawnPlayerAt(CHAPTER_THREE_NPC_POSITION.x + 80, CHAPTER_THREE_NPC_POSITION.y);
+      this.goToStoryLocation('chapter-3-royal-tomb-entry');
       return;
     }
     this.presentStoryStep(this.storyController.currentStep());
@@ -1027,11 +1029,18 @@ export class YinXuCity extends Component {
   }
 
   // 把玩家传送到指定世界坐标（同步位置/相机/可视节点），用于章节间切换时直接落在 NPC 旁
-  private spawnPlayerAt(x: number, y: number) {
-    this.playerPos.set(x, y);
-    this.cameraPos.set(x, y);
-    this.player?.setPosition(x, y, 80);
-    this.followCamera(1);
+  private goToStoryLocation(locationId: string) {
+    const location = storyLocation(locationId);
+    if (!location || !this.regionTransitionManager) return false;
+    return this.regionTransitionManager.transitionToEntry(location.id);
+  }
+
+  private restoreSavedRegionPosition() {
+    const position = this.save.playerWorldPosition;
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
+    this.playerPos.set(position.x, position.y);
+    this.cameraPos.set(position.x, position.y);
+    if (this.save.playerFacing) this.facing = this.save.playerFacing;
   }
 
   private presentStoryStep(step: StoryStepDefinition | null) {
@@ -1041,6 +1050,11 @@ export class YinXuCity extends Component {
       return;
     }
     let objective = step?.objective ? { ...step.objective } : null;
+    const configuredLocation = storyLocation(objective?.storyLocationId);
+    if (configuredLocation && objective) {
+      objective.targetX = configuredLocation.spawnPosition.x;
+      objective.targetY = configuredLocation.spawnPosition.y;
+    }
     const isChapterTwoFragment = CHAPTER_TWO_FRAGMENT_CARDS.some(item =>
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
     const isChapterThreeFragment = CHAPTER_THREE_FRAGMENT_CARDS.some(item =>
@@ -1234,7 +1248,8 @@ export class YinXuCity extends Component {
   private createChapterOneNpc() {
     const root = new Node('StoryNpc-XiaoShitou');
     root.parent = this.world;
-    root.setPosition(XIAO_SHITOU_POSITION.x, XIAO_SHITOU_POSITION.y, 82);
+    const location = storyLocation('chapter-1-city-guide')!;
+    root.setPosition(location.spawnPosition.x, location.spawnPosition.y, 82);
     root.addComponent(UITransform).setContentSize(44, 60);
     const shadow = this.localGraphics('StoryNpc-XiaoShitou-Shadow', root, 0, 0, 34, 14, -3);
     shadow.fillColor = new Color(28, 34, 31, 72);
@@ -1262,7 +1277,8 @@ export class YinXuCity extends Component {
   private createChapterTwoNpc() {
     const root = new Node('StoryNpc-Fisher');
     root.parent = this.world;
-    root.setPosition(CHAPTER_TWO_FISHER_POSITION.x, CHAPTER_TWO_FISHER_POSITION.y, 82);
+    const location = storyLocation('chapter-2-riverbank-investigation')!;
+    root.setPosition(location.spawnPosition.x, location.spawnPosition.y, 82);
     root.addComponent(UITransform).setContentSize(44, 60);
     const shadow = this.localGraphics('StoryNpc-Fisher-Shadow', root, 0, 0, 34, 14, -3);
     shadow.fillColor = new Color(28, 34, 31, 72);
@@ -1320,7 +1336,8 @@ export class YinXuCity extends Component {
   private createChapterThreeNpc() {
     const root = new Node('StoryNpc-GorgeKeeper');
     root.parent = this.world;
-    root.setPosition(CHAPTER_THREE_NPC_POSITION.x, CHAPTER_THREE_NPC_POSITION.y, 82);
+    const location = storyLocation('chapter-3-royal-tomb-entry')!;
+    root.setPosition(location.spawnPosition.x, location.spawnPosition.y, 82);
     root.addComponent(UITransform).setContentSize(44, 60);
     const shadow = this.localGraphics('StoryNpc-GorgeKeeper-Shadow', root, 0, 0, 34, 14, -3);
     shadow.fillColor = new Color(28, 34, 31, 72);
@@ -1409,8 +1426,8 @@ export class YinXuCity extends Component {
     if (fragmentIndex < 0) return null;
     const fragment = CHAPTER_THREE_FRAGMENT_CARDS[fragmentIndex];
     if (!fragment.cardId) return null;
-    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
-    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
+    const tombSites = this.excavationSites.filter(candidate => candidate.region === 'royal');
+    const site = tombSites[fragmentIndex % tombSites.length] ?? tombSites.find(candidate => candidate.active) ?? null;
     const card = this.oracleCards.find(item => item.id === fragment.cardId);
     if (!site || !card) return null;
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
@@ -1436,8 +1453,9 @@ export class YinXuCity extends Component {
     const isMeeting = step.id === 'chapter-1-meet-xiaoshitou';
     if (!isMeeting) return;
     const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - XIAO_SHITOU_POSITION.x;
-    const dy = this.playerPos.y - XIAO_SHITOU_POSITION.y;
+    const location = storyLocation('chapter-1-city-guide')!;
+    const dx = this.playerPos.x - location.spawnPosition.x;
+    const dy = this.playerPos.y - location.spawnPosition.y;
     if (dx * dx + dy * dy > radius * radius) return;
     this.storyArrivalLocked = true;
     this.storyController.handle({ type: 'npc-reached', npcId: 'xiaoshitou' });
@@ -1449,8 +1467,9 @@ export class YinXuCity extends Component {
     const isMeeting = step.id === 'chapter-2-reach-river';
     if (!isMeeting) return;
     const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - CHAPTER_TWO_FISHER_POSITION.x;
-    const dy = this.playerPos.y - CHAPTER_TWO_FISHER_POSITION.y;
+    const location = storyLocation('chapter-2-riverbank-investigation')!;
+    const dx = this.playerPos.x - location.spawnPosition.x;
+    const dy = this.playerPos.y - location.spawnPosition.y;
     if (dx * dx + dy * dy > radius * radius) return;
     this.storyArrivalLocked = true;
     this.storyController.handle({ type: 'npc-reached', npcId: 'fisher' });
@@ -1462,8 +1481,9 @@ export class YinXuCity extends Component {
     const isMeeting = step.id === 'chapter-3-reach-gorge';
     if (!isMeeting) return;
     const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - CHAPTER_THREE_NPC_POSITION.x;
-    const dy = this.playerPos.y - CHAPTER_THREE_NPC_POSITION.y;
+    const location = storyLocation('chapter-3-royal-tomb-entry')!;
+    const dx = this.playerPos.x - location.spawnPosition.x;
+    const dy = this.playerPos.y - location.spawnPosition.y;
     if (dx * dx + dy * dy > radius * radius) return;
     this.storyArrivalLocked = true;
     this.storyController.handle({ type: 'npc-reached', npcId: 'gorge-keeper' });
@@ -3675,7 +3695,7 @@ this.drawCityWallsAndGate();
     };
     // RIVERBANK phase one intentionally contains no migrated gameplay sites.
     // Keep its saved layout data in place for the later migration phase.
-    (Object.keys(layouts) as ExcavationRegion[]).filter(region => region !== 'river').forEach(region => {
+    (Object.keys(layouts) as ExcavationRegion[]).forEach(region => {
       layouts[region].forEach((seedPoint, index) => {
         const point = this.resolveExcavationPosition(seedPoint[0], seedPoint[1], region);
         const root = new Node(`ExcavationSite-${region}-${index}`);
@@ -3706,7 +3726,7 @@ this.drawCityWallsAndGate();
       });
     });
     console.info('[YinXuCity] excavation sites ready:', this.excavationSites.length,
-      '(RIVERBANK sites deferred until the content-migration phase)');
+      '(story sites are assigned by their active RegionId)');
   }
 
   private resolveExcavationPosition(seedX: number, seedY: number, region: ExcavationRegion, ignoreSite: ExcavationSite | null = null) {
@@ -6050,6 +6070,11 @@ this.drawCityWallsAndGate();
   }
 
   private persistCitySave() {
+    if (this.regionTransitionManager) {
+      this.save.currentRegionId = this.regionTransitionManager.currentRegionId;
+      this.save.playerWorldPosition = { x: this.playerPos.x, y: this.playerPos.y };
+      this.save.playerFacing = this.facing;
+    }
     void this.localSaveDatabase.put(this.saveKey, this.save);
     try {
       sys.localStorage.setItem(this.saveKey, JSON.stringify(this.save));
