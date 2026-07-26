@@ -113,10 +113,6 @@ const STORY_CHAPTER_DEFINITIONS = [
   chapterNineDefinition,
 ] as const;
 const STORY_CHAPTER_IDS = STORY_CHAPTER_DEFINITIONS.map(chapter => chapter.id);
-const STORY_CHAPTERS_WITH_GUIDED_GATES = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
-  ...chapter,
-  requiredCardIds: fixedGuidedCardIds(chapter.id),
-}));
 const ALL_STORY_FRAGMENT_CARDS = [
   ...CHAPTER_ONE_FRAGMENT_CARDS,
   ...CHAPTER_TWO_FRAGMENT_CARDS,
@@ -139,6 +135,20 @@ const STORY_CHAPTER_FRAGMENT_CARDS: Record<string, ReadonlyArray<{ cardId: strin
   [CHAPTER_EIGHT_ID]: CHAPTER_EIGHT_FRAGMENT_CARDS,
   [CHAPTER_NINE_ID]: CHAPTER_NINE_FRAGMENT_CARDS,
 };
+const guidedStoryCardsFor = (chapterId: string) =>
+  (STORY_CHAPTER_FRAGMENT_CARDS[chapterId] ?? [])
+    .slice(0, fixedGuidedCardIds(chapterId).length)
+    .map(fragment => fragment.cardId)
+    .filter((cardId): cardId is string => Boolean(cardId));
+const STORY_CHAPTERS_WITH_GUIDED_GATES = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
+  ...chapter,
+  // The original chapter scripts own the actual card ids used by excavation.
+  // Use their first N entries so the gate always agrees with the story route.
+  requiredCardIds: guidedStoryCardsFor(chapter.id),
+}));
+const GUIDED_STORY_CARD_IDS = new Set<string>(
+  STORY_CHAPTER_DEFINITIONS.flatMap(chapter => guidedStoryCardsFor(chapter.id)),
+);
 
 const { ccclass } = _decorator;
 
@@ -1304,6 +1314,10 @@ export class YinXuCity extends Component {
       if (this.storyNpc?.isValid) this.storyNpc.active = false;
       return;
     }
+    // Only the small guided set is part of the mandatory story route.  The
+    // remaining chapter characters stay in the exploration pool, so a long
+    // chapter never turns into dozens of identical forced excavations.
+    if (this.advanceOptionalFragmentStep(step)) return;
     let objective = step?.objective ? { ...step.objective } : null;
     const configuredLocation = storyLocation(objective?.storyLocationId);
     if (configuredLocation && objective) {
@@ -1494,6 +1508,28 @@ export class YinXuCity extends Component {
         this.chapterBanner.close(openDialogue);
       }
     }, hasOpeningBanner ? 2.8 : .08);
+  }
+
+  private advanceOptionalFragmentStep(step: StoryStepDefinition | null) {
+    if (!step || !this.storyController) return false;
+    const fragment = this.allStoryFragmentCards.find(item =>
+      item.seekStepId === step.id || item.lessonStepId === step.id);
+    if (!fragment || (fragment.cardId && GUIDED_STORY_CARD_IDS.has(fragment.cardId))) return false;
+
+    if (step.completeOn === 'excavation-completed') {
+      return this.storyController.handle({
+        type: 'excavation-completed', cardId: fragment.cardId ?? undefined,
+      });
+    }
+    if (step.completeOn === 'learning-completed') {
+      // This only bypasses the obsolete linear story checkpoint.  It does not
+      // mark the card as learned; players still collect and study it normally
+      // from the chapter's free exploration pits.
+      return this.storyController.handle({
+        type: 'learning-completed', cardId: fragment.cardId ?? undefined, correct: false,
+      });
+    }
+    return false;
   }
 
   /** Keep excavation targets mysterious: the player follows an in-world clue, not a character name. */
@@ -1847,7 +1883,7 @@ export class YinXuCity extends Component {
     const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
     const card = this.oracleCards.find(item => item.id === fragment.cardId);
     if (!site || !card) return null;
-    this.positionStorySiteForChapter(site, CHAPTER_THREE_ID, fragmentIndex);
+    this.positionStorySiteForChapter(site, CHAPTER_ONE_ID, fragmentIndex);
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
     this.storyController.reserveStorySite(site.id);
     this.markStoryTarget(site);
@@ -4679,12 +4715,8 @@ this.drawCityWallsAndGate();
   private rollExcavationReward(region: ExcavationRegion): ExcavationReward {
     // 拾遗坑只产出拾遗字。
     if (region === 'supplement') return this.rollSupplementReward();
-    // 主线世界坑：偶尔也能挖到拾遗字，但限量（见概率），不至于主线被顺手挖光。
-    const SUPPLEMENT_MAIN_WORLD_CHANCE = 0.12;
-    if (Math.random() < SUPPLEMENT_MAIN_WORLD_CHANCE) {
-      const sup = this.rollSupplementReward();
-      if (sup.cardId) return sup;
-    }
+    // 普通坑只产出本章主线字或资源；拾遗字只会从隐藏拾遗坑产出，
+    // 这样「发现拾遗」才是一次真正的探索奖励。
     const roll = Math.random();
     let quality: OracleQuality | null = null;
     if (region === 'river' || region === 'field') {
