@@ -46,6 +46,7 @@ export class RegionTransitionManager {
   private mismatchReported = false;
   private cooldownExitCleared = false;
   private sourceSnapshot: { regionId: RegionId; position: Vec2; facing: FacingDirection; cameraPosition: Vec2 } | null = null;
+  private pendingEntryId: string | null = null;
 
   constructor(
     private readonly host: Node,
@@ -70,6 +71,28 @@ export class RegionTransitionManager {
     const definition = this.definitions.get(this.currentRegionValue);
     if (!definition || !pointInWorldBounds(this.callbacks.getPlayerFootPosition(), definition.currentWorldBounds)) return undefined;
     return definition.cameraBounds;
+  }
+
+  /** Uses the existing blackout state machine for scripted travel as well as exits. */
+  transitionToEntry(entryId: string) {
+    if (this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN) return false;
+    const entry = this.entries.get(entryId);
+    if (!entry || !this.callbacks.canPlayerStand(entry.worldPosition)) {
+      console.error('[RegionTransition] scripted entry validation failed.', { entryId, entry });
+      return false;
+    }
+    this.sourceSnapshot = {
+      regionId: this.currentRegionValue,
+      position: new Vec2(this.callbacks.getPlayerFootPosition().x, this.callbacks.getPlayerFootPosition().y),
+      facing: this.callbacks.getPlayerFacing(),
+      cameraPosition: new Vec2(this.callbacks.getCameraPosition().x, this.callbacks.getCameraPosition().y),
+    };
+    this.pendingEntryId = entryId;
+    this.activeExit = null;
+    this.stateValue = RegionTransitionState.FADING_OUT;
+    this.stateElapsed = 0;
+    this.callbacks.setInputLocked(true);
+    return true;
   }
 
   update(dt: number) {
@@ -137,12 +160,13 @@ export class RegionTransitionManager {
 
   private switchRegionWhileBlack() {
     const exit = this.activeExit;
-    const entry = exit ? this.entries.get(exit.targetEntryId) : undefined;
-    const entryMatchesTarget = !!exit && !!entry && entry.regionId === exit.targetRegionId;
+    const scriptedEntry = this.pendingEntryId ? this.entries.get(this.pendingEntryId) : undefined;
+    const entry = scriptedEntry ?? (exit ? this.entries.get(exit.targetEntryId) : undefined);
+    const entryMatchesTarget = scriptedEntry ? true : !!exit && !!entry && entry.regionId === exit.targetRegionId;
     const entryStandable = entryMatchesTarget && !!entry
       ? this.callbacks.canPlayerStand(entry.worldPosition)
       : false;
-    if (!exit || !entry || !entryMatchesTarget || !entryStandable) {
+    if ((!exit && !scriptedEntry) || !entry || !entryMatchesTarget || !entryStandable) {
       if (exit) {
         this.logTransitionDebug('validation-failed', exit, this.callbacks.getPlayerFootPosition(), {
           entryRegionId: entry?.regionId ?? null,
@@ -168,7 +192,7 @@ export class RegionTransitionManager {
       const insideDestinationExit = this.exits.some(candidate =>
         candidate.sourceRegionId === entry.regionId
         && pointInWorldBounds(destinationPosition, candidate.triggerBounds));
-      this.logTransitionDebug('switched-while-black', exit, destinationPosition, {
+      if (exit) this.logTransitionDebug('switched-while-black', exit, destinationPosition, {
         beforePosition: this.sourceSnapshot
           ? { x: this.sourceSnapshot.position.x, y: this.sourceSnapshot.position.y }
           : null,
@@ -183,6 +207,7 @@ export class RegionTransitionManager {
       this.restoreSourceState();
     } finally {
       this.activeExit = null;
+      this.pendingEntryId = null;
     }
   }
 
@@ -315,6 +340,7 @@ export class RegionTransitionManager {
     }
     this.sourceSnapshot = null;
     this.activeExit = null;
+    this.pendingEntryId = null;
     this.stateValue = RegionTransitionState.FADING_IN;
     this.stateElapsed = 0;
   }
