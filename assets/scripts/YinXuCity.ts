@@ -15,6 +15,7 @@ import {
   Mask,
   Node,
   resources,
+  ResolutionPolicy,
   Sprite,
   SpriteFrame,
   sys,
@@ -696,6 +697,9 @@ export class YinXuCity extends Component {
   private storyTestButtons: Node[] = [];
 
   onLoad() {
+    // 学习机与普通横屏设备统一使用 16:9 设计画布。选择 SHOW_ALL，
+    // 宁可留边也不拉伸或裁切学习界面，所有交互坐标保持一致。
+    view.setDesignResolutionSize(1280, 720, ResolutionPolicy.SHOW_ALL);
     this.enabled = false;
     void this.initializeGame();
   }

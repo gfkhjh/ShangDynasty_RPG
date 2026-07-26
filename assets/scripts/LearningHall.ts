@@ -153,6 +153,7 @@ export class LearningHall extends Component {
     input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+    view.on('canvas-resize', this.onCanvasResize, this);
     this.createHomeButton();
     this.open();
   }
@@ -162,6 +163,7 @@ export class LearningHall extends Component {
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+    view.off('canvas-resize', this.onCanvasResize, this);
   }
 
   open() {
@@ -216,6 +218,26 @@ export class LearningHall extends Component {
     this.hideGameNodes();
     this.drawBackground(root);
     return root;
+  }
+
+  /**
+   * 分辨率或横竖屏变化后按同一设计稿重绘。设计画布由 YinXuCity 统一为
+   * 1280×720 SHOW_ALL，故这里不会拉伸文字、弹窗或点击区域。
+   */
+  private onCanvasResize() {
+    if (!this.isOpen || this.mode === 'enteringYinXu') return;
+    this.render(this.mode);
+  }
+
+  /** 将当前屏幕点击位置换算回 1280×720 设计坐标。 */
+  private eventToDesignPoint(event: EventTouch) {
+    const point = event.getUILocation();
+    const size = view.getVisibleSize();
+    const scale = Math.max(.001, this.isOpen ? this.viewportScale : 1);
+    return {
+      x: (point.x - size.width / 2) / scale,
+      y: (point.y - size.height / 2) / scale,
+    };
   }
 
   private close() {
@@ -1442,8 +1464,7 @@ export class LearningHall extends Component {
 
   private onTouchMove(event: EventTouch) {
     if (this.mode === 'story' && this.chapterRoadmapDragging) {
-      const point = event.getUILocation(); const size = view.getVisibleSize();
-      const x = point.x - size.width / 2;
+      const { x } = this.eventToDesignPoint(event);
       this.chapterRoadmapOffset = Math.max(this.chapterRoadmapMinOffset, Math.min(650,
         this.chapterRoadmapOffsetStart + x - this.chapterRoadmapDragStartX));
       this.chapterRoadmapContent?.setPosition(this.chapterRoadmapOffset, 0, 1);
@@ -1572,8 +1593,7 @@ export class LearningHall extends Component {
   }
 
   private onTouchStart(event: EventTouch) {
-    const point = event.getUILocation(); const size = view.getVisibleSize();
-    const x = point.x - size.width / 2; const y = point.y - size.height / 2;
+    const { x, y } = this.eventToDesignPoint(event);
     if (!this.isOpen) {
       if (this.hit(x, y, 295, 309, 120, 52)) { this.playSfx('tap'); this.open(); }
       return;
