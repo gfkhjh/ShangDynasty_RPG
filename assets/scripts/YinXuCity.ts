@@ -925,7 +925,6 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS south boundary colliders with road gap at X=-47..47 (matching south exit triggerBounds)
     this.addObstacle(-1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryLeft');
     this.addObstacle(1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryRight');
-    this.addObstacle(0, -972, 112, 16, 'OutskirtsSouthTransitionBoundary');
     // HIGHLAND north and south boundary colliders
     this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
     this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
@@ -934,15 +933,17 @@ this.drawCityWallsAndGate();
     this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight');
     this.addObstacle(-2020, 1800, 64, 740, 'OutskirtsNorthWestBoundary');
     this.addObstacle(2020, 1800, 64, 740, 'OutskirtsNorthEastBoundary');
-    // OUTSKIRTS east boundary colliders with road gap at Y=560..660 (east exit)
-    this.addObstacle(2020, 1045, 64, 770, 'OutskirtsEastBoundaryUpper');
-    this.addObstacle(2020, -200, 64, 1520, 'OutskirtsEastBoundaryLower');
-    // ROYAL_TOMB boundary colliders — north sealed, south split with road gap at X=2234..2346
+    // OUTSKIRTS east boundary colliders with road gap at Y=549..661 (east exit)
+    this.addObstacle(2020, 1045.5, 64, 769, 'OutskirtsEastBoundaryUpper');
+    this.addObstacle(2020, -205.5, 64, 1509, 'OutskirtsEastBoundaryLower');
+    // ROYAL_TOMB boundary colliders — north sealed, south at Y=-4100 with 112-px road gap (X=2234..2346)
     this.addObstacle(2900, -2484, 4600, 32, 'TombNorthBoundary');
+    // South left wall: from tomb west edge (600) to road gap start
     this.addObstacle(1417, -4100, 1634, 32, 'TombSouthBoundaryLeft');
+    // South right wall: from road gap end to tomb east edge (5200)
     this.addObstacle(3773, -4100, 2854, 32, 'TombSouthBoundaryRight');
-    this.addObstacle(600, -3270, 32, 1630, 'TombWestBoundary');
-    this.addObstacle(5200, -3270, 32, 1630, 'TombEastBoundary');
+    this.addObstacle(600, -3275, 32, 1650, 'TombWestBoundary');
+    this.addObstacle(5200, -3275, 32, 1650, 'TombEastBoundary');
     this.auditStaticStructureFootprints();
     this.createWeatherOverlay();
     this.createTempleInterior();
@@ -1048,11 +1049,6 @@ this.drawCityWallsAndGate();
       'SouthOutskirtsTrialBoundaryRight');
     this.addObstacle(bounds.left + 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialLeftBoundary');
     this.addObstacle(bounds.right - 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialRightBoundary');
-    // The road remains visually open, but its world-space end is not a
-    // continuous passage into another region. The trigger is reached before
-    // this invisible fail-safe strip, so normal travel always enters the
-    // RegionTransitionManager blackout flow.
-    this.addObstacle(0, bounds.bottom - 12, 112, 16, 'OutskirtsSouthTransitionBoundary');
 
     if ((game.config?.debugMode ?? DebugMode.NONE) !== DebugMode.NONE) {
       const debug = this.graphics('SouthOutskirtsTrialBoundaryDebug', this.world, 150);
@@ -2674,9 +2670,6 @@ this.drawCityWallsAndGate();
 
     // Reinforced full-width north wall with no opening; former gate deleted.
     this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
-    // South wall split with road gap at X=2234..2346 (112 px, centered on 2290)
-    this.createLayeredRitualWallSegment('南墙西段', 1417, -4052, 1634, true, 13);
-    this.createLayeredRitualWallSegment('南墙东段', 3773, -4052, 2854, true, 14);
     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
     this.createLayeredRitualWallSegment('东墙', 5154, -3270, 1662, false, 25);
 
@@ -2687,7 +2680,7 @@ this.drawCityWallsAndGate();
       [[1580, -3070], [1210, -3350], [1510, -3700], [2290, -3800]],
       [[4210, -3160], [4510, -3510], [4170, -3830], [2860, -3650]],
       [[2290, -3800], [2290, -3700]],
-      [[2290, -3800], [2290, -3950]],
+      [[2290, -3800], [2290, -4100]],
     ];
     const roadShadow = this.graphics('RoyalRitualPathShadow', this.world, 5);
     const roadSoil = this.graphics('RoyalRitualPathSoil', this.world, 6);

@@ -92,7 +92,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'royal-tomb-south-road-entry',
       regionId: RegionId.ROYAL_TOMB,
-      worldPosition: new Vec2(2290, -3850),
+      worldPosition: new Vec2(2290, -3980),
       facingDirection: 'up',
       safeOffset: 80,
     },
@@ -160,7 +160,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'royal-tomb-south-road-to-outskirts',
       sourceRegionId: RegionId.ROYAL_TOMB,
-      triggerBounds: { minX: 2234, maxX: 2346, minY: -3920, maxY: -3870 },
+      triggerBounds: { minX: 2234, maxX: 2346, minY: -4100, maxY: -4080 },
       travelDirection: 'down',
       targetRegionId: RegionId.OUTSKIRTS,
       targetEntryId: 'outskirts-north-road-entry',
