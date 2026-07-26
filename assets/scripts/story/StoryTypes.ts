@@ -35,8 +35,6 @@ export type DialogueLine = {
 export type StoryObjective = {
   title: string;
   detail?: string;
-  /** Resolves through StoryLocations; coordinates are supplied by the map layer. */
-  storyLocationId?: string;
   targetX?: number;
   targetY?: number;
   targetRadius?: number;

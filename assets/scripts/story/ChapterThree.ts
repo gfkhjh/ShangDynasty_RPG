@@ -24,6 +24,7 @@ import { StoryChapterDefinition } from './StoryTypes';
 //      节奏缓，避免一卜即终；三轮直接串联，末轮才逼起身（YinXuCity 占卜处理器已泛化为章无关）。
 
 export const CHAPTER_THREE_ID = 'chapter-3-upstream-trace';
+export const CHAPTER_THREE_NPC_POSITION = { x: 260, y: -980 } as const;
 
 // 19 枚上游水文甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与学习判定。
 // cardId 为本游戏字库既有卡片；前/后/里 已预填 catalog-u524d/540e/91cc（待同伴录库，录库前引擎安全降级）。
@@ -91,7 +92,8 @@ export const chapterThreeDefinition: StoryChapterDefinition = {
       objective: {
         title: '逆流寻踪 · 峡口',
         detail: '逆水而行，峡谷口的风里夹着湿冷的石腥。走到守峡人阿沚守着的地方，向她打听那枚失踪的镇水卜骨。',
-        storyLocationId: 'chapter-3-royal-tomb-entry',
+        targetX: CHAPTER_THREE_NPC_POSITION.x,
+        targetY: CHAPTER_THREE_NPC_POSITION.y,
         targetRadius: 200,
       },
       completeOn: 'npc-reached',
@@ -634,7 +636,8 @@ export const chapterThreeDefinition: StoryChapterDefinition = {
       objective: {
         title: '逆流寻踪 · 第一轮问卜',
         detail: '告别峡口，随阿沚返回宗庙内殿。峡风渐远，灼骨之香渐近，接待前来问镇水卜骨方位的阿沚。',
-        storyLocationId: 'city-divination-temple',
+        targetX: 0,
+        targetY: 1010,
         targetRadius: 110,
       },
       completeOn: 'temple-entered',

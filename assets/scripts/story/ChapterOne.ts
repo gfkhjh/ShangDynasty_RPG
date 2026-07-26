@@ -3,6 +3,8 @@ import { StoryChapterDefinition } from './StoryTypes';
 // A new content id ensures saves from the old prototype cannot suppress the
 // revised canonical opening.
 export const CHAPTER_ONE_ID = 'chapter-1-silent-oracle-v8';
+export const XIAO_SHITOU_POSITION = { x: 260, y: 20 } as const;
+export const FIRST_FRAGMENT_POSITION = { x: 390, y: -920 } as const;
 export const CHAPTER_ONE_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-1-seek-first-fragment', lessonStepId: 'chapter-1-first-lesson', cardId: 'rain', character: '雨' },
   { seekStepId: 'chapter-1-seek-field-fragment', lessonStepId: 'chapter-1-field-lesson', cardId: 'field', character: '田' },
@@ -87,7 +89,8 @@ export const chapterOneDefinition: StoryChapterDefinition = {
       objective: {
         title: '失语的甲骨 · 异光之地',
         detail: '前往城门外，向小石头询问昨夜的异光',
-        storyLocationId: 'chapter-1-city-guide',
+        targetX: XIAO_SHITOU_POSITION.x,
+        targetY: XIAO_SHITOU_POSITION.y,
         targetRadius: 78,
       },
       completeOn: 'npc-reached',
@@ -129,7 +132,8 @@ export const chapterOneDefinition: StoryChapterDefinition = {
       objective: {
         title: '失语的甲骨 · 第一片碎甲',
         detail: '装备铲子，前往金色标记处挖掘异常土层',
-        storyLocationId: 'chapter-1-first-fragment',
+        targetX: FIRST_FRAGMENT_POSITION.x,
+        targetY: FIRST_FRAGMENT_POSITION.y,
         targetRadius: 105,
       },
       completeOn: 'excavation-completed',
@@ -293,7 +297,8 @@ export const chapterOneDefinition: StoryChapterDefinition = {
       objective: {
         title: '失语的甲骨 · 第一次问卜',
         detail: '前往宗庙内殿，接待等待求雨的农人阿禾',
-        storyLocationId: 'city-divination-temple',
+        targetX: 0,
+        targetY: 1010,
         targetRadius: 110,
       },
       completeOn: 'temple-entered',
