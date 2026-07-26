@@ -48,7 +48,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
       id: RegionId.ROYAL_TOMB,
       displayName: '王陵甲骨窖穴',
       currentWorldBounds: { minX: 600, maxX: 5200, minY: -4100, maxY: -2450 },
-      cameraBounds: { minX: 540, maxX: 5260, minY: -4160, maxY: -2390 },
+      cameraBounds: { minX: 540, maxX: 5260, minY: -4100, maxY: -2390 },
     },
   ],
   entries: [
@@ -100,7 +100,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'outskirts-east-road-entry',
       regionId: RegionId.OUTSKIRTS,
-      worldPosition: new Vec2(1940, 615),
+      worldPosition: new Vec2(1940, 440),
       facingDirection: 'left',
       safeOffset: 80,
     },
@@ -169,7 +169,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'outskirts-east-road-to-fields',
       sourceRegionId: RegionId.OUTSKIRTS,
-      triggerBounds: { minX: 1960, maxX: 2020, minY: 580, maxY: 650 },
+      triggerBounds: { minX: 1972, maxX: 2020, minY: 384, maxY: 496 },
       travelDirection: 'right',
       targetRegionId: RegionId.FIELDS,
       targetEntryId: 'fields-west-road-entry',

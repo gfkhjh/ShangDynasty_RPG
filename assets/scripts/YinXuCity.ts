@@ -237,12 +237,12 @@ export class YinXuCity extends Component {
       north: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
       south: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
       west:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
-      east:  { enabled: true, center: 605, passageWidth: 112, gatehouseHalfWidth: 190 },
+      east:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
     },
   } as const;
 
   private world!: Node;
-  /** OUTSKIRTS ground fill Graphics node — toggled via updateOutskirtsVisibility() */
+  /** OUTSKIRTS ground fill Graphics node - toggled via updateOutskirtsVisibility() */
   private outskirtsGroundNode: Node | null = null;
   /** Container for all OutskirtsGroundTile sprites */
   private outskirtsTileContainer: Node | null = null;
@@ -934,20 +934,18 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS west boundary colliders with road gap at Y=384-496 (exit trigger area)
     this.addObstacle(-2020, 1333, 64, 1674, 'OutskirtsWestBoundaryUpper', 'OUTSKIRTS');
     this.addObstacle(-2020, -288, 64, 1344, 'OutskirtsWestBoundaryLower', 'OUTSKIRTS');
-    // OUTSKIRTS south boundary colliders with road gap at X=-47..47 (matching south exit triggerBounds)
-    this.addObstacle(-1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryLeft', 'OUTSKIRTS');
-    this.addObstacle(1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryRight', 'OUTSKIRTS');
+    // OUTSKIRTS south boundary colliders with road gap at X=-56..56 (matching road width)
+    this.addObstacle(-1038, -980, 1964, 32, 'OutskirtsSouthBoundaryLeft', 'OUTSKIRTS');
+    this.addObstacle(1038, -980, 1964, 32, 'OutskirtsSouthBoundaryRight', 'OUTSKIRTS');
     // HIGHLAND north and south boundary colliders
     this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
     this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
-    // OUTSKIRTS north boundary colliders with road gap at X=-47..47
+    // OUTSKIRTS north boundary colliders with road gap at X=-56..56
     this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft', 'OUTSKIRTS');
     this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight', 'OUTSKIRTS');
-    this.addObstacle(-2020, 1800, 64, 740, 'OutskirtsNorthWestBoundary', 'OUTSKIRTS');
-    this.addObstacle(2020, 1800, 64, 740, 'OutskirtsNorthEastBoundary', 'OUTSKIRTS');
-    // OUTSKIRTS east boundary colliders with road gap at Y=549..661 (east exit)
-    this.addObstacle(2020, 1045.5, 64, 769, 'OutskirtsEastBoundaryUpper', 'OUTSKIRTS');
-    this.addObstacle(2020, -205.5, 64, 1509, 'OutskirtsEastBoundaryLower', 'OUTSKIRTS');
+    // OUTSKIRTS east boundary colliders with road gap at Y=384..496 (east exit)
+    this.addObstacle(2020, 1333, 64, 1674, 'OutskirtsEastBoundaryUpper', 'OUTSKIRTS');
+    this.addObstacle(2020, -288, 64, 1344, 'OutskirtsEastBoundaryLower', 'OUTSKIRTS');
     // ROYAL_TOMB boundary colliders — north sealed, south at Y=-4100 with 112-px road gap (X=2234..2346)
     this.addObstacle(2900, -2484, 4600, 32, 'TombNorthBoundary');
     // South left wall: from tomb west edge (600) to road gap start
@@ -1102,15 +1100,16 @@ this.drawCityWallsAndGate();
     ground.rect(city.right, o.bottom, o.right - city.right, o.top - o.bottom);
     ground.fill();
 
-    // Grass tiles overlay (same pattern as south trial)
-    const tileStep = 192;
-    const tileSize = 200;
     this.outskirtsTileContainer = new Node('OutskirtsTileContainer');
     this.outskirtsTileContainer.parent = this.world;
     this.outskirtsTileContainer.setPosition(0, 0, 0);
     this.outskirtsTileContainer.addComponent(UITransform).setContentSize(o.right - o.left, o.top - o.bottom);
+
+    // Grass tiles overlay (same pattern as south trial)
+    const tileStep = 192;
+    const tileSize = 200;
     for (let y = o.bottom + 96; y < o.top + tileStep; y += tileStep) {
-      for (let x = o.left + 96; x < o.right; x += tileStep) {
+      for (let x = o.left + 96; x < o.right + tileStep; x += tileStep) {
         // Only draw in the four arms (outside city rect)
         if (x > city.left && x < city.right && y > city.bottom && y < city.top) continue;
         const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.outskirtsTileContainer, x, y, tileSize, tileSize, 61);
@@ -1148,9 +1147,12 @@ this.drawCityWallsAndGate();
       tile.setRotationFromEuler(0, 0, 90);
     }
 
-    // East road: Y = 605 (east gate center), from city.right right to o.right
-    for (let x = city.right + halfW; x <= o.right - halfW; x += townSpacing) {
-      this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, 605, roadW, roadW, 63);
+    // East road: horizontal at cityEastWestRoadCenterY, from city's last tile (1220) right to o.right
+    // 112x112 rotated 90 degrees gives full passage coverage (matches gate gap / boundary gap)
+    const eastRoadW = roadW; // 112
+    for (let x = 1220; x <= o.right; x += townSpacing) {
+      const tile = this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, this.cityEastWestRoadCenterY, eastRoadW, eastRoadW, townRoadZ);
+      tile.setRotationFromEuler(0, 0, 90);
     }
   }
 
@@ -1764,10 +1766,15 @@ this.drawCityWallsAndGate();
     const sideWidth = gate.gatehouseHalfWidth - passageHalf;
 
     if (key === 'north' || key === 'south') {
-      const y = key === 'north' ? boundary.top : boundary.bottom;
-      const offsetY = key === 'north' ? 185 : -185;
-      this.addObstacle(gate.center - passageHalf - sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateLeftBody`);
-      this.addObstacle(gate.center + passageHalf + sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateRightBody`);
+      // South gate body uses the calibrated absolute Y=-185 that matches the
+      // authored pixel-art gate sprite. North gate body is omitted -- the wall
+      // collision already provides the barrier, and the gate body created an
+      // invisible air wall blocking OUTSKIRTS grass on both sides of the road.
+      if (key === 'north') return;
+      const centerY = key === 'south' ? -185 : boundary.top;
+      const bodyH = key === 'south' ? 226 : 160;
+      this.addObstacle(gate.center - passageHalf - sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateLeftBody`);
+      this.addObstacle(gate.center + passageHalf + sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateRightBody`);
     } else {
       const x = key === 'west' ? boundary.left : boundary.right;
       const offsetX = key === 'west' ? 185 : -185;
@@ -1778,8 +1785,8 @@ this.drawCityWallsAndGate();
 
   private createCityWallCollisions() {
     const b = this.cityBoundary;
-    const hThick = 160;
-    const vThick = 144;
+    const hThick = 142;
+    const vThick = 100;
 
     // North wall
     const northGate = b.gates.north;
@@ -2327,7 +2334,6 @@ this.drawCityWallsAndGate();
     boundary.rect(2965, -690, 70, 240); boundary.rect(2965, -2200, 70, 1360); boundary.fill();
     boundary.fillColor = new Color(151, 112, 61);
     boundary.rect(200, -435, 2800, 18); boundary.rect(200, -2165, 2030, 18); boundary.rect(2370, -2165, 630, 18); boundary.fill();
-    this.addObstacle(1600, -415, 2800, 70, '田野北侧土坡');
     this.addObstacle(1215, -2165, 2030, 70, '田野南侧土坡');
     this.addObstacle(2685, -2165, 630, 70, '田野南侧土坡');
     this.addObstacle(3000, -575, 70, 250, '田野东侧土坡');
