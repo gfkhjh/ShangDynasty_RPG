@@ -937,10 +937,10 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS east boundary colliders with road gap at Y=560..660 (east exit)
     this.addObstacle(2020, 1045, 64, 770, 'OutskirtsEastBoundaryUpper');
     this.addObstacle(2020, -200, 64, 1520, 'OutskirtsEastBoundaryLower');
-    // ROYAL_TOMB boundary colliders with road gap at X=2205..2395 (north entry)
-    this.addObstacle(1402, -2484, 1604, 32, 'TombNorthBoundaryLeft');
-    this.addObstacle(3798, -2484, 2804, 32, 'TombNorthBoundaryRight');
-    this.addObstacle(2900, -4100, 4600, 32, 'TombSouthBoundary');
+    // ROYAL_TOMB boundary colliders — north sealed, south split with road gap at X=2234..2346
+    this.addObstacle(2900, -2484, 4600, 32, 'TombNorthBoundary');
+    this.addObstacle(1417, -4100, 1634, 32, 'TombSouthBoundaryLeft');
+    this.addObstacle(3773, -4100, 2854, 32, 'TombSouthBoundaryRight');
     this.addObstacle(600, -3270, 32, 1630, 'TombWestBoundary');
     this.addObstacle(5200, -3270, 32, 1630, 'TombEastBoundary');
     this.auditStaticStructureFootprints();
@@ -1102,6 +1102,12 @@ this.drawCityWallsAndGate();
         const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.world, x, y, tileSize, tileSize, 61);
         tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
       }
+    }
+
+    // Fill bare Y:1450~1532 north of city wall where main loop skipped at y=1440
+    for (let x = city.left + 96; x < city.right; x += tileStep) {
+      const tile = this.pixelSprite('OutskirtsNorthGapGrass', 'grass-tile', this.world, x, 1490, tileSize, tileSize, 61);
+      tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
     }
 
     // Four roads using road-straight sprites (matching city TownStreetTile: 92x112, rotated 90°, z=4, 100px spacing)
@@ -2666,12 +2672,11 @@ this.drawCityWallsAndGate();
       ground.rect(Math.round(x / 3) * 3, Math.round(y / 3) * 3, width, height); ground.fill();
     }
 
-    // Five-stage raised boundary: field buffer -> bright cap -> masonry face ->
-    // projecting foundation -> rubble/grass slope. The north opening stays
-    // aligned to the field pass, but the wall itself is no longer a flat bar.
-    this.createLayeredRitualWallSegment('北墙西段', 1402, -2484, 1605, true, 0);
-    this.createLayeredRitualWallSegment('北墙东段', 3798, -2484, 2805, true, 7);
-    this.createLayeredRitualWallSegment('南墙', 2900, -4052, 4600, true, 13);
+    // Reinforced full-width north wall with no opening; former gate deleted.
+    this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
+    // South wall split with road gap at X=2234..2346 (112 px, centered on 2290)
+    this.createLayeredRitualWallSegment('南墙西段', 1417, -4052, 1634, true, 13);
+    this.createLayeredRitualWallSegment('南墙东段', 3773, -4052, 2854, true, 14);
     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
     this.createLayeredRitualWallSegment('东墙', 5154, -3270, 1662, false, 25);
 
@@ -2681,6 +2686,8 @@ this.drawCityWallsAndGate();
       [[2640, -2940], [3240, -2820], [3750, -2920], [4210, -3160]],
       [[1580, -3070], [1210, -3350], [1510, -3700], [2290, -3800]],
       [[4210, -3160], [4510, -3510], [4170, -3830], [2860, -3650]],
+      [[2290, -3800], [2290, -3700]],
+      [[2290, -3800], [2290, -3950]],
     ];
     const roadShadow = this.graphics('RoyalRitualPathShadow', this.world, 5);
     const roadSoil = this.graphics('RoyalRitualPathSoil', this.world, 6);
@@ -2693,7 +2700,7 @@ this.drawCityWallsAndGate();
     [[2300,-2520],[2270,-2730],[2640,-2940],[1580,-3070],[2860,-3650],[2290,-3800],[4210,-3160]].forEach((p, index) =>
       this.drawDirtRoadJunction(p[0], p[1], 90 + index, index < 3 ? 39 : 31, 8));
 
-    this.createLayeredRitualGate(2300, -2505);
+    // Gate at north entry deleted — north wall is now continuous.
 
     // Western ritual court: three stepped earthen levels, bronze vessels,
     // braziers and banner posts form a legible ceremonial composition.
