@@ -30,6 +30,7 @@ import { RegionTransitionManager } from './regions/RegionTransitionManager';
 import { RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
+import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
 import { DialoguePanel } from './story/DialoguePanel';
 import { ChapterBanner } from './story/ChapterBanner';
@@ -346,6 +347,9 @@ export class YinXuCity extends Component {
   private readonly saveKey = 'yinxu-city-save-v1';
   private readonly localSaveDatabase = new LocalSaveDatabase('yinxu-city-local-db', 'saves');
   private readonly divinationInkCost = 4;
+  // TEST ONLY: set to false or remove this line and the two preview branches below.
+  // It affects only the 图鉴 display and never writes unlocked cards into the player's save data.
+  private readonly unlockAllCatalogForPreview = true;
   private readonly oracleCards: OracleCardData[] = [
     {
       id: 'rain', glyph: '⋮', modern: '雨', pinyin: 'yǔ', quality: 'blue',
@@ -577,6 +581,7 @@ export class YinXuCity extends Component {
       history: '渔猎和水产资源是河畔生活的一部分，可与钓鱼玩法和水域生态联动学习。',
     },
     ...importedOracleCards,
+    ...supplementalOracleCards,
   ];
   private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(this.oracleCards);
   private readonly shopProducts: ShopProduct[] = [
@@ -713,7 +718,9 @@ export class YinXuCity extends Component {
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
       getCards: () => {
-        const discoveryOrder = this.save.unlockedOracleIds;
+        const discoveryOrder = this.unlockAllCatalogForPreview
+          ? this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp').map(card => card.id)
+          : this.save.unlockedOracleIds;
         return this.oracleCards
           .filter(card => (Boolean(card.asset) || card.id === 'water-temp')
             && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
@@ -732,9 +739,12 @@ export class YinXuCity extends Component {
       },
       getCatalogProgress: () => {
         const catalog = this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp');
+        const discoveredIds = this.unlockAllCatalogForPreview
+          ? catalog.map(card => card.id)
+          : this.save.unlockedOracleIds;
         return {
           total: catalog.length,
-          collected: catalog.filter(card => this.save.unlockedOracleIds.includes(card.id)).length,
+          collected: catalog.filter(card => discoveredIds.includes(card.id)).length,
         };
       },
       getProgress: () => ({
