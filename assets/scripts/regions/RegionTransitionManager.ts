@@ -1,4 +1,4 @@
-import { Color, DebugMode, game, Graphics, Label, Node, UIOpacity, UITransform, Vec2, view } from 'cc';
+import { Color, DebugMode, game, Graphics, Label, Node, UITransform, Vec2 } from 'cc';
 import { FacingDirection, RegionDefinition, RegionEntry, RegionExit, RegionId, WorldBounds, pointInWorldBounds } from './RegionTypes';
 
 export enum RegionTransitionState {
@@ -25,12 +25,10 @@ type RegionTransitionCallbacks = {
 };
 
 /**
- * Keeps the first route deliberately self-contained: it changes no map data and
- * only teleports while a Canvas-level black screen is fully opaque.
+ * Keeps regional travel self-contained: it changes no map data and moves the
+ * player directly to the registered entry point without a blackout overlay.
  */
 export class RegionTransitionManager {
-  readonly fadeOutSeconds = .22;
-  readonly fadeInSeconds = .22;
   readonly cooldownSeconds = .5;
   private readonly entries = new Map<string, RegionEntry>();
   private readonly definitions = new Map<RegionId, RegionDefinition>();
@@ -39,8 +37,6 @@ export class RegionTransitionManager {
   private activeExit: RegionExit | null = null;
   private stateElapsed = 0;
   private cooldownRemaining = 0;
-  private overlay!: Node;
-  private overlayOpacity!: UIOpacity;
   private debugWorld: Node | null = null;
   private debugLabel: Label | null = null;
   private mismatchReported = false;
@@ -59,7 +55,6 @@ export class RegionTransitionManager {
     definitions.forEach(definition => this.definitions.set(definition.id, definition));
     entries.forEach(entry => this.entries.set(entry.id, entry));
     this.currentRegionValue = initialRegion;
-    this.createOverlay();
     this.createDebugNodes();
     this.callbacks.setRegionUi(initialRegion);
   }
@@ -73,7 +68,7 @@ export class RegionTransitionManager {
     return definition.cameraBounds;
   }
 
-  /** Uses the existing blackout state machine for scripted travel as well as exits. */
+  /** Uses the same immediate, no-blackout travel path for scripted entries and exits. */
   transitionToEntry(entryId: string) {
     if (this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN) return false;
     const entry = this.entries.get(entryId);
@@ -89,9 +84,8 @@ export class RegionTransitionManager {
     };
     this.pendingEntryId = entryId;
     this.activeExit = null;
-    this.stateValue = RegionTransitionState.FADING_OUT;
-    this.stateElapsed = 0;
     this.callbacks.setInputLocked(true);
+    this.switchRegionImmediately();
     return true;
   }
 
@@ -100,24 +94,6 @@ export class RegionTransitionManager {
     if (this.stateValue === RegionTransitionState.IDLE) {
       this.syncRegionFromWorldPosition();
       this.tryStartExit();
-      return;
-    }
-    this.stateElapsed += dt;
-    if (this.stateValue === RegionTransitionState.FADING_OUT) {
-      this.setOverlayAlpha(Math.min(1, this.stateElapsed / this.fadeOutSeconds));
-      if (this.stateElapsed >= this.fadeOutSeconds) this.switchRegionWhileBlack();
-      return;
-    }
-    if (this.stateValue === RegionTransitionState.FADING_IN) {
-      this.setOverlayAlpha(Math.max(0, 1 - this.stateElapsed / this.fadeInSeconds));
-      if (this.stateElapsed >= this.fadeInSeconds) {
-        this.setOverlayAlpha(0);
-        this.stateValue = RegionTransitionState.COOLDOWN;
-        this.stateElapsed = 0;
-        this.cooldownRemaining = this.cooldownSeconds;
-        this.cooldownExitCleared = false;
-        this.callbacks.setInputLocked(false);
-      }
       return;
     }
     if (this.stateValue === RegionTransitionState.COOLDOWN) {
@@ -153,12 +129,11 @@ export class RegionTransitionManager {
     this.logTransitionDebug('start', exit, foot, {
       insideSourceTrigger: pointInWorldBounds(foot, exit.triggerBounds),
     });
-    this.stateValue = RegionTransitionState.FADING_OUT;
-    this.stateElapsed = 0;
     this.callbacks.setInputLocked(true);
+    this.switchRegionImmediately();
   }
 
-  private switchRegionWhileBlack() {
+  private switchRegionImmediately() {
     const exit = this.activeExit;
     const scriptedEntry = this.pendingEntryId ? this.entries.get(this.pendingEntryId) : undefined;
     const entry = scriptedEntry ?? (exit ? this.entries.get(exit.targetEntryId) : undefined);
@@ -192,7 +167,7 @@ export class RegionTransitionManager {
       const insideDestinationExit = this.exits.some(candidate =>
         candidate.sourceRegionId === entry.regionId
         && pointInWorldBounds(destinationPosition, candidate.triggerBounds));
-      if (exit) this.logTransitionDebug('switched-while-black', exit, destinationPosition, {
+      if (exit) this.logTransitionDebug('switched-immediately', exit, destinationPosition, {
         beforePosition: this.sourceSnapshot
           ? { x: this.sourceSnapshot.position.x, y: this.sourceSnapshot.position.y }
           : null,
@@ -200,8 +175,7 @@ export class RegionTransitionManager {
         insideDestinationExit,
       });
       this.sourceSnapshot = null;
-      this.stateValue = RegionTransitionState.FADING_IN;
-      this.stateElapsed = 0;
+      this.enterCooldown();
     } catch (error) {
       console.error('[RegionTransition] switch failed; restoring the source state.', error);
       this.restoreSourceState();
@@ -211,26 +185,12 @@ export class RegionTransitionManager {
     }
   }
 
-  private createOverlay() {
-    this.overlay = new Node('RegionTransitionBlackout');
-    this.overlay.parent = this.host;
-    this.overlay.setPosition(0, 0, 1000);
-    const visible = view.getVisibleSize();
-    const width = Math.max(1280, visible.width);
-    const height = Math.max(720, visible.height);
-    this.overlay.addComponent(UITransform).setContentSize(width, height);
-    const graphics = this.overlay.addComponent(Graphics);
-    graphics.fillColor = new Color(0, 0, 0, 255);
-    graphics.rect(-width / 2, -height / 2, width, height);
-    graphics.fill();
-    this.overlayOpacity = this.overlay.addComponent(UIOpacity);
-    this.setOverlayAlpha(0);
-  }
-
-  private setOverlayAlpha(progress: number) {
-    this.overlayOpacity.opacity = Math.round(Math.max(0, Math.min(1, progress)) * 255);
-    this.overlay.active = this.overlayOpacity.opacity > 0;
-    if (this.overlay.active) this.overlay.setSiblingIndex((this.overlay.parent?.children.length ?? 1) - 1);
+  private enterCooldown() {
+    this.stateValue = RegionTransitionState.COOLDOWN;
+    this.stateElapsed = 0;
+    this.cooldownRemaining = this.cooldownSeconds;
+    this.cooldownExitCleared = false;
+    this.callbacks.setInputLocked(false);
   }
 
   private createDebugNodes() {
@@ -301,8 +261,8 @@ export class RegionTransitionManager {
 
   /**
    * CITY and OUTSKIRTS are the only continuous pair. Wilderness regions must
-   * never be adopted from coordinates because doing so bypasses the blackout,
-   * input lock, teleport and camera synchronization state machine.
+   * never be adopted from coordinates because doing so bypasses the registered
+   * entry, input lock, teleport and camera synchronization state machine.
    */
   private syncRegionFromWorldPosition() {
     const inferred = this.inferRegionFromWorldPosition(this.callbacks.getPlayerFootPosition());
@@ -315,7 +275,7 @@ export class RegionTransitionManager {
         this.mismatchReported = true;
         console.warn(
           `[RegionTransition] ignored coordinate-only region change ${this.currentRegionValue} -> ${inferred}; `
-          + 'wilderness regions require a configured blackout exit.',
+          + 'wilderness regions require a configured travel exit.',
         );
       }
       return;
@@ -341,7 +301,6 @@ export class RegionTransitionManager {
     this.sourceSnapshot = null;
     this.activeExit = null;
     this.pendingEntryId = null;
-    this.stateValue = RegionTransitionState.FADING_IN;
-    this.stateElapsed = 0;
+    this.enterCooldown();
   }
 }
