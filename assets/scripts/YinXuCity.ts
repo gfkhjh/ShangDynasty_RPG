@@ -932,7 +932,6 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS north boundary colliders with road gap at X=-47..47
     this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft');
     this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight');
-    this.addObstacle(0, 2155, 112, 16, 'OutskirtsNorthTransitionBoundary');
     this.addObstacle(-2020, 1800, 64, 740, 'OutskirtsNorthWestBoundary');
     this.addObstacle(2020, 1800, 64, 740, 'OutskirtsNorthEastBoundary');
     // OUTSKIRTS east boundary colliders with road gap at Y=560..660 (east exit)
@@ -1096,7 +1095,7 @@ this.drawCityWallsAndGate();
     // Grass tiles overlay (same pattern as south trial)
     const tileStep = 192;
     const tileSize = 200;
-    for (let y = o.bottom + 96; y < o.top; y += tileStep) {
+    for (let y = o.bottom + 96; y < o.top + tileStep; y += tileStep) {
       for (let x = o.left + 96; x < o.right; x += tileStep) {
         // Only draw in the four arms (outside city rect)
         if (x > city.left && x < city.right && y > city.bottom && y < city.top) continue;
