@@ -1,6 +1,5 @@
 import {
   _decorator,
-  BlockInputEvents,
   Color,
   Component,
   DebugMode,
@@ -28,33 +27,6 @@ import { HallCard, LearningHall } from './LearningHall';
 import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
 import { RegionTransitionManager } from './regions/RegionTransitionManager';
 import { RegionId } from './regions/RegionTypes';
-import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
-import { importedOracleCards } from './data/ImportedOracleCatalog';
-import { buildDivinationQuestions } from './data/DivinationQuestionBank';
-import { DialoguePanel } from './story/DialoguePanel';
-import { ChapterBanner } from './story/ChapterBanner';
-import { QuestGuide } from './story/QuestGuide';
-import { StoryController } from './story/StoryController';
-import {
-  chapterOneDefinition,
-  CHAPTER_ONE_FRAGMENT_CARDS,
-  CHAPTER_ONE_ID,
-  XIAO_SHITOU_POSITION,
-} from './story/ChapterOne';
-import {
-  chapterTwoDefinition,
-  CHAPTER_TWO_FRAGMENT_CARDS,
-  CHAPTER_TWO_ID,
-  CHAPTER_TWO_FISHER_POSITION,
-} from './story/ChapterTwo';
-import {
-  chapterThreeDefinition,
-  CHAPTER_THREE_FRAGMENT_CARDS,
-  CHAPTER_THREE_ID,
-  CHAPTER_THREE_NPC_POSITION,
-} from './story/ChapterThree';
-import { migrateStorySave } from './story/StoryState';
-import { StorySaveState, StoryStepDefinition } from './story/StoryTypes';
 
 const { ccclass } = _decorator;
 
@@ -108,7 +80,7 @@ type ExcavationVisualState = 'idle' | 'dug';
 type ExcavationSite = {
   id: string; root: Node; sprite: Sprite; glow: Graphics; x: number; y: number;
   region: ExcavationRegion; active: boolean; respawnTimer: number; holeTimer: number;
-  awaitingStudy: boolean; reward: ExcavationReward; storyTarget?: boolean;
+  awaitingStudy: boolean; reward: ExcavationReward;
 };
 type PendingExcavation = { site: ExcavationSite; timer: number; rewarded: boolean };
 type RewardFlight = {
@@ -139,7 +111,7 @@ type HorseCart = {
   phase: number; radius: number; turnPending: boolean;
 };
 type OracleQuality = 'blue' | 'red' | 'gold';
-type CityOverlay = 'none' | 'shopConfirm' | 'shop' | 'backpack' | 'chapterProgress' | 'divination' | 'excavationLearning';
+type CityOverlay = 'none' | 'shopConfirm' | 'shop' | 'backpack' | 'divination' | 'excavationLearning';
 type DivinationStage = 'none' | 'waiting' | 'question' | 'animating' | 'review';
 type ExcavationLearningStage = 'none' | 'question' | 'detail';
 type ShopCategory = 'shell' | 'decoration' | 'rubbing';
@@ -147,7 +119,6 @@ type OracleCardData = {
   id: string; glyph: string; modern: string; pinyin: string; quality: OracleQuality;
   meaning: string; evolution: string; history: string;
   asset?: string; imageBounds?: readonly [number, number, number, number]; excavatable?: boolean;
-  catalogOnlyWhenUnlocked?: boolean;
 };
 type DivinationQuestion = { villager: string; prompt: string; answerId: string; portrait: 'farmer' | 'woman' };
 type ShopProduct = {
@@ -155,13 +126,11 @@ type ShopProduct = {
   quality: OracleQuality; slot?: number;
 };
 type LearningRecord = { attempts: number; bestStars: number; correctCount: number };
-type WrongBookEntry = { wrongCount: number; lastWrongAt: number };
 type CitySave = {
   version: number; ink: number; coins: number; experience: number;
-  unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
+  unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
-  story: StorySaveState;
 };
 
 /**
@@ -344,7 +313,6 @@ export class YinXuCity extends Component {
   private rainSplashes: RainSplash[] = [];
   private weatherRenderTimer = 0;
   private readonly saveKey = 'yinxu-city-save-v1';
-  private readonly localSaveDatabase = new LocalSaveDatabase('yinxu-city-local-db', 'saves');
   private readonly divinationInkCost = 4;
   private readonly oracleCards: OracleCardData[] = [
     {
@@ -576,9 +544,12 @@ export class YinXuCity extends Component {
       evolution: '早期字形完整保留鱼身、鱼鳍与尾部，随着书写简化，轮廓逐渐演变成现代“鱼”字。',
       history: '渔猎和水产资源是河畔生活的一部分，可与钓鱼玩法和水域生态联动学习。',
     },
-    ...importedOracleCards,
   ];
-  private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(this.oracleCards);
+  private readonly divinationQuestions: DivinationQuestion[] = [
+    { villager: '阿禾', prompt: '卜官大人，明日是否会有雨？田里的禾苗正等着水呢。', answerId: 'rain', portrait: 'farmer' },
+    { villager: '妣青', prompt: '云散了许久，何时才能重新见到太阳？', answerId: 'sun', portrait: 'woman' },
+    { villager: '田伯', prompt: '今年新开的土地能否带来好收成？请替我们占问。', answerId: 'field', portrait: 'farmer' },
+  ];
   private readonly shopProducts: ShopProduct[] = [
     { id: 'shell-clay', category: 'shell', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
     { id: 'shell-vermilion', category: 'shell', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
@@ -624,7 +595,6 @@ export class YinXuCity extends Component {
   private riseButtonLabel: Label | null = null;
   private oracleCardNodes: Node[] = [];
   private oracleCardHome: Vec2[] = [];
-  private currentDivinationCards: OracleCardData[] = [];
   private draggingCardIndex = -1;
   private dragOffset = new Vec2();
   private correctCardIndex = -1;
@@ -682,26 +652,9 @@ export class YinXuCity extends Component {
   private regionInputLocked = false;
   private terrainElevation: TerrainElevation = 'UPPER';
   private terrainElevationDebugLabel: Label | null = null;
-  private storyController!: StoryController;
-  private storyDialogue!: DialoguePanel;
-  private chapterBanner!: ChapterBanner;
-  private questGuide!: QuestGuide;
-  private storyNpc: Node | null = null;
-  private storyNpcTwo: Node | null = null;
-  private storyNpcThree: Node | null = null;
-  private presentedStoryStepId: string | null = null;
-  private storyArrivalLocked = false;
-  private storyWorldEntered = false;
-  private storyPresentationToken = 0;
-  private storyTestButtons: Node[] = [];
 
   onLoad() {
-    this.enabled = false;
-    void this.initializeGame();
-  }
-
-  private async initializeGame() {
-    this.save = await this.loadCitySave();
+    this.save = this.loadCitySave();
     this.buildWorld();
     this.createRegionTransitionManager();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
@@ -712,44 +665,19 @@ export class YinXuCity extends Component {
     input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
-      getCards: () => {
-        const discoveryOrder = this.save.unlockedOracleIds;
-        return this.oracleCards
-          .filter(card => (Boolean(card.asset) || card.id === 'water-temp')
-            && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
-          .map(card => ({
-            id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
-            quality: card.quality, meaning: card.meaning, evolution: card.evolution, history: card.history,
-            asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
-            imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
-            unlocked: discoveryOrder.includes(card.id),
-          } satisfies HallCard))
-          .sort((a, b) => {
-            if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
-            if (!a.unlocked) return 0;
-            return discoveryOrder.indexOf(b.id) - discoveryOrder.indexOf(a.id);
-          });
-      },
-      getCatalogProgress: () => {
-        const catalog = this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp');
-        return {
-          total: catalog.length,
-          collected: catalog.filter(card => this.save.unlockedOracleIds.includes(card.id)).length,
-        };
-      },
+      getCards: () => this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp').map(card => ({
+        id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
+        quality: card.quality, meaning: card.meaning, evolution: card.evolution, history: card.history,
+        asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
+        imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
+        unlocked: this.save.unlockedOracleIds.includes(card.id),
+      } satisfies HallCard)),
       getProgress: () => ({
         ink: this.save.ink,
         coins: this.save.coins,
         experience: this.save.experience,
         attempts: Object.values(this.save.mastery).reduce((sum, record) => sum + record.attempts, 0),
         correct: Object.values(this.save.mastery).reduce((sum, record) => sum + record.correctCount, 0),
-      }),
-      getStoryProgress: () => ({
-        currentChapterId: this.save.story.currentChapterId,
-        currentStepId: this.save.story.currentStepId,
-        completedChapterIds: [...this.save.story.completedChapterIds],
-        unlockedOracleIds: [...this.save.unlockedOracleIds],
-        destinyPower: this.save.story.destinyPower,
       }),
       getProfile: () => ({
         playerName: this.save.playerName,
@@ -787,66 +715,33 @@ export class YinXuCity extends Component {
       },
       getWeakCards: () => {
         return Object.entries(this.save.mastery)
-          .filter(([, record]) => record.attempts >= 1 && record.correctCount / record.attempts < 0.6)
+          .filter(([, record]) => record.attempts >= 1 && record.correctCount < record.attempts)
           .map(([id, record]) => ({ id, rate: record.correctCount / record.attempts }))
           .sort((a, b) => a.rate - b.rate)
           .slice(0, 3)
           .map(entry => entry.id);
-      },
-      getWrongBook: () => Object.entries(this.save.wrongBook ?? {})
-        .map(([cardId, entry]) => ({ cardId, wrongCount: entry.wrongCount, lastWrongAt: entry.lastWrongAt }))
-        .sort((a, b) => b.lastWrongAt - a.lastWrongAt),
-      clearWrongBook: (cardId: string) => {
-        delete this.save.wrongBook[cardId];
-        this.persistCitySave();
       },
       recordReview: (cardId, correct) => {
         const record = this.save.mastery[cardId] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
         record.attempts++;
         if (correct) record.correctCount++;
         this.save.mastery[cardId] = record;
-        if (!correct) {
-          const wrong = this.save.wrongBook[cardId] ?? { wrongCount: 0, lastWrongAt: 0 };
-          wrong.wrongCount++;
-          wrong.lastWrongAt = Date.now();
-          this.save.wrongBook[cardId] = wrong;
-        }
         this.persistCitySave();
-        const expectedLesson = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
-          item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === cardId)
-          ?? CHAPTER_TWO_FRAGMENT_CARDS.find(item =>
-            item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === cardId);
-        if (correct && expectedLesson
-          && this.storyController?.handle({ type: 'learning-completed', cardId, correct })) {
-          this.scheduleOnce(() => {
-            this.learningHall.returnToCity();
-            this.presentStoryStep(this.storyController.currentStep());
-          }, .08);
-        }
       },
       enterYinXu: () => {
-        this.storyWorldEntered = true;
         this.playerPos.set(0, 20);
         this.cameraPos.set(0, 20);
         this.player?.setPosition(0, 20, 80);
         this.followCamera(1);
-        this.beginChapterOneIfNeeded();
       },
     });
-    this.initializeStoryInfrastructure();
     const previewSearch = (globalThis as { location?: { search?: string } }).location?.search ?? '';
     if (sys.isBrowser && /(?:^|[?&])oracleQa=1(?:&|$)/.test(previewSearch)) {
       this.scheduleOnce(() => this.openOracleQaPreview(), .65);
     }
-    this.enabled = true;
   }
 
   onDestroy() {
-    this.storyDialogue?.destroy();
-    this.chapterBanner?.destroy();
-    this.questGuide?.destroy();
-    this.storyTestButtons.forEach(b => b.destroy());
-    this.storyTestButtons = [];
     input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
@@ -859,7 +754,7 @@ export class YinXuCity extends Component {
     this.elapsed += dt;
     this.updateCityGameplay(dt);
     const movementAllowed = this.overlay === 'none' && !this.seated && this.toolActionTimer <= 0
-      && !this.learningHall?.isOpen && !this.regionInputLocked && !this.storyDialogue?.isOpen;
+      && !this.learningHall?.isOpen && !this.regionInputLocked;
     const direction = movementAllowed
       ? (this.keyboard.lengthSqr() > 0 ? this.keyboard.clone() : this.stick.clone())
       : new Vec2();
@@ -906,18 +801,7 @@ export class YinXuCity extends Component {
     this.updateToolEffects(dt);
     this.statusNoticeTimer = Math.max(0, this.statusNoticeTimer - dt);
     this.regionTransitionManager?.update(dt);
-    if (this.storyTestButtons.length) {
-      const showTest = this.overlay === 'none'
-        && !this.storyDialogue?.isOpen
-        && !this.chapterBanner?.isOpen;
-      this.storyTestButtons.forEach(b => { if (b.isValid) b.active = showTest; });
-    }
     this.followCamera(dt);
-    this.updateChapterOneStory();
-    this.updateChapterTwoStory();
-    this.updateChapterThreeStory();
-    const visibleSize = view.getVisibleSize();
-    this.questGuide?.update(dt, this.playerPos, visibleSize.width, visibleSize.height);
     this.updateHud();
   }
 
@@ -974,499 +858,6 @@ export class YinXuCity extends Component {
     const show = r === RegionId.CITY || r === RegionId.OUTSKIRTS;
     if (this.outskirtsGroundNode) this.outskirtsGroundNode.active = show;
     if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
-  }
-
-  private initializeStoryInfrastructure() {
-    this.storyController = new StoryController([chapterOneDefinition, chapterTwoDefinition, chapterThreeDefinition], this.save.story, story => {
-      this.save.story = story;
-      this.persistCitySave();
-    });
-    this.storyDialogue = new DialoguePanel(this.node);
-    this.chapterBanner = new ChapterBanner(this.node);
-    this.questGuide = new QuestGuide(this.world, this.node);
-    this.createChapterOneNpc();
-    this.createChapterTwoNpc();
-    this.createChapterThreeNpc();
-    this.createStoryTestButtons();
-    this.storyController.subscribe((_snapshot, step) => this.presentStoryStep(step));
-  }
-
-  private beginChapterOneIfNeeded() {
-    const snapshot = this.storyController.snapshot();
-    if (snapshot.currentChapterId) {
-      this.presentStoryStep(this.storyController.currentStep());
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_ONE_ID)) {
-      this.storyController.startChapter(CHAPTER_ONE_ID);
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_TWO_ID)) {
-      this.storyController.startChapter(CHAPTER_TWO_ID);
-      // 第二章：玩家直接传送到渔娘阿潍身旁，避免自行跋涉 4600 像素却找不到人
-      this.spawnPlayerAt(CHAPTER_TWO_FISHER_POSITION.x + 160, CHAPTER_TWO_FISHER_POSITION.y);
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_THREE_ID)) {
-      this.storyController.startChapter(CHAPTER_THREE_ID);
-      // 第三章：玩家直接传送到守峡人阿沚身旁（右边 80px，明确落在 200 触发半径内），
-      // 放完开场对话即自动触发，无需自行走位找人。
-      this.spawnPlayerAt(CHAPTER_THREE_NPC_POSITION.x + 80, CHAPTER_THREE_NPC_POSITION.y);
-      return;
-    }
-    this.presentStoryStep(this.storyController.currentStep());
-  }
-
-  // 是否还有未开始的章节（用于章末自动衔接，避免空 step 时无限递归）
-  private hasUnstartedStoryChapter(): boolean {
-    if (!this.storyController) return false;
-    const done = this.storyController.snapshot().completedChapterIds;
-    return !done.includes(CHAPTER_ONE_ID)
-      || !done.includes(CHAPTER_TWO_ID)
-      || !done.includes(CHAPTER_THREE_ID);
-  }
-
-  // 把玩家传送到指定世界坐标（同步位置/相机/可视节点），用于章节间切换时直接落在 NPC 旁
-  private spawnPlayerAt(x: number, y: number) {
-    this.playerPos.set(x, y);
-    this.cameraPos.set(x, y);
-    this.player?.setPosition(x, y, 80);
-    this.followCamera(1);
-  }
-
-  private presentStoryStep(step: StoryStepDefinition | null) {
-    if (!this.storyWorldEntered) {
-      this.questGuide.setObjective(null);
-      if (this.storyNpc?.isValid) this.storyNpc.active = false;
-      return;
-    }
-    let objective = step?.objective ? { ...step.objective } : null;
-    const isChapterTwoFragment = CHAPTER_TWO_FRAGMENT_CARDS.some(item =>
-      item.seekStepId === step?.id || item.lessonStepId === step?.id);
-    const isChapterThreeFragment = CHAPTER_THREE_FRAGMENT_CARDS.some(item =>
-      item.seekStepId === step?.id || item.lessonStepId === step?.id);
-    if (CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
-      item.seekStepId === step?.id || item.lessonStepId === step?.id)
-      || isChapterTwoFragment || isChapterThreeFragment) {
-      const site = isChapterTwoFragment
-        ? this.reserveChapterTwoExcavationSite()
-        : isChapterThreeFragment
-          ? this.reserveChapterThreeExcavationSite()
-          : this.reserveChapterOneExcavationSite();
-      if (site && objective) {
-        objective.targetX = site.x;
-        objective.targetY = site.y;
-      }
-    }
-    this.questGuide.setObjective(objective);
-    const xiaoShitouVisible = step?.id === 'chapter-1-meet-xiaoshitou'
-      || step?.id === 'chapter-1-xiaoshitou-dialogue';
-    const fisherVisible = this.storyController.snapshot().currentChapterId === CHAPTER_TWO_ID;
-    const xiaZhiVisible = this.storyController.snapshot().currentChapterId === CHAPTER_THREE_ID;
-    if (this.storyNpc?.isValid) this.storyNpc.active = xiaoShitouVisible;
-    if (this.storyNpcTwo?.isValid) this.storyNpcTwo.active = fisherVisible;
-    if (this.storyNpcThree?.isValid) this.storyNpcThree.active = xiaZhiVisible;
-    this.storyArrivalLocked = false;
-
-    if (!step) {
-      // 章节完成、当前无进行中步骤：自动衔接下一章，无需退出重进殷墟。
-      if (this.storyWorldEntered && this.hasUnstartedStoryChapter()) {
-        this.beginChapterOneIfNeeded();
-      }
-      return;
-    }
-    if (!step.dialogue || this.presentedStoryStepId === step.id) return;
-    this.presentedStoryStepId = step.id;
-    const presentationToken = ++this.storyPresentationToken;
-    const isPrologueOpening = step.id === 'prologue-silent-heaven';
-    const isChapterOneOpening = step.id === 'chapter-1-opening';
-    const isChapterTwoOpening = step.id === 'chapter-2-opening';
-    const isChapterThreeOpening = step.id === 'chapter-3-opening';
-    const hasOpeningBanner = isPrologueOpening || isChapterOneOpening || isChapterTwoOpening || isChapterThreeOpening;
-    if (isPrologueOpening) {
-      this.chapterBanner.show(
-        '序章',
-        '天道失语',
-        '通天灵龟甲崩碎，天地、人神与先祖之间的声音一夜断绝。',
-        'prologue',
-      );
-    } else if (isChapterOneOpening) {
-      this.chapterBanner.show(
-        '第一章',
-        '失语的甲骨',
-        '当所有龟甲失去兆纹，只有散落荒野的碎骨仍在低语。',
-        'chapter',
-      );
-    } else if (isChapterTwoOpening) {
-      this.chapterBanner.show(
-        '第二章',
-        '河畔初兆',
-        '循着水声，你来到西侧河畔的渔村，计数卜骨的碎甲正等待重新开口。',
-        'chapter',
-      );
-    } else if (isChapterThreeOpening) {
-      this.chapterBanner.show(
-        '第三章',
-        '逆流寻踪',
-        '循逆水裂纹深入上游峡谷，守峡人阿沚与失语的上游水文碎甲正在等待。',
-        'chapter',
-      );
-    }
-    this.scheduleOnce(() => {
-      if (presentationToken !== this.storyPresentationToken
-        || this.storyController.currentStep()?.id !== step.id) return;
-      const openDialogue = () => {
-        if (presentationToken !== this.storyPresentationToken
-          || this.storyController.currentStep()?.id !== step.id) return;
-        this.storyDialogue.open(
-          step.dialogue ?? [],
-          () => this.storyController.handle({ type: 'dialogue-completed' }),
-          isPrologueOpening,
-        );
-      };
-      if (isPrologueOpening) {
-        // Cross-fade both dark layers so the cinematic never flashes back to
-        // the bright game world between the title and the first narration.
-        openDialogue();
-        this.chapterBanner.close();
-      } else {
-        this.chapterBanner.close(openDialogue);
-      }
-    }, hasOpeningBanner ? 2.8 : .08);
-  }
-
-  // 三个测试按钮：分别把存档重置到“重测第一/二/三章”的开头。
-  private createStoryTestButtons() {
-    if (!sys.isBrowser || this.storyTestButtons.length > 0) return;
-    const defs: Array<{ y: number; label: string; target: 1 | 2 | 3 }> = [
-      { y: 332, label: '测·第一章', target: 1 },
-      { y: 282, label: '测·第二章', target: 2 },
-      { y: 232, label: '测·第三章', target: 3 },
-    ];
-    for (const def of defs) {
-      const root = new Node(`StoryTestButton-${def.target}`);
-      root.parent = this.node;
-      root.setPosition(-492, def.y, 720);
-      root.addComponent(UITransform).setContentSize(200, 40);
-      root.addComponent(BlockInputEvents);
-      const background = root.addComponent(Graphics);
-      background.fillColor = new Color(55, 39, 31, 242);
-      background.roundRect(-98, -18, 196, 36, 9);
-      background.fill();
-      background.strokeColor = new Color(218, 170, 82, 255);
-      background.lineWidth = 3;
-      background.roundRect(-96, -16, 192, 32, 8);
-      background.stroke();
-      this.createUiLabel(
-        root, `StoryTestButtonLabel-${def.target}`, def.label,
-        0, 0, 184, 30, 15, new Color(255, 231, 177), 'center', 2,
-      );
-      const target = def.target;
-      root.on(Node.EventType.TOUCH_END, () => this.resetStoryForTesting(target), this);
-      this.storyTestButtons.push(root);
-    }
-  }
-
-  // 重测指定章节：重置为全新存档，再标记其前置章已完成（其字视为已唤醒），
-  // 直接进入目标章，无需重玩前置章。
-  private resetStoryForTesting(target: 1 | 2 | 3) {
-    if (this.overlay !== 'none') return;
-    this.storyPresentationToken++;
-    this.chapterBanner.close();
-    this.storyDialogue.close();
-    this.presentedStoryStepId = null;
-    this.storyArrivalLocked = false;
-    const restartImmediately = this.storyWorldEntered && !this.learningHall.isOpen;
-
-    // 1) 故事状态重置为全新，再按目标章把前置章节标记已完成
-    this.storyController.resetForTesting();
-    const priorCompleted: string[] = [];
-    if (target >= 2) priorCompleted.push(CHAPTER_ONE_ID);
-    if (target >= 3) priorCompleted.push(CHAPTER_TWO_ID);
-    if (priorCompleted.length) this.storyController.startTestingAtChapter(priorCompleted);
-
-    // 2) 清空全部剧情碎片卡（学习进度 + 解锁），稍后重新唤醒前置章
-    const allStoryCards = [
-      ...CHAPTER_ONE_FRAGMENT_CARDS,
-      ...CHAPTER_TWO_FRAGMENT_CARDS,
-      ...CHAPTER_THREE_FRAGMENT_CARDS,
-    ];
-    const allStoryIds = new Set<string>(
-      allStoryCards.map(item => item.cardId ?? '').filter(id => id.length > 0));
-    this.save.unlockedOracleIds = this.save.unlockedOracleIds.filter(id => !allStoryIds.has(id));
-    allStoryCards.forEach(item => { if (item.cardId) delete this.save.mastery[item.cardId]; });
-
-    // 3) 重置所有剧情挖掘坑位为可挖状态
-    this.excavationSites
-      .filter(site => site.region === 'field' || site.region === 'river' || site.region === 'lake')
-      .forEach(site => {
-        site.active = true;
-        site.awaitingStudy = false;
-        site.respawnTimer = 0;
-        site.holeTimer = 0;
-        this.redrawExcavationSite(site);
-      });
-
-    // 4) 前置章的字视为已唤醒，使进度面板状态一致
-    if (target >= 2) this.awakenStoryCards(CHAPTER_ONE_FRAGMENT_CARDS);
-    if (target >= 3) this.awakenStoryCards(CHAPTER_TWO_FRAGMENT_CARDS);
-
-    this.persistCitySave();
-    if (restartImmediately) {
-      this.beginChapterOneIfNeeded();
-      return;
-    }
-    const label = target === 1 ? '第一章' : target === 2 ? '第二章' : '第三章';
-    this.showStatusNotice(`已重置为测试${label}。点击“进入殷墟”即可体验${label}。`, 4);
-  }
-
-  // 把一批剧情碎片卡标记为已唤醒（解锁 + 学习进度），用于重测前置章时保持进度面板一致。
-  private awakenStoryCards(cards: ReadonlyArray<{ cardId?: string | null }>) {
-    cards.forEach(item => {
-      if (!item.cardId) return;
-      if (this.save.unlockedOracleIds.indexOf(item.cardId) < 0) {
-        this.save.unlockedOracleIds.push(item.cardId);
-      }
-      this.save.mastery[item.cardId] = { attempts: 1, bestStars: 3, correctCount: 1 };
-    });
-  }
-
-  private createChapterOneNpc() {
-    const root = new Node('StoryNpc-XiaoShitou');
-    root.parent = this.world;
-    root.setPosition(XIAO_SHITOU_POSITION.x, XIAO_SHITOU_POSITION.y, 82);
-    root.addComponent(UITransform).setContentSize(44, 60);
-    const shadow = this.localGraphics('StoryNpc-XiaoShitou-Shadow', root, 0, 0, 34, 14, -3);
-    shadow.fillColor = new Color(28, 34, 31, 72);
-    shadow.ellipse(0, 1, 11, 3.5);
-    shadow.fill();
-    const visual = new Node('StoryNpc-XiaoShitou-Sprite');
-    visual.parent = root;
-    visual.setPosition(0, 30, 4);
-    visual.addComponent(UITransform).setContentSize(64, 64);
-    const sprite = visual.addComponent(Sprite);
-    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    // Reuse the same pixel-character sheet as the city's authored NPCs so the
-    // story guide cannot drift away from the established game art direction.
-    this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
-      if (sprite.isValid) sprite.spriteFrame = frame;
-    });
-    this.createUiLabel(
-      root, 'StoryNpc-XiaoShitou-Name', '小石头',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
-    root.active = false;
-    this.storyNpc = root;
-  }
-
-  private createChapterTwoNpc() {
-    const root = new Node('StoryNpc-Fisher');
-    root.parent = this.world;
-    root.setPosition(CHAPTER_TWO_FISHER_POSITION.x, CHAPTER_TWO_FISHER_POSITION.y, 82);
-    root.addComponent(UITransform).setContentSize(44, 60);
-    const shadow = this.localGraphics('StoryNpc-Fisher-Shadow', root, 0, 0, 34, 14, -3);
-    shadow.fillColor = new Color(28, 34, 31, 72);
-    shadow.ellipse(0, 1, 11, 3.5);
-    shadow.fill();
-    const visual = new Node('StoryNpc-Fisher-Sprite');
-    visual.parent = root;
-    visual.setPosition(0, 30, 4);
-    visual.addComponent(UITransform).setContentSize(64, 64);
-    const sprite = visual.addComponent(Sprite);
-    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    this.requestSpriteFrame('characters/villager-woman-v2/down-0/spriteFrame', frame => {
-      if (sprite.isValid) sprite.spriteFrame = frame;
-    });
-    this.createUiLabel(
-      root, 'StoryNpc-Fisher-Name', '渔娘阿潍',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
-    // 脚下柔和金色光环 + 头顶微光：让玩家在河畔一眼定位渔娘（随 NPC 显隐而显隐）
-    const guide = new Node('StoryNpc-Fisher-Guide');
-    guide.parent = root;
-    guide.setPosition(0, 0, 6);
-    const guideG = guide.addComponent(Graphics);
-    guideG.fillColor = new Color(255, 214, 120, 55);
-    guideG.ellipse(0, 2, 26, 9);
-    guideG.fill();
-    guideG.strokeColor = new Color(255, 228, 150, 175);
-    guideG.lineWidth = 2;
-    guideG.ellipse(0, 2, 26, 9);
-    guideG.stroke();
-    // 头顶细小十字星，弱提示不抢视觉
-    guideG.fillColor = new Color(255, 240, 190, 210);
-    const drawStar = (cx: number, cy: number, r: number) => {
-      guideG.moveTo(cx, cy + r);
-      guideG.lineTo(cx + r * 0.25, cy + r * 0.25);
-      guideG.lineTo(cx + r, cy);
-      guideG.lineTo(cx + r * 0.25, cy - r * 0.25);
-      guideG.lineTo(cx, cy - r);
-      guideG.lineTo(cx - r * 0.25, cy - r * 0.25);
-      guideG.lineTo(cx - r, cy);
-      guideG.lineTo(cx - r * 0.25, cy + r * 0.25);
-      guideG.close();
-    };
-    drawStar(0, 78, 7);
-    guideG.fill();
-    this.schedule(() => {
-      if (!guide.isValid) return;
-      const s = 1 + Math.sin(Date.now() / 350) * 0.08;
-      guide.setScale(s, s, 1);
-    }, 0.05);
-    root.active = false;
-    this.storyNpcTwo = root;
-  }
-
-  private createChapterThreeNpc() {
-    const root = new Node('StoryNpc-GorgeKeeper');
-    root.parent = this.world;
-    root.setPosition(CHAPTER_THREE_NPC_POSITION.x, CHAPTER_THREE_NPC_POSITION.y, 82);
-    root.addComponent(UITransform).setContentSize(44, 60);
-    const shadow = this.localGraphics('StoryNpc-GorgeKeeper-Shadow', root, 0, 0, 34, 14, -3);
-    shadow.fillColor = new Color(28, 34, 31, 72);
-    shadow.ellipse(0, 1, 11, 3.5);
-    shadow.fill();
-    const visual = new Node('StoryNpc-GorgeKeeper-Sprite');
-    visual.parent = root;
-    visual.setPosition(0, 30, 4);
-    visual.addComponent(UITransform).setContentSize(64, 64);
-    const sprite = visual.addComponent(Sprite);
-    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
-      if (sprite.isValid) sprite.spriteFrame = frame;
-    });
-    this.createUiLabel(
-      root, 'StoryNpc-GorgeKeeper-Name', '守峡人阿沚',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
-    // 脚下柔和金色光环：让玩家在第三章一眼定位守峡人阿沚
-    const guide = new Node('StoryNpc-GorgeKeeper-Guide');
-    guide.parent = root;
-    guide.setPosition(0, 0, 6);
-    const guideG = guide.addComponent(Graphics);
-    guideG.fillColor = new Color(255, 214, 120, 55);
-    guideG.ellipse(0, 2, 26, 9);
-    guideG.fill();
-    guideG.strokeColor = new Color(255, 228, 150, 175);
-    guideG.lineWidth = 2;
-    guideG.ellipse(0, 2, 26, 9);
-    guideG.stroke();
-    this.schedule(() => {
-      if (!guide.isValid) return;
-      const s = 1 + Math.sin(Date.now() / 350) * 0.08;
-      guide.setScale(s, s, 1);
-    }, 0.05);
-    // 点击阿沚也能触发对话：靠近判定 150 像素若因场景仍有遗漏，点击作为兜底
-    root.on(Node.EventType.TOUCH_END, () => {
-      const step = this.storyController?.currentStep();
-      if (!step || step.id !== 'chapter-3-reach-gorge' || this.storyArrivalLocked) return;
-      this.storyArrivalLocked = true;
-      this.storyController.handle({ type: 'npc-reached', npcId: 'gorge-keeper' });
-    }, this);
-    root.active = false;
-    this.storyNpcThree = root;
-  }
-
-  private reserveChapterOneExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_ONE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_ONE_FRAGMENT_CARDS[fragmentIndex];
-    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
-    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
-
-  private reserveChapterTwoExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_TWO_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_TWO_FRAGMENT_CARDS[fragmentIndex];
-    const waterSites = this.excavationSites.filter(candidate =>
-      candidate.region === 'river' || candidate.region === 'lake');
-    const site = waterSites[fragmentIndex] ?? waterSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
-
-  // 第三章复用 field 区域（与第一章同源；两章顺序激活、不会同时占用）。
-  // 前/后/里 cardId 为 null（待补字），暂时无法分配坑位，返回 null 让引导点留空而非报错。
-  private reserveChapterThreeExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_THREE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_THREE_FRAGMENT_CARDS[fragmentIndex];
-    if (!fragment.cardId) return null;
-    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
-    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
-
-  private markStoryTarget(site: ExcavationSite) {
-    this.excavationSites.forEach(candidate => {
-      if (candidate.storyTarget) {
-        candidate.storyTarget = false;
-        if (candidate.root.isValid) this.redrawExcavationSite(candidate);
-      }
-    });
-    site.storyTarget = true;
-    if (site.root.isValid) this.redrawExcavationSite(site);
-  }
-
-  private updateChapterOneStory() {
-    const step = this.storyController?.currentStep();
-    if (!step || this.storyArrivalLocked) return;
-    const isMeeting = step.id === 'chapter-1-meet-xiaoshitou';
-    if (!isMeeting) return;
-    const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - XIAO_SHITOU_POSITION.x;
-    const dy = this.playerPos.y - XIAO_SHITOU_POSITION.y;
-    if (dx * dx + dy * dy > radius * radius) return;
-    this.storyArrivalLocked = true;
-    this.storyController.handle({ type: 'npc-reached', npcId: 'xiaoshitou' });
-  }
-
-  private updateChapterTwoStory() {
-    const step = this.storyController?.currentStep();
-    if (!step || this.storyArrivalLocked) return;
-    const isMeeting = step.id === 'chapter-2-reach-river';
-    if (!isMeeting) return;
-    const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - CHAPTER_TWO_FISHER_POSITION.x;
-    const dy = this.playerPos.y - CHAPTER_TWO_FISHER_POSITION.y;
-    if (dx * dx + dy * dy > radius * radius) return;
-    this.storyArrivalLocked = true;
-    this.storyController.handle({ type: 'npc-reached', npcId: 'fisher' });
-  }
-
-  private updateChapterThreeStory() {
-    const step = this.storyController?.currentStep();
-    if (!step || this.storyArrivalLocked) return;
-    const isMeeting = step.id === 'chapter-3-reach-gorge';
-    if (!isMeeting) return;
-    const radius = step.objective?.targetRadius ?? 78;
-    const dx = this.playerPos.x - CHAPTER_THREE_NPC_POSITION.x;
-    const dy = this.playerPos.y - CHAPTER_THREE_NPC_POSITION.y;
-    if (dx * dx + dy * dy > radius * radius) return;
-    this.storyArrivalLocked = true;
-    this.storyController.handle({ type: 'npc-reached', npcId: 'gorge-keeper' });
   }
 
   private buildWorld() {
@@ -2878,7 +2269,6 @@ this.drawCityWallsAndGate();
     this.updateTreeDepthOrdering();
     this.templeInterior.active = true;
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = false;
-    this.storyController?.handle({ type: 'temple-entered' });
   }
 
   private exitTempleInterior() {
@@ -3656,17 +3046,12 @@ this.drawCityWallsAndGate();
         [-4200,-1320],[-5470,-1770],[-4920,-1980],[-4200,-2320],[-5440,-2790],
       ],
       field: [
-        [600,-600],[1500,-600],[2400,-600],
-        [600,-1300],[1500,-1300],[2400,-1300],
-        [600,-2000],[1500,-2000],[2400,-2000],
-        [1100,-900],
-        [2750,-900],[2750,-1600],[2000,-900],[2000,-1600],[1100,-1600],[300,-1600],[2750,-1300],[2000,-1300],[2000,-1900],
+        [390,-920],[420,-1450],[435,-1870],[720,-2070],[1080,-940],
+        [1450,-900],[1780,-2050],[2180,-930],[2860,-1410],[2850,-1880],
       ],
       lake: [
-        [-1500,-1800],[-1050,-1800],[-600,-1800],
-        [-1500,-1450],[-1050,-1450],[-600,-1450],
-        [-1500,-1100],[-1050,-1100],[-600,-1100],
-        [-1275,-1275],
+        [-1530,-1510],[-1470,-1240],[-1270,-1140],[-940,-1135],[-615,-1300],
+        [-505,-1580],[-650,-1835],[-900,-1940],[-1210,-1935],[-1490,-1800],
       ],
       royal: [
         [840,-2720],[1110,-2850],[850,-3330],[1120,-3820],[1980,-2760],
@@ -3699,7 +3084,7 @@ this.drawCityWallsAndGate();
           id: `${region}-${index}`, root, sprite, glow, x: point.x, y: point.y,
           region,
           active: true, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
-          reward: this.rollExcavationReward(region), storyTarget: false,
+          reward: this.rollExcavationReward(region),
         };
         this.excavationSites.push(site);
         this.redrawExcavationSite(site);
@@ -3746,7 +3131,7 @@ this.drawCityWallsAndGate();
   }
 
   private isExcavationPositionValid(
-    x: number, y: number, region: ExcavationRegion, ignoreSite: ExcavationSite | null = null, minimumSpacing = 260,
+    x: number, y: number, region: ExcavationRegion, ignoreSite: ExcavationSite | null = null, minimumSpacing = 190,
   ) {
     const bounds = region === 'river' ? this.riverRegion : region === 'field' ? this.fieldRegion
       : region === 'lake' ? this.lakeRegion : this.tombRegion;
@@ -3809,9 +3194,8 @@ this.drawCityWallsAndGate();
       return { kind: 'ink', quality: null, cardId: null, amount: minimum + Math.floor(Math.random() * 4) };
     }
     const excavatableCards = this.oracleCards.filter(card => card.excavatable);
-    // Keep the existing regional chance of finding a word versus ink, but once
-    // a word is found every excavatable entry uses the same selection chance.
-    const uncollected = excavatableCards.filter(card => !this.save.unlockedOracleIds.includes(card.id));
+    const pool = excavatableCards.filter(card => card.quality === quality);
+    const uncollected = pool.filter(card => !this.save.unlockedOracleIds.includes(card.id));
     const reservedIds = new Set(this.excavationSites
       .filter(site => site.reward.kind === 'oracle' && !!site.reward.cardId)
       .map(site => site.reward.cardId as string));
@@ -3823,10 +3207,10 @@ this.drawCityWallsAndGate();
     // has been completed. Duplicate frequency only rises late in collection.
     const duplicateChance = collectionRatio < .8 ? .05 : Math.min(.38, .05 + (collectionRatio - .8) * 1.65);
     const freshPool = uncollectedAndUnreserved.length > 0 ? uncollectedAndUnreserved : uncollected;
-    const candidatePool = freshPool.length > 0 && Math.random() >= duplicateChance ? freshPool : excavatableCards;
+    const candidatePool = freshPool.length > 0 && Math.random() >= duplicateChance ? freshPool : pool;
     const card = candidatePool[Math.floor(Math.random() * candidatePool.length)];
     return card
-      ? { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0 }
+      ? { kind: 'oracle', quality, cardId: card.id, amount: 0 }
       : { kind: 'ink', quality: null, cardId: null, amount: quality === 'gold' ? 10 : quality === 'red' ? 6 : 4 };
   }
 
@@ -3876,20 +3260,6 @@ this.drawCityWallsAndGate();
 
   private drawExcavationInteractionHint(site: ExcavationSite) {
     const hint = site.glow;
-    if (site.storyTarget) {
-      // 剧情目标土坑：金色脉冲光环 + 中心亮点，老远就能定位
-      hint.fillColor = new Color(255, 214, 120, 38);
-      hint.circle(0, 6, 26);
-      hint.fill();
-      hint.strokeColor = new Color(255, 228, 150, 165);
-      hint.lineWidth = 2.5;
-      hint.circle(0, 6, 26);
-      hint.stroke();
-      hint.fillColor = new Color(255, 245, 200, 215);
-      hint.circle(0, 6, 5);
-      hint.fill();
-      return;
-    }
     const alpha = site.awaitingStudy ? 58 : 30;
     hint.strokeColor = new Color(151, 119, 70, alpha);
     hint.lineWidth = .75;
@@ -3928,37 +3298,14 @@ this.drawCityWallsAndGate();
   }
 
   private completeExcavation(site: ExcavationSite) {
-    site.storyTarget = false;
     const reward = site.reward;
     if (reward.kind === 'oracle' && reward.cardId) {
       const card = this.oracleCards.find(item => item.id === reward.cardId);
-      const expectedFragment = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
-        item.seekStepId === this.storyController?.currentStep()?.id && item.cardId === reward.cardId)
-        ?? CHAPTER_TWO_FRAGMENT_CARDS.find(item =>
-          item.seekStepId === this.storyController?.currentStep()?.id && item.cardId === reward.cardId)
-        ?? CHAPTER_THREE_FRAGMENT_CARDS.find(item =>
-          item.seekStepId === this.storyController?.currentStep()?.id && item.cardId === reward.cardId);
-      // 故事碎片：无论字卡是否已录入，都先推进「挖掘完成」步骤。
-      if (expectedFragment) {
-        this.storyController.handle({
-          type: 'excavation-completed',
-          cardId: reward.cardId,
-          siteId: site.id,
-        });
-      }
       if (card) {
-        // 字卡已录入：弹出辨识学习面板，学完再推进「学习完成」。
         site.awaitingStudy = true;
         this.showExcavationLearning(site, card);
         return;
       }
-      // 字卡尚未录入（待补字）：直接连带完成「学习完成」，避免卡死。
-      site.awaitingStudy = false;
-      if (expectedFragment) {
-        this.storyController.handle({ type: 'learning-completed', cardId: reward.cardId, correct: true });
-      }
-      this.showStatusNotice('这枚碎甲的字迹尚待补全，已记入寻骨进度，可继续向下一枚。', 3.8);
-      return;
     }
     site.awaitingStudy = false;
     this.save.ink += reward.amount;
@@ -5982,33 +5329,16 @@ this.drawCityWallsAndGate();
     graphics.stroke();
   }
 
-  private async loadCitySave(): Promise<CitySave> {
-    const databaseSave = await this.localSaveDatabase.get<Partial<CitySave>>(this.saveKey);
-    if (databaseSave) {
-      return {
-        ...databaseSave,
-        version: 3,
-        wrongBook: databaseSave.wrongBook && typeof databaseSave.wrongBook === 'object' ? databaseSave.wrongBook : {},
-        story: migrateStorySave(databaseSave.story),
-      } as CitySave;
-    }
-
-    const legacySave = this.loadLegacyCitySave();
-    void this.localSaveDatabase.put(this.saveKey, legacySave);
-    return legacySave;
-  }
-
-  private loadLegacyCitySave(): CitySave {
+  private loadCitySave(): CitySave {
     const defaults: CitySave = {
-      version: 3,
+      version: 2,
       ink: 8,
       coins: 0,
       experience: 0,
       // The three teaching cards remain the starter set. Temporary field finds
       // stay dark in the codex until the player actually excavates them.
-      unlockedOracleIds: ['sun'],
+      unlockedOracleIds: ['rain', 'sun', 'field'],
       mastery: {},
-      wrongBook: {},
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
       placedDecorationIds: [],
@@ -6017,7 +5347,6 @@ this.drawCityWallsAndGate();
       musicOn: true,
       sfxOn: true,
       nightMode: false,
-      story: migrateStorySave(null),
     };
     try {
       const raw = sys.localStorage.getItem(this.saveKey);
@@ -6026,13 +5355,12 @@ this.drawCityWallsAndGate();
       return {
         ...defaults,
         ...parsed,
-        version: 3,
+        version: 2,
         ink: Math.max(0, Number(parsed.ink ?? defaults.ink)),
         coins: Math.max(0, Number(parsed.coins ?? defaults.coins)),
         experience: Math.max(0, Number(parsed.experience ?? defaults.experience)),
         unlockedOracleIds: Array.isArray(parsed.unlockedOracleIds) ? parsed.unlockedOracleIds : defaults.unlockedOracleIds,
         mastery: parsed.mastery && typeof parsed.mastery === 'object' ? parsed.mastery : {},
-        wrongBook: parsed.wrongBook && typeof parsed.wrongBook === 'object' ? parsed.wrongBook : {},
         ownedProductIds: Array.from(new Set(['shell-clay', ...(Array.isArray(parsed.ownedProductIds) ? parsed.ownedProductIds : [])])),
         placedDecorationIds: Array.isArray(parsed.placedDecorationIds) ? parsed.placedDecorationIds : [],
         playerName: typeof parsed.playerName === 'string' && parsed.playerName.trim().length > 0 ? parsed.playerName.trim() : defaults.playerName,
@@ -6041,7 +5369,6 @@ this.drawCityWallsAndGate();
         musicOn: typeof parsed.musicOn === 'boolean' ? parsed.musicOn : defaults.musicOn,
         sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
         nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,
-        story: migrateStorySave(parsed.story),
       };
     } catch (error) {
       console.warn('[YinXuCity] save data could not be read, using a safe new profile.', error);
@@ -6050,7 +5377,6 @@ this.drawCityWallsAndGate();
   }
 
   private persistCitySave() {
-    void this.localSaveDatabase.put(this.saveKey, this.save);
     try {
       sys.localStorage.setItem(this.saveKey, JSON.stringify(this.save));
     } catch (error) {
@@ -6242,7 +5568,6 @@ this.drawCityWallsAndGate();
     this.divinationStage = 'waiting';
     this.queueTimer = .8;
     this.buildDivinationFrame();
-    this.storyController?.handle({ type: 'temple-seat-reached' });
     if (this.save.ink < this.divinationInkCost && this.divinationText?.isValid) {
       this.divinationText.string = `墨料不足。每次占卜需要 ${this.divinationInkCost} 点墨料，请先去城外探索。`;
     }
@@ -6304,35 +5629,15 @@ this.drawCityWallsAndGate();
     this.riseButtonLabel.color = canRise ? new Color(255, 238, 197) : new Color(191, 173, 143);
   }
 
-  // 判断当前步骤是否为「占卜步骤」（completeOn === 'divination-completed'）。
-  // 章无关：第一/二/三……章任意章节的占卜轮都靠它判断是否仍在连续占卜中，
-  // 从而支持多轮占卜（中间轮保持 overlay 自动续接，末轮才逼起身）。
-  private isActiveDivinationStep(): boolean {
-    const step = this.storyController?.currentStep();
-    return step?.completeOn === 'divination-completed';
-  }
-
   private spawnNextSupplicant() {
-    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id)).length;
-    if (unlockedCount < 3) {
-      if (this.divinationText?.isValid) this.divinationText.string = '请先收集至少三枚甲骨文字，再开始三选一占卜。';
-      return;
-    }
     const available = this.divinationQuestions.filter(question => this.save.unlockedOracleIds.includes(question.answerId));
     if (available.length === 0) {
       if (this.divinationText?.isValid) this.divinationText.string = '背包中还没有能够回应村民问题的甲骨，请先去野外学习。';
       return;
     }
-    const currentStepId = this.storyController?.currentStep()?.id;
-    const storyQuestion = currentStepId === 'chapter-1-first-divination'
-      ? available.find(question => question.answerId === 'rain' && question.villager === '阿禾')
-      : (this.isActiveDivinationStep()
-        ? available.find(question => CHAPTER_TWO_FRAGMENT_CARDS.some(fragment => fragment.cardId === question.answerId)
-          || CHAPTER_THREE_FRAGMENT_CARDS.some(fragment => fragment.cardId === question.answerId))
-        : null);
     let next = Math.floor(Math.random() * available.length);
     if (available.length > 1 && available[next] === this.currentQuestion) next = (next + 1) % available.length;
-    this.currentQuestion = storyQuestion ?? available[next];
+    this.currentQuestion = available[next];
     this.currentQuestionIndex = this.divinationQuestions.indexOf(this.currentQuestion);
     this.createSupplicant(this.currentQuestion);
     if (this.divinationText?.isValid) this.divinationText.string = `${this.currentQuestion.villager}正向占卜席走来……`;
@@ -6451,18 +5756,7 @@ this.drawCityWallsAndGate();
     this.divinationActiveCard = null;
 
     this.createUiLabel(layer, 'SelectionInstruction', '拖动一枚甲骨到右侧完整龟腹甲上', -160, 284, 650, 42, 20, new Color(255, 230, 168));
-    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId);
-    const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id && this.save.unlockedOracleIds.includes(card.id));
-    if (!answer || wrongCandidates.length < 2) {
-      if (this.divinationText?.isValid) this.divinationText.string = '甲骨数量不足，暂时无法组成三张不同的候选甲骨。';
-      this.divinationStage = 'waiting';
-      return;
-    }
-    const wrongCards = wrongCandidates
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 2);
-    const cards = [answer, ...wrongCards].sort(() => Math.random() - 0.5);
-    this.currentDivinationCards = cards;
+    const cards = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id)).slice(0, 3);
     const positions = [-390, -195, 0];
     cards.forEach((card, index) => {
       const home = new Vec2(positions[index] ?? -390 + index * 195, 92);
@@ -6553,7 +5847,7 @@ this.drawCityWallsAndGate();
     const home = this.oracleCardHome[cardIndex];
     if (!node?.isValid || !home || !this.currentQuestion) return;
     const droppedOnShell = Math.abs(node.position.x - 360) <= 125 && Math.abs(node.position.y - 90) <= 145;
-    const card = this.currentDivinationCards[cardIndex];
+    const card = this.oracleCards.filter(item => this.save.unlockedOracleIds.includes(item.id)).slice(0, 3)[cardIndex];
     if (!droppedOnShell || !card) {
       node.setPosition(home.x, home.y, node.position.z);
       node.setScale(1, 1, 1);
@@ -6578,12 +5872,7 @@ this.drawCityWallsAndGate();
     this.divinationStage = 'animating';
     this.draggingCardIndex = -1;
     this.divinationAnimationTimer = 0;
-    const currentStepId = this.storyController?.currentStep()?.id;
-    const isChapterOneDivination = currentStepId === 'chapter-1-first-divination';
-    // 需求文档：占卜消耗 4 墨，仅「首卜」（第一章第一次，一次性标记 firstDivinationFreeUsed）免费；
-    // 后续普通占卜（含第二章全部轮）恢复 4 墨消耗，不得直接把消耗改为 0。
-    const inkCost = isChapterOneDivination && this.storyController.useFirstFreeDivination() ? 0 : this.divinationInkCost;
-    this.save.ink = Math.max(0, this.save.ink - inkCost);
+    this.save.ink = Math.max(0, this.save.ink - this.divinationInkCost);
     this.currentMasteryStars = this.currentAttempts === 0 ? 3 : this.currentAttempts === 1 ? 2 : 1;
     const multiplier = card.quality === 'gold' ? 2 : card.quality === 'red' ? 1.5 : 1;
     this.currentRewardCoins = Math.round(20 * multiplier);
@@ -6707,7 +5996,6 @@ this.drawCityWallsAndGate();
     this.overlayRoot.getChildByName('OracleSelectionLayer')?.destroy();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
-    this.currentDivinationCards = [];
     const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId);
     if (!card) return;
     const review = new Node('DivinationReviewPanel');
@@ -6740,45 +6028,16 @@ this.drawCityWallsAndGate();
 
   private finishDivinationReview() {
     if (this.divinationStage !== 'review') return;
-    const completedQuestion = this.currentQuestion;
-    // 在 handle 推进步骤之前记录「刚完成的是哪一章的占卜」，用于线索标记与文案。
-    const finishedChapterId = this.storyController?.currentStep()?.chapterId;
-    const storyAdvanced = this.storyController?.handle({
-      type: 'divination-completed',
-      cardId: completedQuestion?.answerId,
-      npcId: completedQuestion?.villager,
-      correct: true,
-    }) ?? false;
-    if (storyAdvanced) {
-      if (finishedChapterId === CHAPTER_TWO_ID) {
-        this.storyController.setFlag('clue.upstream-missing', true);
-      } else if (finishedChapterId === CHAPTER_THREE_ID) {
-        this.storyController.setFlag('clue.forest-bone', true);
-      } else {
-        this.storyController.setFlag('clue.west-river-fragment', true);
-      }
-      this.storyController.addDestinyPower(1);
-    }
-    // handle 之后，若当前步骤仍是「占卜步骤」，说明还有下一轮，保持 overlay 自动续接；
-    // 否则（末轮）逼玩家起身查看裂纹。
-    const stillDivining = this.isActiveDivinationStep();
     this.overlayRoot?.getChildByName('DivinationReviewPanel')?.destroy();
     if (this.divinationText?.isValid) {
-      this.divinationText.string = storyAdvanced
-        ? (finishedChapterId === CHAPTER_TWO_ID
-          ? '兆纹之外浮现出一道陌生裂纹，似乎正指向逆流而上的河源。请起身查看。'
-          : finishedChapterId === CHAPTER_THREE_ID
-          ? '兆纹之外浮现出一道裂纹，竟越过河水，指向对岸幽深的山林。请起身查看。'
-          : '“雨”字兆纹之外浮现出一道陌生裂纹，似乎正指向西侧河畔。请起身查看。')
-        : this.save.ink >= this.divinationInkCost
+      this.divinationText.string = this.save.ink >= this.divinationInkCost
         ? `${this.currentQuestion?.villager ?? '村民'}谢过卜官，下一位村民稍后前来。此时可以起身离开。`
         : '本次学习已经完成，但墨料不足，无法继续接待村民。现在可以起身离开。';
     }
     this.supplicantLeaving = true;
     this.currentQuestion = null;
-    this.currentDivinationCards = [];
     this.divinationStage = 'waiting';
-    this.queueTimer = storyAdvanced && !stillDivining ? 9999 : this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
+    this.queueTimer = this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
     this.updateRiseButtonState();
   }
 
@@ -6802,7 +6061,6 @@ this.drawCityWallsAndGate();
     this.animatePlayer(false, new Vec2(), 0);
     this.updateTempleSeatDepthOrdering();
     this.destroyOverlayRoot();
-    this.storyController?.handle({ type: 'result-confirmed' });
   }
 
   private resolveTempleRisePoint() {
@@ -7083,7 +6341,7 @@ this.drawCityWallsAndGate();
     this.drawWoodPanel(root, 'ExcavationTeachingArchive', 170, -3, 720, 480, 2, true);
     const teachingText = `现代汉字：${this.oracleModernCharacter(card)}\n读音：${card.pinyin}\n\n一、字义与象形来源\n${card.meaning}\n\n二、字形演变与辨识要点\n${card.evolution}\n\n三、历史来源与商代生活\n${card.history}\n\n学习提示：再次在背包“图鉴”中点击该字，可以随时复习以上内容。`;
     this.createUiLabel(root, 'ExcavationTeachingText', teachingText,
-      170, -2, 660, 436, 16, new Color(74, 43, 29), 'left', 5);
+      170, -2, 650, 420, 18, new Color(74, 43, 29), 'left', 5);
     this.drawUiButton(root, 'ExcavationLearningCompleteButton', '完成学习', 430, -270, 220, 58, true);
   }
 
@@ -7112,13 +6370,6 @@ this.drawCityWallsAndGate();
     this.excavationWrongChoices = [];
     this.destroyOverlayRoot();
     this.showStatusNotice(`${card ? this.oracleModernCharacter(card) : '甲骨文'}的完整学习档案已收入背包图鉴。`, 4.2);
-    const expectedLesson = CHAPTER_ONE_FRAGMENT_CARDS.find(item =>
-      item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === card?.id)
-      ?? CHAPTER_TWO_FRAGMENT_CARDS.find(item =>
-        item.lessonStepId === this.storyController?.currentStep()?.id && item.cardId === card?.id);
-    if (expectedLesson && card) {
-      this.storyController?.handle({ type: 'learning-completed', cardId: card.id, correct: true });
-    }
   }
 
   private openBackpack() {
@@ -7127,226 +6378,6 @@ this.drawCityWallsAndGate();
     this.overlay = 'backpack';
     this.selectedBackpackIndex = this.clamp(this.selectedBackpackIndex, 0, Math.max(0, this.save.unlockedOracleIds.length - 1));
     this.buildBackpackUi();
-  }
-
-  private openChapterProgress() {
-    if (this.overlay !== 'none' || this.seated) return;
-    this.stopPlayerInput();
-    this.overlay = 'chapterProgress';
-    this.buildChapterProgressUi();
-  }
-
-  private chapterStageName(stepId: string | null, completed: boolean, chapterId: string | null) {
-    const isCh2 = chapterId === CHAPTER_TWO_ID;
-    const isCh3 = chapterId === CHAPTER_THREE_ID;
-    if (completed) return isCh3 ? '第三章已完成' : isCh2 ? '第二章已完成' : '第一章已完成';
-    if (!stepId || stepId.startsWith('prologue-')) return '序章 · 天道失语';
-    if (isCh3) {
-      if (['chapter-3-opening', 'chapter-3-reach-gorge', 'chapter-3-npc-dialogue'].indexOf(stepId) >= 0) {
-        return '第一幕 · 峡口';
-      }
-      if (stepId.indexOf('seek-') >= 0 || stepId.indexOf('lesson') >= 0) return '第二幕 · 上游寻骨';
-      if (['chapter-3-midstream-flood', 'chapter-3-fragment-awakens', 'chapter-3-first-request'].indexOf(stepId) >= 0) {
-        return '第三幕 · 众志共鸣';
-      }
-      if (stepId.indexOf('temple') >= 0 || stepId.indexOf('divination') >= 0) return '第四幕 · 三卜悬案';
-      return '尾声 · 林径深处';
-    }
-    if (isCh2) {
-      if (['chapter-2-opening', 'chapter-2-reach-river', 'chapter-2-fisher-dialogue'].indexOf(stepId) >= 0) {
-        return '第一幕 · 抵达河畔';
-      }
-      if (stepId.indexOf('seek-') >= 0 || stepId.indexOf('lesson') >= 0) return '第二幕 · 计数寻骨';
-      if (['chapter-2-midstream-tide', 'chapter-2-fragment-awakens', 'chapter-2-first-request'].indexOf(stepId) >= 0) {
-        return '第三幕 · 骨纹共鸣';
-      }
-      if (stepId.indexOf('temple') >= 0 || stepId.indexOf('divination') >= 0) return '第四幕 · 初卜潮期';
-      return '尾声 · 逆流而上';
-    }
-    if (['chapter-1-opening', 'chapter-1-meet-xiaoshitou', 'chapter-1-xiaoshitou-dialogue'].indexOf(stepId) >= 0) {
-      return '第一幕 · 异光之地';
-    }
-    if (stepId.indexOf('seek-') >= 0 || stepId.indexOf('lesson') >= 0) return '第二幕 · 五字寻骨';
-    if (['chapter-1-fragment-awakens', 'chapter-1-first-request'].indexOf(stepId) >= 0) return '第三幕 · 卜力苏醒';
-    if (stepId.indexOf('temple') >= 0 || stepId.indexOf('divination') >= 0) return '第四幕 · 第一次问卜';
-    return '尾声 · 水声掩埋之处';
-  }
-
-  private chapterTaskText(stepId: string | null, completed: boolean, chapterId: string | null) {
-    const isCh2 = chapterId === CHAPTER_TWO_ID;
-    const isCh3 = chapterId === CHAPTER_THREE_ID;
-    if (completed) {
-      if (isCh3) return { title: '第三章完成', detail: '上游的水文碎甲已经重新回应你。' };
-      return isCh2
-        ? { title: '第二章完成', detail: '河畔的计数碎甲已经重新回应你。' }
-        : { title: '第一章完成', detail: '失语的甲骨已经重新回应你，第二章尚未开启。' };
-    }
-    const step = this.storyController?.currentStep();
-    if (step?.objective) {
-      return {
-        title: step.objective.title,
-        detail: step.objective.detail ?? '跟随地图上的剧情标记继续调查。',
-      };
-    }
-    const dialogueTasks: Record<string, { title: string; detail: string }> = {
-      'prologue-silent-heaven': { title: '观看序章：天道失语', detail: '了解通天灵龟甲崩碎、世间占卜失声的开端。' },
-      'chapter-1-opening': { title: '听取贞人师的指引', detail: '得知城外异光与失落碎甲的线索。' },
-      'chapter-1-xiaoshitou-dialogue': { title: '询问异光落点', detail: '与城门外的小石头交谈，确认碎甲坠落的位置。' },
-      'chapter-1-fragment-awakens': { title: '聆听碎甲低语', detail: '五枚骨纹已经聚拢，听清它们传来的声音。' },
-      'chapter-1-first-request': { title: '接受阿禾的求雨委托', detail: '带着苏醒的卜力前往宗庙，替村民询问雨期。' },
-      'chapter-1-clue-revealed': { title: '追查西侧河畔线索', detail: '卜兆指向水声掩埋之处，新的碎甲正在等待你。' },
-      'chapter-2-opening': { title: '前往西侧河畔', detail: '循第一章卜兆的水声，抵达渔村寻找新的碎甲。' },
-      'chapter-2-reach-river': { title: '走近河畔渔娘', detail: '在河滩找到渔娘阿潍，听她讲计数卜骨的故事。' },
-      'chapter-2-fisher-dialogue': { title: '与阿潍交谈', detail: '了解渔家记渔获、潮期的计数甲骨。' },
-      'chapter-2-midstream-tide': { title: '聆听潮汐与往事', detail: '潮水起落间，阿潍说起父亲与计数卜骨。' },
-      'chapter-2-fragment-awakens': { title: '排列计数骨纹', detail: '将十二字按进位序排好，让计数碎甲共鸣。' },
-      'chapter-2-first-request': { title: '答应阿潍的托付', detail: '带着计数卜力前往宗庙，为渔家卜算潮期。' },
-      'chapter-2-clue-revealed': { title: '追查逆流而上的线索', detail: '卜兆指向河源方向，新的碎甲正在等待你。' },
-      'chapter-3-opening': { title: '前往上游峡谷', detail: '循第二章卜兆的逆流裂纹，深入上游寻找新的碎甲。' },
-      'chapter-3-reach-gorge': { title: '走近守峡人', detail: '在峡口找到守峡人阿沚，听她讲镇水卜骨的故事。' },
-      'chapter-3-npc-dialogue': { title: '与阿沚交谈', detail: '了解上游支族记水脉、数岔流、辨方位的旧刻。' },
-      'chapter-3-midstream-flood': { title: '聆听峡洪与往事', detail: '山洪冲开峡壁古图，阿沚说起镇水骨被人卷去。' },
-      'chapter-3-fragment-awakens': { title: '排列上游骨纹', detail: '将十九字按人众—数序—方位—天地日排好，让众志碎甲共鸣。' },
-      'chapter-3-first-request': { title: '答应阿沚的托付', detail: '带着上游卜力前往宗庙，为阿沚卜算镇水卜骨三桩悬案。' },
-      'chapter-3-clue-revealed': { title: '追查林径深处的线索', detail: '卜兆指向对岸山林，新的碎甲正在等待你。' },
-    };
-    return dialogueTasks[stepId ?? ''] ?? {
-      title: '继续当前剧情',
-      detail: '完成眼前的对话或互动，解锁下一段章节目标。',
-    };
-  }
-
-  private buildChapterProgressUi() {
-    this.destroyOverlayRoot();
-    const root = new Node('ChapterProgressOverlay');
-    root.parent = this.node;
-    root.setPosition(0, 0, 400);
-    root.addComponent(UITransform).setContentSize(1280, 720);
-    this.overlayRoot = root;
-
-    this.drawWoodPanel(root, 'ChapterProgressPanel', 0, 0, 920, 560, 0, false);
-    this.drawUiButton(root, 'ChapterProgressCloseButton', '关闭', 392, 238, 104, 44, false);
-
-    const snapshot = this.storyController?.snapshot();
-    const currentChapterId = snapshot?.currentChapterId
-      ?? snapshot?.completedChapterIds[snapshot.completedChapterIds.length - 1]
-      ?? CHAPTER_ONE_ID;
-    const isCh2 = currentChapterId === CHAPTER_TWO_ID;
-    const isCh3 = currentChapterId === CHAPTER_THREE_ID;
-    const activeDef = isCh3 ? chapterThreeDefinition : isCh2 ? chapterTwoDefinition : chapterOneDefinition;
-    const activeCards = isCh3 ? CHAPTER_THREE_FRAGMENT_CARDS : isCh2 ? CHAPTER_TWO_FRAGMENT_CARDS : CHAPTER_ONE_FRAGMENT_CARDS;
-    this.createUiLabel(root, 'ChapterProgressTitle',
-      `${isCh3 ? '第三章' : isCh2 ? '第二章' : '第一章'} · ${isCh3 ? '逆流寻踪' : isCh2 ? '河畔初兆' : '失语的甲骨'}`,
-      0, 232, 560, 48, 29, new Color(255, 224, 148));
-
-    const completed = (snapshot?.completedChapterIds.indexOf(currentChapterId) ?? -1) >= 0;
-    const stepId = snapshot?.currentStepId ?? null;
-    const currentIndex = completed
-      ? activeDef.steps.length - 1
-      : Math.max(0, activeDef.steps.findIndex(step => step.id === stepId));
-    const chapterPercent = completed
-      ? 100
-      : Math.round(currentIndex / Math.max(1, activeDef.steps.length - 1) * 100);
-
-    this.createUiLabel(root, 'ChapterStage', this.chapterStageName(stepId, completed, currentChapterId),
-      -345, 167, 430, 40, 22, new Color(250, 211, 125), 'left');
-    this.createUiLabel(root, 'ChapterPercent', `章节进度 ${chapterPercent}%`,
-      318, 167, 180, 36, 18, new Color(242, 216, 163));
-    const progressBack = this.localGraphics('ChapterProgressBack', root, 0, 132, 730, 22, 3);
-    progressBack.fillColor = new Color(48, 37, 31, 230); progressBack.roundRect(-365, -9, 730, 18, 9); progressBack.fill();
-    const progressWidth = Math.max(10, 718 * chapterPercent / 100);
-    const progressFill = this.localGraphics('ChapterProgressFill', root, -359 + progressWidth / 2, 132, progressWidth, 18, 4);
-    progressFill.fillColor = new Color(211, 151, 65); progressFill.roundRect(-progressWidth / 2, -6, progressWidth, 12, 6); progressFill.fill();
-
-    const task = this.chapterTaskText(stepId, completed, currentChapterId);
-    this.drawWoodPanel(root, 'ChapterTaskPanel', 0, 48, 770, 126, 2, true);
-    this.createUiLabel(root, 'ChapterTaskCaption', '当前任务', -322, 82, 130, 30, 17, new Color(119, 67, 37), 'left', 5);
-    const taskTitleLabel = this.createUiLabel(root, 'ChapterTaskTitle', task.title, -175, 79, 560, 40, 20, new Color(84, 45, 28), 'left', 5);
-    taskTitleLabel.overflow = Label.Overflow.CLAMP;
-    taskTitleLabel.enableWrapText = false;
-    this.createUiLabel(root, 'ChapterTaskDetail', task.detail, 0, 37, 690, 48, 16, new Color(96, 58, 38), 'left', 5);
-
-    this.createUiLabel(root, 'ChapterGlyphCaption', '本章碎甲文字', -324, -50, 220, 32, 18, new Color(245, 211, 145), 'left');
-    this.buildChapterGlyphScrollView(root, activeCards);
-
-    const chapterUnlocked = activeCards.filter(fragment =>
-      this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
-    const totalUnlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.indexOf(card.id) >= 0).length;
-    this.createUiLabel(root, 'ChapterCollectionSummary',
-      `本章骨纹 ${chapterUnlocked} / ${activeCards.length}     甲骨总收集 ${totalUnlocked} / 300     卜力 ${snapshot?.destinyPower ?? 0}`,
-      0, -252, 760, 36, 17, new Color(247, 217, 154));
-    this.createUiLabel(root, 'ChapterProgressHint', '跟随当前任务推进剧情；挖掘并学习碎甲文字会逐步点亮本章骨纹。',
-      0, -278, 760, 30, 14, new Color(207, 186, 148));
-  }
-
-  // 统一章节进度面板：甲骨文字网格，支持拖拽/滚轮上下滑动，字不出框
-  private buildChapterGlyphScrollView(
-    root: Node,
-    cards: ReadonlyArray<{ cardId: string; character: string }>,
-  ) {
-    const perRow = 5;
-    const rows = Math.ceil(cards.length / perRow);
-    const cell = 94;
-    const colGap = 168;
-    const rowGap = 112;
-    const viewW = 860;
-    const viewH = 190;
-    const viewCenterY = -155;
-    const contentH = Math.max(viewH, rows * rowGap + 18);
-    const maxScroll = Math.max(0, (contentH - viewH) / 2);
-
-    const glyphViewport = new Node('ChapterGlyphScroll');
-    glyphViewport.parent = root;
-    glyphViewport.setPosition(0, viewCenterY, 2);
-    glyphViewport.addComponent(UITransform).setContentSize(viewW, viewH);
-    glyphViewport.addComponent(BlockInputEvents);
-    const glyphMask = glyphViewport.addComponent(Mask);
-    glyphMask.type = Mask.Type.GRAPHICS_RECT;
-
-    const glyphContent = new Node('ChapterGlyphContent');
-    glyphContent.parent = glyphViewport;
-    glyphContent.addComponent(UITransform).setContentSize(viewW, contentH);
-    glyphContent.setPosition(0, -maxScroll, 0);
-
-    cards.forEach((fragment, index) => {
-      const col = index % perRow;
-      const row = Math.floor(index / perRow);
-      const x = (col - (perRow - 1) / 2) * colGap;
-      const y = contentH / 2 - rowGap / 2 - row * rowGap;
-      const unlocked = this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0;
-      const plate = this.localGraphics(`ChapterGlyphPlate-${fragment.cardId}`, glyphContent, x, y, cell, cell, 4);
-      plate.fillColor = unlocked ? new Color(223, 195, 137) : new Color(65, 54, 47);
-      plate.roundRect(-cell / 2, -cell / 2, cell, cell, 10); plate.fill();
-      plate.strokeColor = unlocked ? new Color(238, 176, 71) : new Color(117, 94, 70);
-      plate.lineWidth = 3; plate.roundRect(-cell / 2, -cell / 2, cell, cell, 10); plate.stroke();
-      const charLabel = this.createUiLabel(glyphContent, `ChapterGlyph-${fragment.cardId}`, unlocked ? fragment.character : '？',
-        x, y + 5, 86, 72, 34, unlocked ? new Color(70, 40, 27) : new Color(157, 137, 108));
-      charLabel.overflow = Label.Overflow.CLAMP;
-      charLabel.enableWrapText = false;
-      const stateLabel = this.createUiLabel(glyphContent, `ChapterGlyphState-${fragment.cardId}`, unlocked ? '已唤醒' : '未发现',
-        x, y - 44, 90, 22, 13, unlocked ? new Color(255, 221, 135) : new Color(169, 151, 124));
-      stateLabel.overflow = Label.Overflow.CLAMP;
-      stateLabel.enableWrapText = false;
-    });
-
-    let glyphDragging = false;
-    let glyphDragStart = 0;
-    let glyphDragContentY = 0;
-    glyphViewport.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
-      glyphDragging = true; glyphDragStart = e.getLocationY(); glyphDragContentY = glyphContent.getPosition().y;
-    });
-    glyphViewport.on(Node.EventType.TOUCH_MOVE, (e: EventTouch) => {
-      if (!glyphDragging) return;
-      const ny = this.clamp(glyphDragContentY + (e.getLocationY() - glyphDragStart), -maxScroll, maxScroll);
-      glyphContent.setPosition(0, ny, 0);
-    });
-    glyphViewport.on(Node.EventType.TOUCH_END, () => { glyphDragging = false; });
-    glyphViewport.on(Node.EventType.TOUCH_CANCEL, () => { glyphDragging = false; });
-    glyphViewport.on(Node.EventType.MOUSE_WHEEL, (e: any) => {
-      const delta = (e.getScrollY?.() ?? 0);
-      const ny = this.clamp(glyphContent.getPosition().y - delta * 0.4, -maxScroll, maxScroll);
-      glyphContent.setPosition(0, ny, 0);
-    });
   }
 
   private buildBackpackUi() {
@@ -7635,16 +6666,6 @@ this.drawCityWallsAndGate();
     this.pixelSprite('BackpackButtonPixelIcon', 'backpack-icon-v1', this.node, 380, -222, 42, 49, 204);
     this.screenSmallLabel('背包', 380, -264, 13, new Color(255, 239, 202), 80, 24, 205);
 
-    const chapter = this.graphics('ChapterProgressButton', this.node, 200);
-    chapter.fillColor = new Color(91, 62, 43, 230); chapter.circle(0, 0, 44); chapter.fill();
-    chapter.strokeColor = new Color(229, 192, 111); chapter.lineWidth = 4; chapter.circle(0, 0, 44); chapter.stroke();
-    chapter.fillColor = new Color(225, 194, 130);
-    chapter.roundRect(-23, -24, 46, 48, 5); chapter.fill();
-    chapter.strokeColor = new Color(104, 65, 39); chapter.lineWidth = 3; chapter.roundRect(-23, -24, 46, 48, 5); chapter.stroke();
-    chapter.moveTo(-13, 9); chapter.lineTo(13, 9); chapter.moveTo(-13, -1); chapter.lineTo(13, -1); chapter.moveTo(-13, -11); chapter.lineTo(7, -11); chapter.stroke();
-    chapter.node.setPosition(260, -230, 200);
-    this.screenSmallLabel('章节', 260, -264, 13, new Color(255, 239, 202), 80, 24, 205);
-
     const action = this.graphics('ActionButton', this.node, 200); action.fillColor = new Color(151, 61, 47, 220); action.circle(0, 0, 52); action.fill(); action.strokeColor = new Color(255, 222, 147); action.lineWidth = 4; action.circle(0, 0, 52); action.stroke(); action.node.setPosition(500, -230, 200);
     this.actionButtonNode = action.node;
     this.actionLabel = this.screenLabel('', 500, -230, 18, new Color(255, 245, 216));
@@ -7709,7 +6730,7 @@ this.drawCityWallsAndGate();
             : this.actionKind === 'shop' ? '点击“进入”打开商代集市' : '';
       this.status.string = this.statusNoticeTimer > 0
         ? this.statusNotice
-        : interactionHint || (this.blocked ? '前方不可通行 · 寻找城门或绕开障碍' : `摇杆 · 坐标 ${Math.round(x)}, ${Math.round(y)}`);
+        : interactionHint || (this.blocked ? '前方不可通行 · 寻找城门或绕开障碍' : `摇杆 / WASD 移动  ·  坐标 ${Math.round(x)}, ${Math.round(y)}`);
     }
   }
 
@@ -7719,13 +6740,6 @@ this.drawCityWallsAndGate();
     else if (this.actionKind === 'templeSeat') this.beginDivination();
     else if (this.actionKind === 'templeExit') this.exitTempleInterior();
     else if (this.actionKind === 'shop') this.showShopConfirmation();
-  }
-
-  private async resetLocalSave() {
-    await this.localSaveDatabase.remove(this.saveKey);
-    sys.localStorage.removeItem(this.saveKey);
-    this.save = await this.loadCitySave();
-    this.persistCitySave();
   }
 
   private onKeyDown(e: EventKeyboard) {
@@ -7740,7 +6754,9 @@ this.drawCityWallsAndGate();
       return;
     }
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_R && this.overlay === 'none') {
-      void this.resetLocalSave();
+      sys.localStorage.removeItem(this.saveKey);
+      this.save = this.loadCitySave();
+      this.persistCitySave();
       this.status.string = '预览存档已恢复到初始学习进度。';
       return;
     }
@@ -8041,10 +7057,6 @@ this.drawCityWallsAndGate();
       this.openBackpack();
       return;
     }
-    if (Math.hypot(localX - 260, localY + 230) <= 66) {
-      this.openChapterProgress();
-      return;
-    }
     const joystickCenter = new Vec2(size.width / 2 - 500, size.height / 2 - 230);
     if (Vec2.distance(new Vec2(p.x, p.y), joystickCenter) <= 115) {
       this.touchOrigin = new Vec2(p.x, p.y);
@@ -8082,10 +7094,6 @@ this.drawCityWallsAndGate();
   }
 
   private handleOverlayTap(x: number, y: number) {
-    if (this.overlay === 'chapterProgress') {
-      if (this.pointInUiRect(x, y, 392, 238, 104, 44)) this.closeCityOverlay();
-      return;
-    }
     if (this.overlay === 'shopConfirm') {
       if (this.pointInUiRect(x, y, -125, -65, 180, 58)) this.closeCityOverlay();
       else if (this.pointInUiRect(x, y, 125, -65, 180, 58)) this.openShop();
