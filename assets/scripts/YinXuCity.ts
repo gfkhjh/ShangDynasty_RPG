@@ -909,7 +909,7 @@ export class YinXuCity extends Component {
             && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
           .map(card => ({
             id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
-            quality: card.quality, meaning: card.meaning, evolution: card.evolution, history: card.history,
+            quality: card.quality, meaning: card.meaning, evolution: this.learningEvolution(card), history: card.history,
             asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
             imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
             unlocked: discoveryOrder.includes(card.id),
@@ -1227,32 +1227,32 @@ export class YinXuCity extends Component {
       this.storyController.startChapter(CHAPTER_FOUR_ID);
       // 第四章：玩家直接传送到守林人阿岚身旁（右边 80px，明确落在 200 触发半径内），
       // 放完开场对话即自动触发，无需自行走位找人。
-      this.spawnPlayerAt(CHAPTER_FOUR_NPC_POSITION.x + 80, CHAPTER_FOUR_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_FOUR_NPC_POSITION.x + 160, CHAPTER_FOUR_NPC_POSITION.y);
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_FIVE_ID)) {
       this.storyController.startChapter(CHAPTER_FIVE_ID);
-      this.spawnPlayerAt(CHAPTER_FIVE_NPC_POSITION.x + 80, CHAPTER_FIVE_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_FIVE_NPC_POSITION.x + 160, CHAPTER_FIVE_NPC_POSITION.y);
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_SIX_ID)) {
       this.storyController.startChapter(CHAPTER_SIX_ID);
-      this.spawnPlayerAt(CHAPTER_SIX_NPC_POSITION.x + 80, CHAPTER_SIX_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_SIX_NPC_POSITION.x + 160, CHAPTER_SIX_NPC_POSITION.y);
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_SEVEN_ID)) {
       this.storyController.startChapter(CHAPTER_SEVEN_ID);
-      this.spawnPlayerAt(CHAPTER_SEVEN_NPC_POSITION.x + 80, CHAPTER_SEVEN_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_SEVEN_NPC_POSITION.x + 160, CHAPTER_SEVEN_NPC_POSITION.y);
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_EIGHT_ID)) {
       this.storyController.startChapter(CHAPTER_EIGHT_ID);
-      this.spawnPlayerAt(CHAPTER_EIGHT_NPC_POSITION.x + 80, CHAPTER_EIGHT_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_EIGHT_NPC_POSITION.x + 160, CHAPTER_EIGHT_NPC_POSITION.y);
       return;
     }
     if (!snapshot.completedChapterIds.includes(CHAPTER_NINE_ID)) {
       this.storyController.startChapter(CHAPTER_NINE_ID);
-      this.spawnPlayerAt(CHAPTER_NINE_NPC_POSITION.x + 80, CHAPTER_NINE_NPC_POSITION.y);
+      this.spawnPlayerAt(CHAPTER_NINE_NPC_POSITION.x + 160, CHAPTER_NINE_NPC_POSITION.y);
       return;
     }
     this.presentStoryStep(this.storyController.currentStep());
@@ -1766,7 +1766,7 @@ export class YinXuCity extends Component {
   private createChapterTwoNpc() {
     const root = new Node('StoryNpc-Fisher');
     root.parent = this.world;
-    const location = storyLocation('chapter-2-riverbank-investigation')!;
+    const location = storyLocation('chapter-2-riverbank-npc')!;
     root.setPosition(location.spawnPosition.x, location.spawnPosition.y, 82);
     root.addComponent(UITransform).setContentSize(44, 60);
     const shadow = this.localGraphics('StoryNpc-Fisher-Shadow', root, 0, 0, 34, 14, -3);
@@ -1825,7 +1825,7 @@ export class YinXuCity extends Component {
   private createChapterThreeNpc() {
     const root = new Node('StoryNpc-GorgeKeeper');
     root.parent = this.world;
-    const location = storyLocation('chapter-3-royal-tomb-entry')!;
+    const location = storyLocation('chapter-3-royal-tomb-npc')!;
     root.setPosition(location.spawnPosition.x, location.spawnPosition.y, 82);
     root.addComponent(UITransform).setContentSize(44, 60);
     const shadow = this.localGraphics('StoryNpc-GorgeKeeper-Shadow', root, 0, 0, 34, 14, -3);
@@ -1957,7 +1957,7 @@ export class YinXuCity extends Component {
     const isMeeting = step.id === 'chapter-2-reach-river';
     if (!isMeeting) return;
     const radius = step.objective?.targetRadius ?? 78;
-    const location = storyLocation('chapter-2-riverbank-investigation')!;
+    const location = storyLocation('chapter-2-riverbank-npc')!;
     const dx = this.playerPos.x - location.spawnPosition.x;
     const dy = this.playerPos.y - location.spawnPosition.y;
     if (dx * dx + dy * dy > radius * radius) return;
@@ -1971,7 +1971,7 @@ export class YinXuCity extends Component {
     const isMeeting = step.id === 'chapter-3-reach-gorge';
     if (!isMeeting) return;
     const radius = step.objective?.targetRadius ?? 78;
-    const location = storyLocation('chapter-3-royal-tomb-entry')!;
+    const location = storyLocation('chapter-3-royal-tomb-npc')!;
     const dx = this.playerPos.x - location.spawnPosition.x;
     const dy = this.playerPos.y - location.spawnPosition.y;
     if (dx * dx + dy * dy > radius * radius) return;
@@ -6734,6 +6734,14 @@ this.drawCityWallsAndGate();
         if (cart.root !== self) addCartRect(cart.root.position.x, cart.root.position.y, x, y, radius, 16);
       });
     }
+    // Story speakers are stationary actors too.  Keeping a larger personal
+    // space around them prevents the player (or a wandering villager) from
+    // visually merging into a dialogue character.
+    [this.storyNpc, this.storyNpcTwo, this.storyNpcThree, this.storyNpcFour,
+      this.storyNpcFive, this.storyNpcSix, this.storyNpcSeven, this.storyNpcEight, this.storyNpcNine]
+      .forEach(npc => {
+        if (npc?.activeInHierarchy) addCircle(npc, 24, 54);
+      });
     if (this.restingVillager) addCircle(this.restingVillager.root, 25, 7);
     return penalty;
   }
@@ -7739,7 +7747,7 @@ this.drawCityWallsAndGate();
     this.createUiLabel(
       review,
       'ReviewBody',
-      `${quality}\n\n字义：${card.meaning}\n\n字形学习：${card.evolution}\n\n商代知识：${card.history}`,
+      `${quality}\n\n字义：${card.meaning}\n\n字形学习：${this.learningEvolution(card)}\n\n商代知识：${card.history}`,
       115,
       75,
       680,
@@ -7900,6 +7908,13 @@ this.drawCityWallsAndGate();
 
   private oracleModernCharacter(card: OracleCardData) {
     return card.modern.replace(/（.*?）/g, '').replace(/\(.*?\)/g, '').trim();
+  }
+
+  /** Never expose development placeholders in the learner-facing archive. */
+  private learningEvolution(card: OracleCardData) {
+    const text = card.evolution;
+    if (!/(占位|临时|待后续|资料库接入|正式(?:版本|资料|字库).*(?:替换|补充|接入)|当前.*符号)/.test(text)) return text;
+    return `甲骨文字形以可辨认的轮廓、笔画方向与构件组合传递意义。学习时可先观察它最突出的形状，再与现代字义和同类字形相互对照。`;
   }
 
   private showExcavationLearning(site: ExcavationSite, card: OracleCardData) {
@@ -8112,7 +8127,7 @@ this.drawCityWallsAndGate();
       -390, -172, 236, 92, 15, new Color(97, 64, 39), 'center', 5);
 
     this.drawWoodPanel(root, 'ExcavationTeachingArchive', 170, -3, 720, 480, 2, true);
-    const teachingText = `现代汉字：${this.oracleModernCharacter(card)}\n读音：${card.pinyin}\n\n一、字义与象形来源\n${card.meaning}\n\n二、字形演变与辨识要点\n${card.evolution}\n\n三、历史来源与商代生活\n${card.history}\n\n学习提示：再次在背包“图鉴”中点击该字，可以随时复习以上内容。`;
+    const teachingText = `现代汉字：${this.oracleModernCharacter(card)}\n读音：${card.pinyin}\n\n一、字义与象形来源\n${card.meaning}\n\n二、字形演变与辨识要点\n${this.learningEvolution(card)}\n\n三、历史来源与商代生活\n${card.history}\n\n学习提示：再次在背包“图鉴”中点击该字，可以随时复习以上内容。`;
     this.createUiLabel(root, 'ExcavationTeachingText', teachingText,
       170, -2, 660, 436, 16, new Color(74, 43, 29), 'left', 5);
     this.drawUiButton(root, 'ExcavationLearningCompleteButton', '完成学习', 430, -270, 220, 58, true);
@@ -8556,7 +8571,7 @@ this.drawCityWallsAndGate();
     const record = this.save.mastery[card.id] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
     const quality = card.quality === 'blue' ? '蓝光·平民普通卜骨' : card.quality === 'red' ? '红光·贵族涂朱卜甲' : '金光·王室传世龟甲';
     const stars = '★'.repeat(record.bestStars) + '☆'.repeat(3 - record.bestStars);
-    this.backpackDetailLabel.string = `${card.modern}  ${card.pinyin}\n${quality}\n\n字义与象形：\n${card.meaning}\n\n字形演变：\n${card.evolution}\n\n商代历史：\n${card.history}\n\n学习记录：${stars}  ·  正确占卜 ${record.correctCount} 次`;
+    this.backpackDetailLabel.string = `${card.modern}  ${card.pinyin}\n${quality}\n\n字义与象形：\n${card.meaning}\n\n字形演变：\n${this.learningEvolution(card)}\n\n商代历史：\n${card.history}\n\n学习记录：${stars}  ·  正确占卜 ${record.correctCount} 次`;
   }
 
   private showShopConfirmation() {
