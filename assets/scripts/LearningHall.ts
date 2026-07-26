@@ -102,6 +102,10 @@ export class LearningHall extends Component {
   private reviewMistakes: HallCard[] = [];
   private reviewLibraryOpen = false;
   private reviewSource: 'normal' | 'wrongBook' = 'normal';
+  // Keep the visual and touch positions in one place: the result actions sit below the score panel.
+  private readonly reviewResultActionY = -175;
+  private readonly reviewResultActionWidth = 210;
+  private readonly reviewResultActionHeight = 58;
   private selectedWrongBookId: string | null = null;
   private poemQuestions: Array<{ definition: PoemChallengeDefinition; card: HallCard }> = [];
   private poemOptions: HallCard[] = [];
@@ -153,6 +157,7 @@ export class LearningHall extends Component {
     input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+    view.on('canvas-resize', this.onCanvasResize, this);
     this.createHomeButton();
     this.open();
   }
@@ -162,6 +167,7 @@ export class LearningHall extends Component {
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
+    view.off('canvas-resize', this.onCanvasResize, this);
   }
 
   open() {
@@ -216,6 +222,26 @@ export class LearningHall extends Component {
     this.hideGameNodes();
     this.drawBackground(root);
     return root;
+  }
+
+  /**
+   * 分辨率或横竖屏变化后按同一设计稿重绘。设计画布由 YinXuCity 统一为
+   * 1280×720 SHOW_ALL，故这里不会拉伸文字、弹窗或点击区域。
+   */
+  private onCanvasResize() {
+    if (!this.isOpen || this.mode === 'enteringYinXu') return;
+    this.render(this.mode);
+  }
+
+  /** 将当前屏幕点击位置换算回 1280×720 设计坐标。 */
+  private eventToDesignPoint(event: EventTouch) {
+    const point = event.getUILocation();
+    const size = view.getVisibleSize();
+    const scale = Math.max(.001, this.isOpen ? this.viewportScale : 1);
+    return {
+      x: (point.x - size.width / 2) / scale,
+      y: (point.y - size.height / 2) / scale,
+    };
   }
 
   private close() {
@@ -865,8 +891,8 @@ export class LearningHall extends Component {
         this.label(root, `HallReviewMistakePinyin-${index}`, card.pinyin, x + 20, y - 13, 120, 19, 12, t.goldSub, 'left', 6);
       });
     }
-    this.button(root, 'HallReviewAgain', '再复习一次', -130, -175, 210, 58, true);
-    this.button(root, 'HallReviewCodex', '查看甲骨图鉴', 130, -175, 210, 58, false);
+    this.button(root, 'HallReviewAgain', '再复习一次', -130, this.reviewResultActionY, this.reviewResultActionWidth, this.reviewResultActionHeight, true);
+    this.button(root, 'HallReviewCodex', '查看甲骨图鉴', 130, this.reviewResultActionY, this.reviewResultActionWidth, this.reviewResultActionHeight, false);
   }
 
   private renderProgress() {
@@ -1442,8 +1468,7 @@ export class LearningHall extends Component {
 
   private onTouchMove(event: EventTouch) {
     if (this.mode === 'story' && this.chapterRoadmapDragging) {
-      const point = event.getUILocation(); const size = view.getVisibleSize();
-      const x = point.x - size.width / 2;
+      const { x } = this.eventToDesignPoint(event);
       this.chapterRoadmapOffset = Math.max(this.chapterRoadmapMinOffset, Math.min(650,
         this.chapterRoadmapOffsetStart + x - this.chapterRoadmapDragStartX));
       this.chapterRoadmapContent?.setPosition(this.chapterRoadmapOffset, 0, 1);
@@ -1572,8 +1597,7 @@ export class LearningHall extends Component {
   }
 
   private onTouchStart(event: EventTouch) {
-    const point = event.getUILocation(); const size = view.getVisibleSize();
-    const x = point.x - size.width / 2; const y = point.y - size.height / 2;
+    const { x, y } = this.eventToDesignPoint(event);
     if (!this.isOpen) {
       if (this.hit(x, y, 295, 309, 120, 52)) { this.playSfx('tap'); this.open(); }
       return;
@@ -1693,8 +1717,11 @@ export class LearningHall extends Component {
         this.render('review');
       });
     } else if (this.mode === 'reviewResult') {
-      if (this.hit(x, y, -130, -125, 210, 58)) { this.playSfx('confirm'); this.reviewSource === 'wrongBook' ? this.beginWrongBookReview() : this.beginReview(); }
-      else if (this.hit(x, y, 130, -125, 210, 58)) { this.playSfx('tap'); this.render('codex'); }
+      // A small invisible safety margin makes the whole rendered button easy to tap on touch screens.
+      const touchWidth = this.reviewResultActionWidth + 20;
+      const touchHeight = this.reviewResultActionHeight + 16;
+      if (this.hit(x, y, -130, this.reviewResultActionY, touchWidth, touchHeight)) { this.playSfx('confirm'); this.reviewSource === 'wrongBook' ? this.beginWrongBookReview() : this.beginReview(); }
+      else if (this.hit(x, y, 130, this.reviewResultActionY, touchWidth, touchHeight)) { this.playSfx('tap'); this.render('codex'); }
     }
   }
 
@@ -1772,6 +1799,9 @@ export class LearningHall extends Component {
     const node = new Node(name); node.parent = parent; node.setPosition(x, y, z);
     node.addComponent(UITransform).setContentSize(Math.max(1, (right - left + 1) * scale), Math.max(1, (bottom - top + 1) * scale));
     const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    // Oracle rubbings must read as ink, even when a source crop has pale anti-aliased pixels.
+    // Sprite tint multiplies the complete glyph (including edge pixels) to solid black.
+    sprite.color = new Color(0, 0, 0, 255);
     this.loadSprite(`oracle/${card.asset}/spriteFrame`, node, sprite, false, () => { if (fallback.node.isValid) fallback.node.active = false; });
   }
 
