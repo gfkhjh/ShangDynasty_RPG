@@ -1,9 +1,17 @@
 import { CHAPTER_ONE_ID } from './ChapterOne';
+import { CHAPTER_TWO_ID } from './ChapterTwo';
+import { CHAPTER_THREE_ID } from './ChapterThree';
+import { CHAPTER_FOUR_ID } from './ChapterFour';
+import { CHAPTER_FIVE_ID } from './ChapterFive';
+import { CHAPTER_SIX_ID } from './ChapterSix';
+import { CHAPTER_SEVEN_ID } from './ChapterSeven';
+import { CHAPTER_EIGHT_ID } from './ChapterEight';
+import { CHAPTER_NINE_ID } from './ChapterNine';
 
-// 300 字目标字表 → 9 章递增字量分配（数据层，独立于剧本与 YinXuCity）。
+// 300 字目标字表 → 250 个主线剧情字 + 50 个甲骨拾遗字。
 // 来源：《殷墟小卜官_300个甲骨文目标字表_最新修订版》。
 // 第1章教学锁死 5 字（雨田水土地云，顺序同 ChapterOne.CHAPTER_ONE_FRAGMENT_CARDS）。
-// 其余 295 字按字表编号顺序（001→300）切片，字量严格递增 12/19/26/33/40/47/54/64，恰 295。
+// 九章主线字量为 5/12/19/26/26/32/38/44/48，合计 250；编号 251—300 进入拾遗池。
 // 主题自然贴合：字表本按语义分组编号（G1自然基础→G6性状礼祀），故前期章多自然/基础，后期章多性状/礼祀。
 // existingCardId 来自游戏现有字库：手写卡用英文 id（rain/field/...），imported 卡用 catalog-u{unicode}；null 表示该字待补录（共157字）。
 // 鱼、豆 为游戏原型残留的表外字，不在 300 目标表内，未参与本章分配。
@@ -41,7 +49,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
   },
   {
     chapterIndex: 2,
-    chapterId: 'chapter-2-river-echo',
+    chapterId: CHAPTER_TWO_ID,
     title: '河畔初兆',
     charCount: 12,
     chars: [
@@ -61,7 +69,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
   },
   {
     chapterIndex: 3,
-    chapterId: 'chapter-3-upstream-trace',
+    chapterId: CHAPTER_THREE_ID,
     title: '逆流寻踪',
     charCount: 19,
     chars: [
@@ -88,7 +96,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
   },
   {
     chapterIndex: 4,
-    chapterId: 'chapter-4-forest-path',
+    chapterId: CHAPTER_FOUR_ID,
     title: '山林迷径',
     charCount: 26,
     chars: [
@@ -122,9 +130,9 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
   },
   {
     chapterIndex: 5,
-    chapterId: 'chapter-5-escort-home',
+    chapterId: CHAPTER_FIVE_ID,
     title: '护送归途',
-    charCount: 33,
+    charCount: 26,
     chars: [
     { num: '063', char: '女', group: 'G2', existingCardId: 'catalog-u5973' },
     { num: '064', char: '老', group: 'G2', existingCardId: 'catalog-u8001' },
@@ -151,7 +159,15 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '085', char: '晚', group: 'G2', existingCardId: null },
     { num: '086', char: '午', group: 'G2', existingCardId: 'catalog-u5348' },
     { num: '087', char: '晨', group: 'G2', existingCardId: 'catalog-u6668' },
-    { num: '088', char: '昏', group: 'G2', existingCardId: 'catalog-u660f' },
+    { num: '088', char: '昏', group: 'G2', existingCardId: 'catalog-u660f' }
+    ],
+  },
+  {
+    chapterIndex: 6,
+    chapterId: CHAPTER_SIX_ID,
+    title: '古墟残灯',
+    charCount: 32,
+    chars: [
     { num: '089', char: '时', group: 'G2', existingCardId: null },
     { num: '090', char: '分', group: 'G2', existingCardId: 'catalog-u5206' },
     { num: '091', char: '刻', group: 'G2', existingCardId: 'catalog-u523b' },
@@ -159,14 +175,6 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '093', char: '岁', group: 'G2', existingCardId: 'catalog-u5c81' },
     { num: '094', char: '朝', group: 'G2', existingCardId: 'catalog-u671d' },
     { num: '095', char: '夕', group: 'G2', existingCardId: 'catalog-u5915' },
-    ],
-  },
-  {
-    chapterIndex: 6,
-    chapterId: 'chapter-6-ruins-lamp',
-    title: '古墟残灯',
-    charCount: 40,
-    chars: [
     { num: '096', char: '昼', group: 'G2', existingCardId: null },
     { num: '097', char: '夜', group: 'G2', existingCardId: 'catalog-u591c' },
     { num: '098', char: '光', group: 'G2', existingCardId: 'catalog-u5149' },
@@ -191,7 +199,15 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '117', char: '腰', group: 'G3', existingCardId: null },
     { num: '118', char: '腿', group: 'G3', existingCardId: null },
     { num: '119', char: '脚', group: 'G3', existingCardId: null },
-    { num: '120', char: '指', group: 'G3', existingCardId: null },
+    { num: '120', char: '指', group: 'G3', existingCardId: null }
+    ],
+  },
+  {
+    chapterIndex: 7,
+    chapterId: CHAPTER_SEVEN_ID,
+    title: '错册余火',
+    charCount: 38,
+    chars: [
     { num: '121', char: '掌', group: 'G3', existingCardId: null },
     { num: '122', char: '血', group: 'G3', existingCardId: 'catalog-u8840' },
     { num: '123', char: '汗', group: 'G3', existingCardId: null },
@@ -207,14 +223,6 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '133', char: '茶', group: 'G3', existingCardId: null },
     { num: '134', char: '酒', group: 'G3', existingCardId: 'catalog-u9152' },
     { num: '135', char: '肉', group: 'G3', existingCardId: 'catalog-u8089' },
-    ],
-  },
-  {
-    chapterIndex: 7,
-    chapterId: 'chapter-7-wrong-scrolls',
-    title: '错册余火',
-    charCount: 47,
-    chars: [
     { num: '136', char: '蛋', group: 'G3', existingCardId: null },
     { num: '137', char: '油', group: 'G3', existingCardId: null },
     { num: '138', char: '盐', group: 'G3', existingCardId: null },
@@ -237,7 +245,15 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '155', char: '灯', group: 'G4', existingCardId: null },
     { num: '156', char: '楼', group: 'G4', existingCardId: null },
     { num: '157', char: '契', group: 'G4', existingCardId: null },
-    { num: '158', char: '院', group: 'G4', existingCardId: null },
+    { num: '158', char: '院', group: 'G4', existingCardId: null }
+    ],
+  },
+  {
+    chapterIndex: 8,
+    chapterId: CHAPTER_EIGHT_ID,
+    title: '王陵三证',
+    charCount: 44,
+    chars: [
     { num: '159', char: '巷', group: 'G4', existingCardId: null },
     { num: '160', char: '街', group: 'G4', existingCardId: 'catalog-u8857' },
     { num: '161', char: '路', group: 'G4', existingCardId: null },
@@ -262,14 +278,6 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '180', char: '本', group: 'G4', existingCardId: null },
     { num: '181', char: '烬', group: 'G4', existingCardId: null },
     { num: '182', char: '画', group: 'G4', existingCardId: 'catalog-u753b' },
-    ],
-  },
-  {
-    chapterIndex: 8,
-    chapterId: 'chapter-8-royal-tombs',
-    title: '王陵三证',
-    charCount: 54,
-    chars: [
     { num: '183', char: '图', group: 'G4', existingCardId: null },
     { num: '184', char: '册', group: 'G4', existingCardId: null },
     { num: '185', char: '校', group: 'G4', existingCardId: null },
@@ -289,7 +297,15 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '199', char: '坐', group: 'G4', existingCardId: 'catalog-u5750' },
     { num: '200', char: '卧', group: 'G4', existingCardId: null },
     { num: '201', char: '行', group: 'G5', existingCardId: 'catalog-u884c' },
-    { num: '202', char: '飞', group: 'G5', existingCardId: null },
+    { num: '202', char: '飞', group: 'G5', existingCardId: null }
+    ],
+  },
+  {
+    chapterIndex: 9,
+    chapterId: CHAPTER_NINE_ID,
+    title: '重续通天之契',
+    charCount: 48,
+    chars: [
     { num: '203', char: '游', group: 'G5', existingCardId: null },
     { num: '204', char: '爬', group: 'G5', existingCardId: null },
     { num: '205', char: '看', group: 'G5', existingCardId: null },
@@ -324,14 +340,6 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '234', char: '爱', group: 'G5', existingCardId: null },
     { num: '235', char: '喜', group: 'G5', existingCardId: 'catalog-u559c' },
     { num: '236', char: '怒', group: 'G5', existingCardId: null },
-    ],
-  },
-  {
-    chapterIndex: 9,
-    chapterId: 'chapter-9-renew-covenant',
-    title: '重续通天之契',
-    charCount: 64,
-    chars: [
     { num: '237', char: '悲', group: 'G5', existingCardId: null },
     { num: '238', char: '愁', group: 'G5', existingCardId: null },
     { num: '239', char: '思', group: 'G5', existingCardId: null },
@@ -345,57 +353,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '247', char: '假', group: 'G5', existingCardId: null },
     { num: '248', char: '新', group: 'G5', existingCardId: 'catalog-u65b0' },
     { num: '249', char: '旧', group: 'G5', existingCardId: 'catalog-u65e7' },
-    { num: '250', char: '高', group: 'G5', existingCardId: 'catalog-u9ad8' },
-    { num: '251', char: '低', group: 'G6', existingCardId: null },
-    { num: '252', char: '长', group: 'G6', existingCardId: 'catalog-u957f' },
-    { num: '253', char: '短', group: 'G6', existingCardId: null },
-    { num: '254', char: '宽', group: 'G6', existingCardId: null },
-    { num: '255', char: '窄', group: 'G6', existingCardId: null },
-    { num: '256', char: '厚', group: 'G6', existingCardId: 'catalog-u539a' },
-    { num: '257', char: '薄', group: 'G6', existingCardId: null },
-    { num: '258', char: '轻', group: 'G6', existingCardId: null },
-    { num: '259', char: '重', group: 'G6', existingCardId: 'catalog-u91cd' },
-    { num: '260', char: '快', group: 'G6', existingCardId: null },
-    { num: '261', char: '慢', group: 'G6', existingCardId: null },
-    { num: '262', char: '远', group: 'G6', existingCardId: null },
-    { num: '263', char: '近', group: 'G6', existingCardId: null },
-    { num: '264', char: '红', group: 'G6', existingCardId: null },
-    { num: '265', char: '黄', group: 'G6', existingCardId: 'catalog-u9ec4' },
-    { num: '266', char: '蓝', group: 'G6', existingCardId: null },
-    { num: '267', char: '白', group: 'G6', existingCardId: 'catalog-u767d' },
-    { num: '268', char: '黑', group: 'G6', existingCardId: 'catalog-u9ed1' },
-    { num: '269', char: '绿', group: 'G6', existingCardId: null },
-    { num: '270', char: '灰', group: 'G6', existingCardId: null },
-    { num: '271', char: '粉', group: 'G6', existingCardId: null },
-    { num: '272', char: '亮', group: 'G6', existingCardId: null },
-    { num: '273', char: '暗', group: 'G6', existingCardId: null },
-    { num: '274', char: '有', group: 'G6', existingCardId: 'catalog-u6709' },
-    { num: '275', char: '无', group: 'G6', existingCardId: null },
-    { num: '276', char: '能', group: 'G6', existingCardId: 'catalog-u80fd' },
-    { num: '277', char: '可', group: 'G6', existingCardId: 'catalog-u53ef' },
-    { num: '278', char: '会', group: 'G6', existingCardId: null },
-    { num: '279', char: '要', group: 'G6', existingCardId: null },
-    { num: '280', char: '得', group: 'G6', existingCardId: 'catalog-u5f97' },
-    { num: '281', char: '应', group: 'G6', existingCardId: null },
-    { num: '282', char: '该', group: 'G6', existingCardId: null },
-    { num: '283', char: '敢', group: 'G6', existingCardId: 'catalog-u6562' },
-    { num: '284', char: '力', group: 'G6', existingCardId: 'catalog-u529b' },
-    { num: '285', char: '功', group: 'G6', existingCardId: null },
-    { num: '286', char: '劳', group: 'G6', existingCardId: 'catalog-u52b3' },
-    { num: '287', char: '安', group: 'G6', existingCardId: null },
-    { num: '288', char: '危', group: 'G6', existingCardId: 'catalog-u5371' },
-    { num: '289', char: '平', group: 'G6', existingCardId: null },
-    { num: '290', char: '顺', group: 'G6', existingCardId: 'catalog-u987a' },
-    { num: '291', char: '利', group: 'G6', existingCardId: 'catalog-u5229' },
-    { num: '292', char: '福', group: 'G6', existingCardId: null },
-    { num: '293', char: '忙', group: 'G6', existingCardId: null },
-    { num: '294', char: '基', group: 'G6', existingCardId: 'catalog-u57fa' },
-    { num: '295', char: '每', group: 'G6', existingCardId: 'catalog-u6bcf' },
-    { num: '296', char: '用', group: 'G6', existingCardId: 'catalog-u7528' },
-    { num: '297', char: '禾', group: 'G6', existingCardId: null },
-    { num: '298', char: '兵', group: 'G6', existingCardId: null },
-    { num: '299', char: '祀', group: 'G6', existingCardId: null },
-    { num: '300', char: '婚', group: 'G6', existingCardId: null },
+    { num: '250', char: '高', group: 'G5', existingCardId: 'catalog-u9ad8' }
     ],
   },
 ];
@@ -563,18 +521,90 @@ export const MISSING_CHARS: MissingChar[] = [
   { num: '299', char: '祀', group: 'G6' },
   { num: '300', char: '婚', group: 'G6' },
 ];
+// 拾遗字：原 300 字表中编号 251-300 的 50 字，移出主线剧情，作为探索「甲骨拾遗」投放池。
+export interface SupplementChar { num: string; char: string; group: CharGroup; existingCardId: string | null; }
+export const SUPPLEMENT_CHARS: SupplementChar[] = [
+    { num: '251', char: '低', group: 'G6', existingCardId: null },
+    { num: '252', char: '长', group: 'G6', existingCardId: 'catalog-u957f' },
+    { num: '253', char: '短', group: 'G6', existingCardId: null },
+    { num: '254', char: '宽', group: 'G6', existingCardId: null },
+    { num: '255', char: '窄', group: 'G6', existingCardId: null },
+    { num: '256', char: '厚', group: 'G6', existingCardId: 'catalog-u539a' },
+    { num: '257', char: '薄', group: 'G6', existingCardId: null },
+    { num: '258', char: '轻', group: 'G6', existingCardId: null },
+    { num: '259', char: '重', group: 'G6', existingCardId: 'catalog-u91cd' },
+    { num: '260', char: '快', group: 'G6', existingCardId: null },
+    { num: '261', char: '慢', group: 'G6', existingCardId: null },
+    { num: '262', char: '远', group: 'G6', existingCardId: null },
+    { num: '263', char: '近', group: 'G6', existingCardId: null },
+    { num: '264', char: '红', group: 'G6', existingCardId: null },
+    { num: '265', char: '黄', group: 'G6', existingCardId: 'catalog-u9ec4' },
+    { num: '266', char: '蓝', group: 'G6', existingCardId: null },
+    { num: '267', char: '白', group: 'G6', existingCardId: 'catalog-u767d' },
+    { num: '268', char: '黑', group: 'G6', existingCardId: 'catalog-u9ed1' },
+    { num: '269', char: '绿', group: 'G6', existingCardId: null },
+    { num: '270', char: '灰', group: 'G6', existingCardId: null },
+    { num: '271', char: '粉', group: 'G6', existingCardId: null },
+    { num: '272', char: '亮', group: 'G6', existingCardId: null },
+    { num: '273', char: '暗', group: 'G6', existingCardId: null },
+    { num: '274', char: '有', group: 'G6', existingCardId: 'catalog-u6709' },
+    { num: '275', char: '无', group: 'G6', existingCardId: null },
+    { num: '276', char: '能', group: 'G6', existingCardId: 'catalog-u80fd' },
+    { num: '277', char: '可', group: 'G6', existingCardId: 'catalog-u53ef' },
+    { num: '278', char: '会', group: 'G6', existingCardId: null },
+    { num: '279', char: '要', group: 'G6', existingCardId: null },
+    { num: '280', char: '得', group: 'G6', existingCardId: 'catalog-u5f97' },
+    { num: '281', char: '应', group: 'G6', existingCardId: null },
+    { num: '282', char: '该', group: 'G6', existingCardId: null },
+    { num: '283', char: '敢', group: 'G6', existingCardId: 'catalog-u6562' },
+    { num: '284', char: '力', group: 'G6', existingCardId: 'catalog-u529b' },
+    { num: '285', char: '功', group: 'G6', existingCardId: null },
+    { num: '286', char: '劳', group: 'G6', existingCardId: 'catalog-u52b3' },
+    { num: '287', char: '安', group: 'G6', existingCardId: null },
+    { num: '288', char: '危', group: 'G6', existingCardId: 'catalog-u5371' },
+    { num: '289', char: '平', group: 'G6', existingCardId: null },
+    { num: '290', char: '顺', group: 'G6', existingCardId: 'catalog-u987a' },
+    { num: '291', char: '利', group: 'G6', existingCardId: 'catalog-u5229' },
+    { num: '292', char: '福', group: 'G6', existingCardId: null },
+    { num: '293', char: '忙', group: 'G6', existingCardId: null },
+    { num: '294', char: '基', group: 'G6', existingCardId: 'catalog-u57fa' },
+    { num: '295', char: '每', group: 'G6', existingCardId: 'catalog-u6bcf' },
+    { num: '296', char: '用', group: 'G6', existingCardId: 'catalog-u7528' },
+    { num: '297', char: '禾', group: 'G6', existingCardId: null },
+    { num: '298', char: '兵', group: 'G6', existingCardId: null },
+    { num: '299', char: '祀', group: 'G6', existingCardId: null },
+    { num: '300', char: '婚', group: 'G6', existingCardId: null }
+];
 
-// 字量校验：5 + 12+19+26+33+40+47+54+64 = 300
+
+// 字量校验：主线 5+12+19+26+26+32+38+44+48 = 250；拾遗固定 50，完整图鉴共 300。
 export const CHAR_PLAN_TOTAL = CHAPTER_CHAR_PLANS.reduce((s, c) => s + c.charCount, 0);
+export const SUPPLEMENT_CHAR_TOTAL = SUPPLEMENT_CHARS.length;
+export const FULL_CATALOG_TOTAL = CHAR_PLAN_TOTAL + SUPPLEMENT_CHAR_TOTAL;
 
-// 开发期唯一性校验：PLANS 内 char/num 必须唯一，总数 300。若重复会在控制台报错，防止生成脚本或手工改表再次出错。
+// 模块加载时执行数据完整性校验，错误数据直接阻止启动，避免章节进行到中途才暴露卡死问题。
 (() => {
-  const allChars = CHAPTER_CHAR_PLANS.flatMap(p => p.chars);
-  const chars = allChars.map(c => c.char);
-  const nums = allChars.map(c => c.num);
-  const dupChars = chars.filter((c, i) => chars.indexOf(c) !== i);
-  const dupNums = nums.filter((n, i) => nums.indexOf(n) !== i);
-  console.assert(allChars.length === 300, `[ChapterCharMap] PLANS 总数异常: ${allChars.length}`);
-  console.assert(dupChars.length === 0, `[ChapterCharMap] 发现重复字: ${[...new Set(dupChars)].join(', ')}`);
-  console.assert(dupNums.length === 0, `[ChapterCharMap] 发现重复 num: ${[...new Set(dupNums)].join(', ')}`);
+  const mainChars = CHAPTER_CHAR_PLANS.reduce<PlannedChar[]>((all, plan) => all.concat(plan.chars), []);
+  const allChars = mainChars.concat(SUPPLEMENT_CHARS);
+  const duplicateValues = (values: string[]) => values.filter((value, index) => values.indexOf(value) !== index);
+  const duplicateChapterIds = duplicateValues(CHAPTER_CHAR_PLANS.map(plan => plan.chapterId));
+  const duplicateChars = duplicateValues(allChars.map(item => item.char));
+  const duplicateNums = duplicateValues(allChars.map(item => item.num));
+  const badChapterCounts = CHAPTER_CHAR_PLANS.filter(plan => plan.charCount !== plan.chars.length);
+
+  if (CHAR_PLAN_TOTAL !== 250 || mainChars.length !== 250) {
+    throw new Error(`[ChapterCharMap] 主线字数异常：声明 ${CHAR_PLAN_TOTAL}，实际 ${mainChars.length}，应为 250。`);
+  }
+  if (SUPPLEMENT_CHAR_TOTAL !== 50 || FULL_CATALOG_TOTAL !== 300) {
+    throw new Error(`[ChapterCharMap] 拾遗/图鉴字数异常：拾遗 ${SUPPLEMENT_CHAR_TOTAL}，总计 ${FULL_CATALOG_TOTAL}。`);
+  }
+  if (badChapterCounts.length > 0) {
+    throw new Error(`[ChapterCharMap] 章节声明字数与实际数组不一致：${badChapterCounts.map(plan => plan.chapterId).join(', ')}。`);
+  }
+  if (duplicateChapterIds.length > 0 || duplicateChars.length > 0 || duplicateNums.length > 0) {
+    throw new Error(
+      `[ChapterCharMap] 数据重复：章节 ${[...new Set(duplicateChapterIds)].join(', ') || '无'}；`
+      + `文字 ${[...new Set(duplicateChars)].join(', ') || '无'}；编号 ${[...new Set(duplicateNums)].join(', ') || '无'}。`,
+    );
+  }
 })();

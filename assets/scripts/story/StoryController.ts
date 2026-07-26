@@ -20,21 +20,28 @@ export class StoryController {
     initialState: unknown,
     private readonly persist: (state: StorySaveState) => void,
   ) {
+    this.validateDefinitions(definitions);
     definitions.forEach(chapter => {
       this.chapters.set(chapter.id, chapter);
     });
     this.state = migrateStorySave(initialState);
-    this.repairCurrentStep();
+    if (this.repairCurrentStep()) {
+      this.persist(this.snapshot() as StorySaveState);
+    }
   }
 
   snapshot(): StorySnapshot {
+    const npcArcStates: StorySaveState['npcArcStates'] = {};
+    Object.keys(this.state.npcArcStates).forEach(npcId => {
+      npcArcStates[npcId] = { ...this.state.npcArcStates[npcId] };
+    });
     return {
       ...this.state,
       completedChapterIds: [...this.state.completedChapterIds],
       flags: { ...this.state.flags },
-      eventHistory: [...this.state.eventHistory],
+      eventHistory: this.state.eventHistory.map(entry => ({ ...entry, cardIds: [...entry.cardIds] })),
       eventSeenCounts: { ...this.state.eventSeenCounts },
-      npcArcStates: { ...this.state.npcArcStates },
+      npcArcStates,
       recentNpcIds: [...this.state.recentNpcIds],
       recentCardIds: [...this.state.recentCardIds],
       worldFlags: { ...this.state.worldFlags },
@@ -130,18 +137,53 @@ export class StoryController {
   private repairCurrentStep() {
     const chapterId = this.state.currentChapterId;
     if (!chapterId) {
+      const changed = this.state.currentStepId !== null;
       this.state.currentStepId = null;
-      return;
+      return changed;
     }
     const chapter = this.chapters.get(chapterId);
     if (!chapter) {
       this.state.currentChapterId = null;
       this.state.currentStepId = null;
-      return;
+      return true;
     }
     if (!chapter.steps.some(step => step.id === this.state.currentStepId)) {
       this.state.currentStepId = chapter.firstStepId;
+      return true;
     }
+    return false;
+  }
+
+  private validateDefinitions(definitions: StoryChapterDefinition[]) {
+    const chapterIds = new Set<string>();
+    const globalStepIds = new Set<string>();
+    definitions.forEach(chapter => {
+      if (!chapter.id || chapterIds.has(chapter.id)) {
+        throw new Error(`[StoryController] 章节 ID 缺失或重复：${chapter.id || '(empty)'}`);
+      }
+      chapterIds.add(chapter.id);
+
+      const stepIds = new Set<string>();
+      chapter.steps.forEach(step => {
+        if (!step.id || stepIds.has(step.id) || globalStepIds.has(step.id)) {
+          throw new Error(`[StoryController] 剧情步骤 ID 缺失或重复：${step.id || '(empty)'}`);
+        }
+        if (step.chapterId !== chapter.id) {
+          throw new Error(`[StoryController] 步骤 ${step.id} 的 chapterId 与章节 ${chapter.id} 不一致。`);
+        }
+        stepIds.add(step.id);
+        globalStepIds.add(step.id);
+      });
+
+      if (!stepIds.has(chapter.firstStepId)) {
+        throw new Error(`[StoryController] 章节 ${chapter.id} 的首步骤 ${chapter.firstStepId} 不存在。`);
+      }
+      chapter.steps.forEach(step => {
+        if (step.nextStepId && !stepIds.has(step.nextStepId)) {
+          throw new Error(`[StoryController] 步骤 ${step.id} 指向不存在的下一步骤 ${step.nextStepId}。`);
+        }
+      });
+    });
   }
 
   private commit() {

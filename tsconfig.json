@@ -4,6 +4,13 @@
 
   /* Add your custom configuration here. */
   "compilerOptions": {
-    "strict": false
-  }
+    "strict": false,
+    "lib": ["ES2020", "DOM"],
+    "skipLibCheck": true
+  },
+  "exclude": [
+    "recovery_backup_20260725",
+    "recovery_emergency_20260726",
+    "recovery_from_session"
+  ]
 }
