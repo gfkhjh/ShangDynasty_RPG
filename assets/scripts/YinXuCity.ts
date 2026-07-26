@@ -6734,13 +6734,13 @@ this.drawCityWallsAndGate();
         if (cart.root !== self) addCartRect(cart.root.position.x, cart.root.position.y, x, y, radius, 16);
       });
     }
-    // Story speakers are stationary actors too.  Keeping a larger personal
-    // space around them prevents the player (or a wandering villager) from
-    // visually merging into a dialogue character.
+    // Story speakers are stationary actors too. Keep a small personal space
+    // so characters do not overlap, while still allowing the player inside
+    // the 78px dialogue-trigger radius.
     [this.storyNpc, this.storyNpcTwo, this.storyNpcThree, this.storyNpcFour,
       this.storyNpcFive, this.storyNpcSix, this.storyNpcSeven, this.storyNpcEight, this.storyNpcNine]
       .forEach(npc => {
-        if (npc?.activeInHierarchy) addCircle(npc, 24, 54);
+        if (npc?.activeInHierarchy) addCircle(npc, 24, 12);
       });
     if (this.restingVillager) addCircle(this.restingVillager.root, 25, 7);
     return penalty;

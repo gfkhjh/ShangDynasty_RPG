@@ -58,8 +58,8 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     { id: 'chapter-1-city-guide', regionId: RegionId.CITY, worldPosition: new Vec2(260, 20), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-1-field-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(430, -452), facingDirection: 'right', safeOffset: 72 },
     { id: 'chapter-1-first-fragment', regionId: RegionId.FIELDS, worldPosition: new Vec2(390, -920), facingDirection: 'down', safeOffset: 72 },
-    { id: 'chapter-2-riverbank-investigation', regionId: RegionId.RIVERBANK, worldPosition: new Vec2(-4900, -700), facingDirection: 'down', safeOffset: 72 },
-    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2450, -3910), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-2-riverbank-investigation', regionId: RegionId.RIVERBANK, worldPosition: new Vec2(-5060, -700), facingDirection: 'right', safeOffset: 72 },
+    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2290, -3910), facingDirection: 'right', safeOffset: 72 },
     { id: 'story-return-city', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
     {
       id: 'outskirts-south-road-entry',
