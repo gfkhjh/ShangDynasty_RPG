@@ -1,0 +1,184 @@
+diff --git a/assets/scripts/YinXuCity.ts b/assets/scripts/YinXuCity.ts
+index 73dfc87..0000000 100644
+--- a/assets/scripts/YinXuCity.ts
++++ b/assets/scripts/YinXuCity.ts
+@@ -30,11 +30,11 @@ import { RegionId } from './regions/RegionTypes';
+ 
+ const { ccclass } = _decorator;
+ 
+-type RectObstacle = { x: number; y: number; w: number; h: number; name: string };
++type RectObstacle = { x: number; y: number; w: number; h: number; name: string; regionId?: string };
+ type CircleObstacle = { x: number; y: number; radius: number; name: string };
+ type WaterSegment = { ax: number; ay: number; bx: number; by: number; radius: number; name: string };
+ 
+@@ -237,11 +237,15 @@ export class YinXuCity extends Component {
+       north: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
+       south: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
+       west:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
+-      east:  { enabled: true, center: 605, passageWidth: 112, gatehouseHalfWidth: 190 },
++      east:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
+     },
+   } as const;
+ 
+   private world!: Node;
++  /** OUTSKIRTS ground fill Graphics node - toggled via updateOutskirtsVisibility() */
++  private outskirtsGroundNode: Node | null = null;
++  /** Container for all OutskirtsGroundTile sprites */
++  private outskirtsTileContainer: Node | null = null;
+   private player!: Node;
+ 
+@@ -844,10 +848,18 @@ export class YinXuCity extends Component {
+         if (locked) this.stopPlayerInput();
+       },
+       getWorldNode: () => this.world,
++      onRegionChanged: () => this.updateOutskirtsVisibility(),
+     });
+     this.updateTerrainElevationState(true);
+   }
+ 
++  private updateOutskirtsVisibility() {
++    const r = this.regionTransitionManager?.currentRegionId;
++    const show = r === RegionId.CITY || r === RegionId.OUTSKIRTS;
++    if (this.outskirtsGroundNode) this.outskirtsGroundNode.active = show;
++    if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
++  }
++
+   private buildWorld() {
+ 
+@@ -920,22 +932,22 @@ export class YinXuCity extends Component {
+     this.drawWorldBoundary();
+     // OUTSKIRTS west boundary colliders with road gap at Y=384-496 (exit trigger area)
+-    this.addObstacle(-2020, 1333, 64, 1674, 'OutskirtsWestBoundaryUpper');
+-    this.addObstacle(-2020, -288, 64, 1344, 'OutskirtsWestBoundaryLower');
+-    // OUTSKIRTS south boundary colliders with road gap at X=-47..47 (matching south exit triggerBounds)
+-    this.addObstacle(-1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryLeft');
+-    this.addObstacle(1033.5, -980, 1973, 32, 'OutskirtsSouthBoundaryRight');
++    this.addObstacle(-2020, 1333, 64, 1674, 'OutskirtsWestBoundaryUpper', 'OUTSKIRTS');
++    this.addObstacle(-2020, -288, 64, 1344, 'OutskirtsWestBoundaryLower', 'OUTSKIRTS');
++    // OUTSKIRTS south boundary colliders with road gap at X=-56..56 (matching road width)
++    this.addObstacle(-1038, -980, 1964, 32, 'OutskirtsSouthBoundaryLeft', 'OUTSKIRTS');
++    this.addObstacle(1038, -980, 1964, 32, 'OutskirtsSouthBoundaryRight', 'OUTSKIRTS');
+     // HIGHLAND north and south boundary colliders
+     this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
+     this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
+-    // OUTSKIRTS north boundary colliders with road gap at X=-47..47
+-    this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft');
+-    this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight');
+-    this.addObstacle(-2020, 1800, 64, 740, 'OutskirtsNorthWestBoundary');
+-    this.addObstacle(2020, 1800, 64, 740, 'OutskirtsNorthEastBoundary');
+-    // OUTSKIRTS east boundary colliders with road gap at Y=549..661 (east exit)
+-    this.addObstacle(2020, 1045.5, 64, 769, 'OutskirtsEastBoundaryUpper');
+-    this.addObstacle(2020, -205.5, 64, 1509, 'OutskirtsEastBoundaryLower');
++    // OUTSKIRTS north boundary colliders with road gap at X=-56..56
++    this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft', 'OUTSKIRTS');
++    this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight', 'OUTSKIRTS');
++    // OUTSKIRTS east boundary colliders with road gap at Y=384..496 (east exit)
++    this.addObstacle(2020, 1333, 64, 1674, 'OutskirtsEastBoundaryUpper', 'OUTSKIRTS');
++    this.addObstacle(2020, -288, 64, 1344, 'OutskirtsEastBoundaryLower', 'OUTSKIRTS');
+ 
+@@ -962,6 +974,7 @@ export class YinXuCity extends Component {
+     this.drawHud();
+     this.equipTool(this.equippedTool);
+     this.setWeather(this.pickRandomWeather(), true);
++    this.updateOutskirtsVisibility();
+     this.followCamera(1);
+   }
+ 
+@@ -1076,6 +1089,7 @@ export class YinXuCity extends Component {
+ 
+     // Ground fill for the four arms (Graphics, low z)
+     const ground = this.graphics('OutskirtsGround', this.world, 60);
++    this.outskirtsGroundNode = ground.node;
+     ground.fillColor = new Color(98, 148, 73);
+ 
+@@ -1091,18 +1105,22 @@ export class YinXuCity extends Component {
+     // Grass tiles overlay (same pattern as south trial)
+     const tileStep = 192;
+     const tileSize = 200;
++    this.outskirtsTileContainer = new Node('OutskirtsTileContainer');
++    this.outskirtsTileContainer.parent = this.world;
++    this.outskirtsTileContainer.setPosition(0, 0, 0);
++    this.outskirtsTileContainer.addComponent(UITransform).setContentSize(o.right - o.left, o.top - o.bottom);
+     for (let y = o.bottom + 96; y < o.top + tileStep; y += tileStep) {
+-      for (let x = o.left + 96; x < o.right; x += tileStep) {
++      for (let x = o.left + 96; x < o.right + tileStep; x += tileStep) {
+         // Only draw in the four arms (outside city rect)
+         if (x > city.left && x < city.right && y > city.bottom && y < city.top) continue;
+-        const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.world, x, y, tileSize, tileSize, 61);
++        const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.outskirtsTileContainer, x, y, tileSize, tileSize, 61);
+         tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
+       }
+     }
+ 
+     // Fill bare Y:1450~1532 north of city wall where main loop skipped at y=1440
+     for (let x = city.left + 96; x < city.right; x += tileStep) {
+-      const tile = this.pixelSprite('OutskirtsNorthGapGrass', 'grass-tile', this.world, x, 1490, tileSize, tileSize, 61);
++      const tile = this.pixelSprite('OutskirtsNorthGapGrass', 'grass-tile', this.outskirtsTileContainer, x, 1490, tileSize, tileSize, 61);
+       tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
+     }
+ 
+@@ -1130,9 +1148,12 @@ export class YinXuCity extends Component {
+       tile.setRotationFromEuler(0, 0, 90);
+     }
+ 
+-    // East road: Y = 605 (east gate center), from city.right right to o.right
+-    for (let x = city.right + halfW; x <= o.right - halfW; x += townSpacing) {
+-      this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, 605, roadW, roadW, 63);
++    // East road: horizontal at cityEastWestRoadCenterY, from city's last tile (1220) right to o.right
++    // 112x112 rotated 90 degrees gives full passage coverage (matches gate gap / boundary gap)
++    const eastRoadW = roadW; // 112
++    for (let x = 1220; x <= o.right; x += townSpacing) {
++      const tile = this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, this.cityEastWestRoadCenterY, eastRoadW, eastRoadW, townRoadZ);
++      tile.setRotationFromEuler(0, 0, 90);
+     }
+   }
+ 
+@@ -1746,15 +1767,20 @@ export class YinXuCity extends Component {
+     const sideWidth = gate.gatehouseHalfWidth - passageHalf;
+ 
+     if (key === 'north' || key === 'south') {
+-      const y = key === 'north' ? boundary.top : boundary.bottom;
+-      const offsetY = key === 'north' ? 185 : -185;
+-      this.addObstacle(gate.center - passageHalf - sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateLeftBody`);
+-      this.addObstacle(gate.center + passageHalf + sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateRightBody`);
++      // South gate body uses the calibrated absolute Y=-185 that matches the
++      // authored pixel-art gate sprite. North gate body is omitted -- the wall
++      // collision already provides the barrier, and the gate body created an
++      // invisible air wall blocking OUTSKIRTS grass on both sides of the road.
++      if (key === 'north') return;
++      const centerY = key === 'south' ? -185 : boundary.top;
++      const bodyH = key === 'south' ? 226 : 160;
++      this.addObstacle(gate.center - passageHalf - sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateLeftBody`);
++      this.addObstacle(gate.center + passageHalf + sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateRightBody`);
+     } else {
+ 
+@@ -1760,8 +1786,8 @@ export class YinXuCity extends Component {
+   private createCityWallCollisions() {
+     const b = this.cityBoundary;
+-    const hThick = 160;
+-    const vThick = 144;
++    const hThick = 142;
++    const vThick = 100;
+ 
+@@ -4875,7 +4901,13 @@ export class YinXuCity extends Component {
+     const hw = this.mapWidth / 2 - 66; const hh = this.mapHeight / 2 - 66;
+     if (x < -hw || x > hw || y < -hh || y > hh) return false;
+     if (!this.canStandInElevationTransition(x, y, radius, this.riverbankElevationTransition)) return false;
++    const regionId = this.regionTransitionManager?.currentRegionId;
+     for (const r of this.obstacles) {
++      // Skip obstacles belonging to a different region (except CITY/OUTSKIRTS which are always visible together)
++      if (r.regionId && regionId && r.regionId !== regionId) {
++        const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
++        if (!isShared) continue;
++      }
+       if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) return false;
+     }
+     if (this.pointInWater(x, y, radius)) return false;
+@@ -5150,7 +5182,7 @@ export class YinXuCity extends Component {
+   }
+ 
+-  private addObstacle(x: number, y: number, w: number, h: number, name: string) { this.obstacles.push({ x, y, w, h, name }); }
++  private addObstacle(x: number, y: number, w: number, h: number, name: string, regionId?: string) { this.obstacles.push({ x, y, w, h, name, regionId }); }
+ 
+@@ -2304,7 +2336,6 @@ export class YinXuCity extends Component {
+-    this.addObstacle(1600, -415, 2800, 70, '田野北侧土坡');

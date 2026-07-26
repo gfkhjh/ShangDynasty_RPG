@@ -1,0 +1,774 @@
+diff --git a/assets/scripts/YinXuCity.ts b/assets/scripts/YinXuCity.ts
+index c5bc2c0..6f2a0f8 100644
+--- a/assets/scripts/YinXuCity.ts
++++ b/assets/scripts/YinXuCity.ts
+@@ -30,7 +30,7 @@ import { RegionId } from './regions/RegionTypes';
+ 
+ const { ccclass } = _decorator;
+ 
+-type RectObstacle = { x: number; y: number; w: number; h: number; name: string };
++type RectObstacle = { x: number; y: number; w: number; h: number; name: string; regionId?: string };
+ type CircleObstacle = { x: number; y: number; radius: number; name: string };
+ type WaterSegment = { ax: number; ay: number; bx: number; by: number; radius: number; name: string };
+ type SwayObject = { node: Node; phase: number; amplitude: number; speed: number; reactsToPlayer?: boolean };
+@@ -235,11 +235,17 @@ export class YinXuCity extends Component {
+       north: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
+       south: { enabled: true, center: 0, passageWidth: 112, gatehouseHalfWidth: 190 },
+       west:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
+-      east:  { enabled: true, center: 605, passageWidth: 112, gatehouseHalfWidth: 190 },
++      east:  { enabled: true, center: 440, passageWidth: 112, gatehouseHalfWidth: 190 },
+     },
+   } as const;
+ 
+   private world!: Node;
++  private cityRegionRoot!: Node;
++  private outskirtsRegionRoot!: Node;
++  private fieldsRegionRoot!: Node;
++  private highlandRegionRoot!: Node;
++  private royalTombRegionRoot!: Node;
++  private riversideRegionRoot!: Node;
+   private player!: Node;
+   private playerVisual!: Node;
+   private playerSprite!: Sprite;
+@@ -648,9 +654,11 @@ export class YinXuCity extends Component {
+   private terrainElevationDebugLabel: Label | null = null;
+ 
+   onLoad() {
++    console.error('[RUNTIME_FILE_CHECK] partition build 2026-07-25', this.node.name);
+     this.save = this.loadCitySave();
+     this.buildWorld();
+     this.createRegionTransitionManager();
++    this.updateRegionRootVisibility();
+     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+     input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
+     input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
+@@ -773,12 +781,32 @@ export class YinXuCity extends Component {
+           const atBoundary = this.playerPos.x <= rect.boundaryX + 0.5;
+           const inRoad = this.playerPos.y >= rect.minY && this.playerPos.y <= rect.maxY;
+           if ((wouldCross || (atBoundary && inRoad)) && inRoad) {
+-            // Road corridor: clamp to boundary, RegionTransitionManager fires the exit
+             if (wouldCross) moveDx = rect.boundaryX - this.playerPos.x;
+           } else if (!inRoad && wouldCross) {
+-            // Non-road: hard clamp, no exit
+             moveDx = rect.boundaryX - this.playerPos.x;
+             if (moveDx > 0) moveDx = 0;
++            this.logMoveBlocked('hardClamp', { x: this.playerPos.x + dx, y: this.playerPos.y + dy }, 'OUTSKIRTS-west-boundary', { x: rect.boundaryX, y: (rect.minY + rect.maxY) / 2, w: 64, h: rect.maxY - rect.minY });
++          }
++        }
++        // OUTSKIRTS east boundary: same logic — only road corridor triggers exit
++        if (currentRegion === RegionId.OUTSKIRTS && moveDx > 0) {
++          const rect = this.getOutskirtsEastExitRect();
++          const nextX = this.playerPos.x + moveDx;
++          const wouldCross = nextX > rect.boundaryX;
++          const atBoundary = this.playerPos.x >= rect.boundaryX - 0.5;
++          const inRoad = this.playerPos.y >= rect.minY && this.playerPos.y <= rect.maxY;
++          console.info('[EAST_BOUNDARY]', JSON.stringify({
++            currentRegion, currentPos: { x: this.playerPos.x.toFixed(0), y: this.playerPos.y.toFixed(0) },
++            nextPos: { x: nextX.toFixed(0), y: (this.playerPos.y + moveDy).toFixed(0) },
++            inEastRoad: inRoad, wouldCross, atBoundary,
++            transitionState: this.regionTransitionManager?.state ?? 'N/A',
++          }));
++          if ((wouldCross || (atBoundary && inRoad)) && inRoad) {
++            console.info('[EAST_EXIT_FORCE]', JSON.stringify({ exitId: 'outskirts-east-road-to-farmland', source: 'OUTSKIRTS', target: 'FIELDS', targetEntryId: 'farmland-west-road-entry' }));
++            if (wouldCross) moveDx = rect.boundaryX - this.playerPos.x;
++          } else if (!inRoad && wouldCross) {
++            moveDx = rect.boundaryX - this.playerPos.x;
++            if (moveDx < 0) moveDx = 0;
+           }
+         }
+         if (this.canPlayerStand(this.playerPos.x + moveDx, this.playerPos.y)) this.playerPos.x += moveDx;
+@@ -867,8 +895,21 @@ export class YinXuCity extends Component {
+         if (locked) this.stopPlayerInput();
+       },
+       getWorldNode: () => this.world,
++      onRegionChanged: () => this.updateRegionRootVisibility(),
+     });
+     this.updateTerrainElevationState(true);
++    this.updateRegionRootVisibility();
++  }
++
++  private updateRegionRootVisibility() {
++    const r = this.regionTransitionManager?.currentRegionId;
++    const isMainMap = r === RegionId.CITY || r === RegionId.OUTSKIRTS;
++    this.cityRegionRoot && (this.cityRegionRoot.active = isMainMap);
++    this.outskirtsRegionRoot && (this.outskirtsRegionRoot.active = isMainMap);
++    this.fieldsRegionRoot && (this.fieldsRegionRoot.active = r === RegionId.FIELDS);
++    this.highlandRegionRoot && (this.highlandRegionRoot.active = r === RegionId.HIGHLAND);
++    this.royalTombRegionRoot && (this.royalTombRegionRoot.active = r === RegionId.ROYAL_TOMB);
++    this.riversideRegionRoot && (this.riversideRegionRoot.active = r === RegionId.RIVERBANK);
+   }
+ 
+   private buildWorld() {
+@@ -924,6 +965,15 @@ export class YinXuCity extends Component {
+     this.world.parent = this.node;
+     this.world.addComponent(UITransform).setContentSize(this.mapWidth, this.mapHeight);
+ 
++    // Region root nodes for visual isolation
++    const mkRoot = (name: string) => { const n = new Node(name); n.parent = this.world; return n; };
++    this.cityRegionRoot = mkRoot('CityRegionRoot');
++    this.outskirtsRegionRoot = mkRoot('OutskirtsRegionRoot');
++    this.fieldsRegionRoot = mkRoot('FieldsRegionRoot');
++    this.highlandRegionRoot = mkRoot('HighlandRegionRoot');
++    this.royalTombRegionRoot = mkRoot('RoyalTombRegionRoot');
++    this.riversideRegionRoot = mkRoot('RiversideRegionRoot');
++
+     this.drawGroundTiles();
+     this.drawPixelGroundOverlay();
+     this.drawRoads();
+@@ -939,10 +989,12 @@ this.drawCityWallsAndGate();
+     this.drawForest();
+     this.drawOraclePit();
+     this.drawOutskirtsGroundAndRoads();
++    this.scatterOutskirtsTrees();
+     this.createExcavationSites();
+     this.scatterDynamicGrass();
+     this.drawWorldBoundary();
+     this.auditStaticStructureFootprints();
++    this.tagObstaclesByRegion();
+     this.createWeatherOverlay();
+     this.createTempleInterior();
+     this.player = this.createAnimatedPlayer();
+@@ -972,7 +1024,6 @@ this.drawCityWallsAndGate();
+     g.fillColor = new Color(98, 148, 73); g.rect(-halfW, -halfH, this.mapWidth, this.mapHeight); g.fill();
+     g.fillColor = new Color(205, 169, 104); g.rect(-1080, -240, 2160, 1480); g.fill();
+     g.fillColor = new Color(110, 158, 85); g.rect(this.riverRegion.left, this.riverRegion.bottom, this.riverRegion.right - this.riverRegion.left, this.riverRegion.top - this.riverRegion.bottom); g.fill();
+-    g.fillColor = new Color(176, 143, 81); g.rect(this.fieldRegion.left, this.fieldRegion.bottom, this.fieldRegion.right - this.fieldRegion.left, this.fieldRegion.top - this.fieldRegion.bottom); g.fill();
+     g.fillColor = new Color(128, 137, 74); g.rect(3000, -2200, 800, 1800); g.fill();
+     g.fillColor = new Color(119, 121, 66); g.rect(3800, -2200, 900, 1800); g.fill();
+     g.fillColor = new Color(145, 126, 70); g.rect(4700, -2200, 1000, 1800); g.fill();
+@@ -1072,70 +1123,53 @@ this.drawCityWallsAndGate();
+    * South arm already existed; now extended to full ring.
+    */
+   private drawOutskirtsGroundAndRoads() {
++    const root = this.outskirtsRegionRoot;
+     const o = { left: -2020, right: 2020, bottom: -960, top: 2170 };
+     const city = { left: -1300, right: 1300, bottom: -240, top: 1450 };
+-    const roadW = 112;
+-    const halfW = roadW / 2;
+-
+-    // Ground fill for the four arms (Graphics, low z)
+-    const ground = this.graphics('OutskirtsGround', this.world, 60);
+-    ground.fillColor = new Color(98, 148, 73);
+-
+-    // South arm
+-    ground.rect(o.left, o.bottom, o.right - o.left, city.bottom - o.bottom);
+-    // North arm
+-    ground.rect(o.left, city.top, o.right - o.left, o.top - city.top);
+-    // West arm
+-    ground.rect(o.left, o.bottom, city.left - o.left, o.top - o.bottom);
+-    // East arm
+-    ground.rect(city.right, o.bottom, o.right - city.right, o.top - o.bottom);
+-    ground.fill();
+ 
+-    // Grass tiles overlay (same pattern as south trial)
++    // Grass tiles overlay covering all four arms (no solid green fill)
+     const tileStep = 192;
+     const tileSize = 200;
+-    for (let y = o.bottom + 96; y < o.top; y += tileStep) {
+-      for (let x = o.left + 96; x < o.right; x += tileStep) {
++    for (let y = o.bottom + 96; y - tileSize / 2 < o.top; y += tileStep) {
++      for (let x = o.left + 96; x - tileSize / 2 < o.right; x += tileStep) {
+         // Only draw in the four arms (outside city rect)
+         if (x > city.left && x < city.right && y > city.bottom && y < city.top) continue;
+-        const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', this.world, x, y, tileSize, tileSize, 61);
++        const tile = this.pixelSprite('OutskirtsGroundTile', 'grass-tile', root, x, y, tileSize, tileSize, 61);
+         tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 255);
+       }
+     }
+ 
+-    // Four roads using road-straight sprites (matching city TownStreetTile: 92x112, rotated 90°, z=4, 100px spacing)
++    // Four roads using road-straight sprites (z=4, 100px spacing).
++    // North/South: vertical (no rotation). West/East: horizontal (rotated 90°).
+     const townRoadW = 92;
+     const townRoadH = 112;
+     const townRoadZ = 4;
+     const townSpacing = 100;
+ 
+     // South road: X=0, from city.bottom down to o.bottom
+-    // Match TownStreetTile: 92x112, rotated 90°, z=4, spacing 100px
++    // Vertical road, no rotation (matches MainRoadTile convention).
+     for (let y = city.bottom - townRoadH / 2; y >= o.bottom + townRoadH / 2; y -= townSpacing) {
+-      const tile = this.pixelSprite('OutskirtsRoadSouth', 'road-straight', this.world, 0, y, townRoadW, townRoadH, townRoadZ);
+-      tile.setRotationFromEuler(0, 0, 90);
++      this.pixelSprite('OutskirtsRoadSouth', 'road-straight', root, 0, y, townRoadW, townRoadH, townRoadZ);
+     }
+ 
+     // North road: X=0, from city.top up to o.top
+-    // Match TownStreetTile: 92x112, rotated 90°, z=4, spacing 100px
++    // Vertical road, no rotation (matches MainRoadTile convention).
+     for (let y = city.top + townRoadH / 2; y <= o.top - townRoadH / 2; y += townSpacing) {
+-      const tile = this.pixelSprite('OutskirtsRoadNorth', 'road-straight', this.world, 0, y, townRoadW, townRoadH, townRoadZ);
+-      tile.setRotationFromEuler(0, 0, 90);
++      this.pixelSprite('OutskirtsRoadNorth', 'road-straight', root, 0, y, townRoadW, townRoadH, townRoadZ);
+     }
+ 
+     // West road: Y = cityEastWestRoadCenterY (440), from city's last tile (-1220) left to o.left
+     // Match TownStreetTile: 92x112, rotated 90°, z=4, spacing 100px
+     // Continue until tile's left edge reaches o.left (-2020)
+     for (let x = -1220; x - townRoadW / 2 >= o.left; x -= townSpacing) {
+-      const tile = this.pixelSprite('OutskirtsRoadWest', 'road-straight', this.world, x, this.cityEastWestRoadCenterY, townRoadW, townRoadH, townRoadZ);
++      const tile = this.pixelSprite('OutskirtsRoadWest', 'road-straight', root, x, this.cityEastWestRoadCenterY, townRoadW, townRoadH, townRoadZ);
+       tile.setRotationFromEuler(0, 0, 90);
+     }
+ 
+-    // East road: Y = east gate center (605), from city.right right to o.right
+-    // Match TownStreetTile: 92x112, rotated 90°, z=4, spacing 100px (mirror of West road)
+-    const eastRoadY = this.cityBoundary.gates.east.center; // 605
+-    for (let x = city.right + townRoadW / 2; x <= o.right - townRoadW / 2; x += townSpacing) {
+-      const tile = this.pixelSprite('OutskirtsRoadEast', 'road-straight', this.world, x, this.cityBoundary.gates.east.center, townRoadW, townRoadH, townRoadZ);
++    // East road: Y = cityEastWestRoadCenterY (440), from city road grid right to o.right
++    // Start at 1220 to overlap with city road tiles (ends at 1180→1226).
++    for (let x = 1220; x <= o.right - townRoadW / 2; x += townSpacing) {
++      const tile = this.pixelSprite('OutskirtsRoadEast', 'road-straight', root, x, this.cityEastWestRoadCenterY, townRoadW, townRoadH, townRoadZ);
+       tile.setRotationFromEuler(0, 0, 90);
+     }
+ 
+@@ -1146,7 +1180,8 @@ this.drawCityWallsAndGate();
+ 
+     // South boundary: X=-2020 to 2020, Y=-960 (gap at X=0 for south road)
+     this.addObstacle(o.left + (0 - o.left - 56) / 2, o.bottom, 0 - o.left - 56, 64, 'OutskirtsBoundarySouthLeft');
+-    this.addObstacle(56 + (o.right - 56) / 2, o.bottom, o.right - 56, 64, 'OutskirtsBoundarySouthRight');
++    // Right segment clipped to X=200 to avoid overlapping FIELDS (X:200~3000)
++    this.addObstacle(56 + (200 - 56) / 2, o.bottom, 200 - 56, 64, 'OutskirtsBoundarySouthRight');
+ 
+     // North boundary: X=-2020 to 2020, Y=2170 (gap at X=0 for north road)
+     this.addObstacle(o.left + (0 - o.left - 56) / 2, o.top, 0 - o.left - 56, 64, 'OutskirtsBoundaryNorthLeft');
+@@ -1159,16 +1194,37 @@ this.drawCityWallsAndGate();
+     const westTopH = o.top - westRect.maxY;
+     this.addObstacle(o.left, westRect.maxY + westTopH / 2, 64, westTopH, 'OutskirtsBoundaryWestTop');
+ 
+-    // East boundary: X=2020, Y=-960 to 2170 (gap at Y=east gate center=605 for east road)
+-    // Road corridor Y=605±46 → gap at Y=559-651
+-    const eastGapCenter = this.cityBoundary.gates.east.center; // 605
+-    const eastGapHalf = 46;
+-    const eastBottomH = eastGapCenter - eastGapHalf - o.bottom; // 559 - (-960) = 1509
+-    this.addObstacle(o.right, o.bottom + eastBottomH / 2, 64, eastBottomH, 'OutskirtsBoundaryEastBottom');
+-    const eastTopH = o.top - (eastGapCenter + eastGapHalf); // 2170 - 651 = 1519
++    // East boundary: X=2020, Y=-400 to 2170 (bottom starts at FIELDS top Y=-400)
++    const eastGapCenter = this.cityEastWestRoadCenterY; // 440
++    const eastGapHalf = 56;
++    const eastBottomH = eastGapCenter - eastGapHalf - (-400);
++    this.addObstacle(o.right, -400 + eastBottomH / 2, 64, eastBottomH, 'OutskirtsBoundaryEastBottom');
++    const eastTopH = o.top - (eastGapCenter + eastGapHalf);
+     this.addObstacle(o.right, eastGapCenter + eastGapHalf + eastTopH / 2, 64, eastTopH, 'OutskirtsBoundaryEastTop');
+   }
+ 
++  private scatterOutskirtsTrees() {
++    const trees: Array<[number, number]> = [
++      [-1780, 530], [-1720, 1600], [-1680, 980], [-1610, 1920],
++      [1680, 540], [1720, 1620], [1610, 1000], [1780, 1930],
++      [-480, -680], [480, -680], [-400, -860], [400, -860],
++      [940, 1850], [-940, 1860], [1340, 1620], [-1340, 1580],
++    ];
++    // ancient-tree base sprite ~32×72 px; scale 2.0 → ~64×144 (≥2× player 44×88)
++    const baseScale = 2.0;
++    trees.forEach((p, i) => {
++      const x = p[0], y = p[1];
++      const scale = baseScale + Math.random() * 0.4; // 2.0 ~ 2.4
++      const t = this.pixelSprite(`OutskirtsTree${i}`, 'ancient-tree', this.outskirtsRegionRoot, x, y, 32, 72, 11);
++      t.setScale(scale, scale, 1);
++      const tw = Math.round(32 * scale), th = Math.round(72 * scale);
++      const trunkX = x, trunkY = y + th * 0.08;
++      const trunkW = tw * 0.45, trunkH = th * 0.24;
++      this.addObstacle(trunkX, trunkY, trunkW, trunkH, `OutskirtsTreeTrunk${i}`);
++      this.depthTrees.push({ node: t, trunkY, halfWidth: trunkW / 2, canopyHeight: th, baseZ: 11 });
++    });
++  }
++
+   private drawPixelGroundOverlay() {
+     const chunk = 384;
+     const halfW = this.mapWidth / 2;
+@@ -1643,7 +1699,7 @@ this.drawCityWallsAndGate();
+     [
+       [-3720, -760], [-3420, -760], [-1900, -760], [-1850, -760], [-250, -760],
+       [-2730, -1580], [-1760, -1560],
+-    ].forEach((point, index) => this.drawDirtRoadJunction(point[0], point[1], index, index < 5 ? 36 : 30, 9));
++    ].forEach((point, index) => this.drawDirtRoadJunction(this.world, point[0], point[1], index, index < 5 ? 36 : 30, 9));
+ 
+     const trailPixels = this.graphics('ForestTrailPixelDetails', this.world, 8);
+     let seed = 21973;
+@@ -1691,46 +1747,46 @@ this.drawCityWallsAndGate();
+     const visualRoot = this.createCityWallVisualRoot();
+     if (!visualRoot) return;
+ 
+-    // North wall visual
++    // North wall visual — split at passage edges, not gatehouse
+     const northGate = boundary.gates.north;
+     if (northGate.enabled) {
+-      const left = northGate.center - northGate.gatehouseHalfWidth;
+-      const right = northGate.center + northGate.gatehouseHalfWidth;
++      const left = northGate.center - northGate.passageWidth / 2;
++      const right = northGate.center + northGate.passageWidth / 2;
+       if (left > boundary.left) this.createHorizontalWallVisual('NorthWallLeftVisual', visualRoot, boundary.left, left, boundary.top);
+       if (right < boundary.right) this.createHorizontalWallVisual('NorthWallRightVisual', visualRoot, right, boundary.right, boundary.top);
+     } else {
+       this.createHorizontalWallVisual('NorthWallVisual', visualRoot, boundary.left, boundary.right, boundary.top);
+     }
+ 
+-    // South wall visual
+-    const southGate = boundary.gates.south;
+-    const sLeft = southGate.center - southGate.gatehouseHalfWidth;
+-    const sRight = southGate.center + southGate.gatehouseHalfWidth;
+-    this.createHorizontalWallVisual('SouthWallLeftVisual', visualRoot, boundary.left, sLeft, boundary.bottom);
+-    this.createHorizontalWallVisual('SouthWallRightVisual', visualRoot, sRight, boundary.right, boundary.bottom);
+-
+-    // West wall visual
++    // West wall visual — split at passage edges (384–496), not gatehouse
+     const westGate = boundary.gates.west;
+     if (westGate.enabled) {
+-      const bottom = westGate.center - westGate.gatehouseHalfWidth;
+-      const top = westGate.center + westGate.gatehouseHalfWidth;
+-      if (bottom > boundary.bottom) this.createVerticalWallVisual('WestWallBottomVisual', visualRoot, boundary.left, boundary.bottom, bottom);
+-      if (top < boundary.top) this.createVerticalWallVisual('WestWallTopVisual', visualRoot, boundary.left, top, boundary.top);
++      const passageB = westGate.center - westGate.passageWidth / 2;
++      const passageT = westGate.center + westGate.passageWidth / 2;
++      if (passageB > boundary.bottom) this.createVerticalWallVisual('WestWallBottomVisual', visualRoot, boundary.left, boundary.bottom, passageB);
++      if (passageT < boundary.top) this.createVerticalWallVisual('WestWallTopVisual', visualRoot, boundary.left, passageT, boundary.top);
+     } else {
+       this.createVerticalWallVisual('WestWallVisual', visualRoot, boundary.left, boundary.bottom, boundary.top);
+     }
+ 
+-    // East wall visual
++    // East wall visual — split at passage edges (384–496), not gatehouse
+     const eastGate = boundary.gates.east;
+     if (eastGate.enabled) {
+-      const bottom = eastGate.center - eastGate.gatehouseHalfWidth;
+-      const top = eastGate.center + eastGate.gatehouseHalfWidth;
+-      if (bottom > boundary.bottom) this.createVerticalWallVisual('EastWallBottomVisual', visualRoot, boundary.right, boundary.bottom, bottom);
+-      if (top < boundary.top) this.createVerticalWallVisual('EastWallTopVisual', visualRoot, boundary.right, top, boundary.top);
++      const passageB = eastGate.center - eastGate.passageWidth / 2;
++      const passageT = eastGate.center + eastGate.passageWidth / 2;
++      if (passageB > boundary.bottom) this.createVerticalWallVisual('EastWallBottomVisual', visualRoot, boundary.right, boundary.bottom, passageB);
++      if (passageT < boundary.top) this.createVerticalWallVisual('EastWallTopVisual', visualRoot, boundary.right, passageT, boundary.top);
+     } else {
+       this.createVerticalWallVisual('EastWallVisual', visualRoot, boundary.right, boundary.bottom, boundary.top);
+     }
+ 
++    // South wall visual — drawn LAST so it renders on top of east/west corners
++    const southGate = boundary.gates.south;
++    const sLeft = southGate.center - southGate.passageWidth / 2;
++    const sRight = southGate.center + southGate.passageWidth / 2;
++    this.createHorizontalWallVisual('SouthWallLeftVisual', visualRoot, boundary.left, sLeft, boundary.bottom);
++    this.createHorizontalWallVisual('SouthWallRightVisual', visualRoot, sRight, boundary.right, boundary.bottom);
++
+     this.staticCityBoundaryNodes.push(visualRoot);
+ 
+     // South gate detailed visuals (preserved)
+@@ -1766,15 +1822,16 @@ this.drawCityWallsAndGate();
+     const sideWidth = gate.gatehouseHalfWidth - passageHalf;
+ 
+     if (key === 'north' || key === 'south') {
+-      const y = key === 'north' ? boundary.top : boundary.bottom;
+-      const offsetY = key === 'north' ? 185 : -185;
+-      this.addObstacle(gate.center - passageHalf - sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateLeftBody`);
+-      this.addObstacle(gate.center + passageHalf + sideWidth / 2, y + offsetY, sideWidth, 226, `${key}GateRightBody`);
++      // North and south gate bodies extend into OUTSKIRTS and create
++      // invisible air walls across the road-adjacent grass. Omit them.
+     } else {
+       const x = key === 'west' ? boundary.left : boundary.right;
+       const offsetX = key === 'west' ? 185 : -185;
+-      this.addObstacle(x + offsetX, gate.center - passageHalf - sideWidth / 2, 226, sideWidth, `${key}GateBottomBody`);
+-      this.addObstacle(x + offsetX, gate.center + passageHalf + sideWidth / 2, 226, sideWidth, `${key}GateTopBody`);
++      // Gate bodies create invisible air walls near the gate passages.
++      // Only keep the west top body; omit all others.
++      if (key === 'west') {
++        this.addObstacle(x + offsetX, gate.center + passageHalf + sideWidth / 2, 226, sideWidth, `${key}GateTopBody`);
++      }
+     }
+   }
+ 
+@@ -1786,8 +1843,8 @@ this.drawCityWallsAndGate();
+     // North wall
+     const northGate = b.gates.north;
+     if (northGate.enabled) {
+-      const left = northGate.center - northGate.gatehouseHalfWidth;
+-      const right = northGate.center + northGate.gatehouseHalfWidth;
++      const left = northGate.center - northGate.passageWidth / 2;
++      const right = northGate.center + northGate.passageWidth / 2;
+       const leftW = left - b.left;
+       const rightW = b.right - right;
+       if (leftW > 0) this.addObstacle(b.left + leftW / 2, b.top, leftW, hThick, 'NorthWallLeftCollision');
+@@ -1798,35 +1855,35 @@ this.drawCityWallsAndGate();
+ 
+     // South wall
+     const southGate = b.gates.south;
+-    const sLeft = southGate.center - southGate.gatehouseHalfWidth;
+-    const sRight = southGate.center + southGate.gatehouseHalfWidth;
++    const sLeft = southGate.center - southGate.passageWidth / 2;
++    const sRight = southGate.center + southGate.passageWidth / 2;
+     const sLeftW = sLeft - b.left;
+     const sRightW = b.right - sRight;
+     if (sLeftW > 0) this.addObstacle(b.left + sLeftW / 2, b.bottom, sLeftW, hThick, 'SouthWallLeftCollision');
+     if (sRightW > 0) this.addObstacle(sRight + sRightW / 2, b.bottom, sRightW, hThick, 'SouthWallRightCollision');
+ 
+-    // West wall
++    // West wall — split at passage edges (384–496), not gatehouse
+     const westGate = b.gates.west;
+     if (westGate.enabled) {
+-      const bottom = westGate.center - westGate.gatehouseHalfWidth;
+-      const top = westGate.center + westGate.gatehouseHalfWidth;
+-      const bottomH = bottom - b.bottom;
+-      const topH = b.top - top;
++      const pB = westGate.center - westGate.passageWidth / 2;
++      const pT = westGate.center + westGate.passageWidth / 2;
++      const bottomH = pB - b.bottom;
++      const topH = b.top - pT;
+       if (bottomH > 0) this.addObstacle(b.left, b.bottom + bottomH / 2, vThick, bottomH, 'WestWallBottomCollision');
+-      if (topH > 0) this.addObstacle(b.left, top + topH / 2, vThick, topH, 'WestWallTopCollision');
++      if (topH > 0) this.addObstacle(b.left, pT + topH / 2, vThick, topH, 'WestWallTopCollision');
+     } else {
+       this.addObstacle(b.left, (b.bottom + b.top) / 2, vThick, b.top - b.bottom, 'WestWallCollision');
+     }
+ 
+-    // East wall
++    // East wall — split at passage edges (384–496), not gatehouse
+     const eastGate = b.gates.east;
+     if (eastGate.enabled) {
+-      const bottom = eastGate.center - eastGate.gatehouseHalfWidth;
+-      const top = eastGate.center + eastGate.gatehouseHalfWidth;
+-      const bottomH = bottom - b.bottom;
+-      const topH = b.top - top;
++      const pB = eastGate.center - eastGate.passageWidth / 2;
++      const pT = eastGate.center + eastGate.passageWidth / 2;
++      const bottomH = pB - b.bottom;
++      const topH = b.top - pT;
+       if (bottomH > 0) this.addObstacle(b.right, b.bottom + bottomH / 2, vThick, bottomH, 'EastWallBottomCollision');
+-      if (topH > 0) this.addObstacle(b.right, top + topH / 2, vThick, topH, 'EastWallTopCollision');
++      if (topH > 0) this.addObstacle(b.right, pT + topH / 2, vThick, topH, 'EastWallTopCollision');
+     } else {
+       this.addObstacle(b.right, (b.bottom + b.top) / 2, vThick, b.top - b.bottom, 'EastWallCollision');
+     }
+@@ -1887,9 +1944,16 @@ this.drawCityWallsAndGate();
+     const contentHeight = 212;
+     const step = 210;
+     for (let center = startY + contentHeight / 2, index = 0; center - contentHeight / 2 < endY; center += step, index++) {
++      // If the tile's top overflows past endY, nudge the tile down so
++      // its top aligns with endY and the mask has less work to do.
++      let tileCenter = center;
++      const tileTop = tileCenter + contentHeight / 2;
++      if (tileTop > endY + 4) {
++        tileCenter = endY - contentHeight / 2;
++      }
+       const tile = new Node(`${name}Tile${index}`);
+       tile.parent = strip;
+-      tile.setPosition(-51, center - (startY + endY) / 2, 0);
++      tile.setPosition(-51, tileCenter - (startY + endY) / 2, 0);
+       tile.addComponent(UITransform).setContentSize(184, contentHeight);
+       this.attachPixelSprite(tile, 'city-wall-vertical-v2');
+     }
+@@ -2316,70 +2380,80 @@ private drawTemple() {
+   }
+ 
+   private drawFields() {
+-    const boundary = this.graphics('FieldLowEarthBoundary', this.world, 4);
++    const root = this.fieldsRegionRoot;
++    // Field background fill (was in drawGroundTiles; moved here so it hides with FieldsRegionRoot)
++    const fill = this.graphics('FieldBackgroundFill', root, 0);
++    fill.fillColor = new Color(176, 143, 81);
++    fill.rect(this.fieldRegion.left, this.fieldRegion.bottom, this.fieldRegion.right - this.fieldRegion.left, this.fieldRegion.top - this.fieldRegion.bottom);
++    fill.fill();
++    const boundary = this.graphics('FieldLowEarthBoundary', root, 4);
+     boundary.fillColor = new Color(112, 77, 46);
+     boundary.rect(200, -450, 2800, 70);
+-    boundary.rect(200, -2200, 2030, 70); boundary.rect(2370, -2200, 630, 70);
++    boundary.rect(200, -2200, 2800, 70);
+     boundary.rect(2965, -690, 70, 240); boundary.rect(2965, -2200, 70, 1360); boundary.fill();
+     boundary.fillColor = new Color(151, 112, 61);
+-    boundary.rect(200, -435, 2800, 18); boundary.rect(200, -2165, 2030, 18); boundary.rect(2370, -2165, 630, 18); boundary.fill();
+-    this.addObstacle(1600, -415, 2800, 70, '田野北侧土坡');
+-    this.addObstacle(1215, -2165, 2030, 70, '田野南侧土坡');
++    boundary.rect(200, -435, 2800, 18); boundary.rect(200, -2165, 2800, 18); boundary.fill();
++    // Field north ridge visual only – obstacle blocks OUTSKIRTS south at Y≈-460
++    this.addObstacle(1285, -2165, 2170, 70, '田野南侧土坡');
+     this.addObstacle(2685, -2165, 630, 70, '田野南侧土坡');
+     this.addObstacle(3000, -575, 70, 250, '田野东侧土坡');
+     this.addObstacle(3000, -1520, 70, 1360, '田野东侧土坡');
+ 
++    // FIELDS west boundary — gapped at road Y=-760 ±56
++    this.addObstacle(200, -1452, 64, 1496, '田野西边界下段');
++    this.addObstacle(200, -608, 64, 416, '田野西边界上段');
++
++    // FIELDS north boundary
++    this.addObstacle(1600, -400, 2800, 64, '田野北边界');
++
+     // Dress the collision ridge with authored pixel art. The graphics below it
+     // supplies the continuous silhouette; these pieces break up the long edge
+     // into grass-topped earth, exposed stones and irregular gaps.
+     for (let x = 292; x <= 2912; x += 174) {
+-      this.pixelSprite('FieldNorthRidgePixel', 'wall-horizontal', this.world, x, -415, 180, 82, 13);
++      this.pixelSprite('FieldNorthRidgePixel', 'wall-horizontal', root, x, -415, 180, 82, 13);
+       if ((x / 174 | 0) % 3 === 0) {
+-        this.pixelSprite('FieldNorthRidgeGrass', 'foxtail-grass', this.world, x + 34, -382, 54, 58, 14);
++        this.pixelSprite('FieldNorthRidgeGrass', 'foxtail-grass', root, x + 34, -382, 54, 58, 14);
+       }
+     }
+-    for (let x = 292; x <= 2110; x += 174) {
+-      this.pixelSprite('FieldSouthRidgePixel', 'wall-horizontal', this.world, x, -2165, 180, 82, 13);
+-    }
+-    for (let x = 2455; x <= 2912; x += 174) {
+-      this.pixelSprite('FieldSouthRidgePixel', 'wall-horizontal', this.world, x, -2165, 180, 82, 13);
++    for (let x = 292; x <= 2912; x += 174) {
++      this.pixelSprite('FieldSouthRidgePixel', 'wall-horizontal', root, x, -2165, 180, 82, 13);
+     }
+     [-570, -930, -1100, -1270, -1440, -1610, -1780, -1950, -2110].forEach((y, i) => {
+-      this.pixelSprite('FieldEastRidgePixel', 'wall-vertical', this.world, 3000, y, 84, 178, 13);
++      this.pixelSprite('FieldEastRidgePixel', 'wall-vertical', root, 3000, y, 84, 178, 13);
+       if (i % 3 === 1) {
+-        this.pixelSprite('FieldEastRidgeStone', 'field-stone-cluster', this.world, 2948, y + 34, 72, 60, 14);
++        this.pixelSprite('FieldEastRidgeStone', 'field-stone-cluster', root, 2948, y + 34, 72, 60, 14);
+       }
+     });
+ 
+-    const roads = this.graphics('FieldRoadNetwork', this.world, 5);
++    const roads = this.graphics('FieldRoadNetwork', root, 5);
+     roads.fillColor = new Color(174, 132, 73);
+-    roads.rect(0, -808, 3000, 96);
++    roads.rect(200, -808, 2800, 96);
+     [1100, 1700, 2300].forEach(x => roads.rect(x - 24, -2100, 48, 1270));
+     roads.rect(300, -1729, 2660, 48); roads.fill();
+     roads.strokeColor = new Color(119, 91, 56, 170); roads.lineWidth = 3;
+-    roads.moveTo(0, -712); roads.lineTo(3000, -712); roads.moveTo(0, -808); roads.lineTo(3000, -808); roads.stroke();
+-    for (let x = 100; x <= 2900; x += 120) {
+-      const tile = this.pixelSprite('FieldMainRoadTile', 'road-straight', this.world, x, -760, 104, 88, 6);
++    roads.moveTo(200, -712); roads.lineTo(3000, -712); roads.moveTo(200, -808); roads.lineTo(3000, -808); roads.stroke();
++    for (let x = 220; x <= 2900; x += 120) {
++      const tile = this.pixelSprite('FieldMainRoadTile', 'road-straight', root, x, -760, 104, 88, 6);
+       tile.setRotationFromEuler(0, 0, 90);
+     }
+     [1100, 1700, 2300].forEach((x, index) => {
+-      this.drawDirtRoadJunction(x, -760, 50 + index, 46, 8);
+-      this.drawDirtRoadJunction(x, -1729, 60 + index, 35, 8);
++      this.drawDirtRoadJunction(root, x, -760, 50 + index, 46, 8);
++      this.drawDirtRoadJunction(root, x, -1729, 60 + index, 35, 8);
+     });
+ 
+     // Half-height mud fencing follows the trunk road, with deliberate openings
+     // for the three farm lanes and the eastern mountain pass.
+     for (let x = 310; x <= 2870; x += 178) {
+       if ([1100, 1700, 2300].some(gap => Math.abs(x - gap) < 105)) continue;
+-      this.pixelSprite('FieldRoadFenceNorth', 'mud-fence-straight', this.world, x, -675, 158, 76, 14);
+-      this.pixelSprite('FieldRoadFenceSouth', 'mud-fence-straight', this.world, x, -846, 158, 76, 14);
++      this.pixelSprite('FieldRoadFenceNorth', 'mud-fence-straight', root, x, -675, 158, 76, 14);
++      this.pixelSprite('FieldRoadFenceSouth', 'mud-fence-straight', root, x, -846, 158, 76, 14);
+       // Adjacent collision strips overlap slightly, leaving openings only at
+       // the authored lanes instead of tiny gaps where an actor can climb on.
+       this.addObstacle(x, -701, 170, 18, '田野路边北矮墙基座');
+       this.addObstacle(x, -872, 170, 18, '田野路边南矮墙基座');
+     }
+ 
+-    const field = this.graphics('OrderedFarmPlots', this.world, 5);
++    const field = this.graphics('OrderedFarmPlots', root, 5);
+     const plotColumns = [650, 950, 1250, 1550, 1850, 2150, 2450, 2750];
+     const plotRows = [-1010, -1510, -1900];
+     let cropIndex = 0;
+@@ -2412,13 +2486,13 @@ private drawTemple() {
+       const end = gap - 70;
+       this.addObstacle((canalStart + end) / 2, -1270, end - canalStart, 108, '田野主干水渠');
+       canalStart = gap + 70;
+-      const bridgeShadow = this.localGraphics('CanalBridgeWaterShadow', this.world, gap, -1270, 190, 178, 11);
++      const bridgeShadow = this.localGraphics('CanalBridgeWaterShadow', root, gap, -1270, 190, 178, 11);
+       bridgeShadow.fillColor = new Color(31, 66, 73, 115); bridgeShadow.roundRect(-76, -76, 152, 152, 18); bridgeShadow.fill();
+       const wide = gap === 2300;
+       this.pixelSprite(
+         wide ? 'WideCanalBridgePixel' : 'CanalFootbridgePixel',
+         wide ? 'canal-bridge-wide-v2' : 'canal-footbridge-v2',
+-        this.world, gap, -1270, wide ? 218 : 146, 190, 15,
++        root, gap, -1270, wide ? 218 : 146, 190, 15,
+       );
+       this.createCanalBridgeRails(gap, -1270, wide);
+     });
+@@ -2427,7 +2501,7 @@ private drawTemple() {
+     this.createVillageWell(350, -1080);
+     this.drawLayeredIrrigationCanal('WellFeederChannel', 350, -1200, 150, 24, false, 9);
+     this.drawIrrigationJunction(350, -1270, 8);
+-    const outlet = this.localGraphics('AnimatedWellOutlet', this.world, 350, -1126, 72, 56, 13);
++    const outlet = this.localGraphics('AnimatedWellOutlet', root, 350, -1126, 72, 56, 13);
+     outlet.fillColor = new Color(61, 52, 41); outlet.rect(-24, 8, 48, 13); outlet.fill();
+     outlet.fillColor = new Color(39, 88, 111); outlet.rect(-15, -4, 30, 15); outlet.fill();
+     outlet.fillColor = new Color(104, 174, 188, 220); outlet.rect(-9, -15, 18, 17); outlet.fill();
+@@ -2446,25 +2520,25 @@ private drawTemple() {
+     this.createFieldStorehouse('东北粮仓二', 2520, -555, 'field-storehouse-b');
+     this.createFieldStorehouse('东北草料仓', 2860, -555, 'field-shelter');
+     [2035, 2215, 2395, 2575, 2755, 2935].forEach(x => {
+-      this.pixelSprite('GranaryFence', 'mud-fence-straight', this.world, x, -430, 150, 72, 15);
++      this.pixelSprite('GranaryFence', 'mud-fence-straight', root, x, -430, 150, 72, 15);
+       this.addObstacle(x, -454, 170, 18, '粮仓外矮墙基座');
+     });
+ 
+-    this.pixelSprite('FieldStrawPileA', 'straw-stack', this.world, 690, -610, 112, 126, 18);
++    this.pixelSprite('FieldStrawPileA', 'straw-stack', root, 690, -610, 112, 126, 18);
+     this.addObstacle(690, -667, 66, 22, '田野草垛底座');
+-    this.pixelSprite('FieldStrawPileB', 'straw-stack', this.world, 2050, -885, 98, 112, 18);
++    this.pixelSprite('FieldStrawPileB', 'straw-stack', root, 2050, -885, 98, 112, 18);
+     this.addObstacle(2050, -936, 58, 20, '田野草垛底座');
+-    this.pixelSprite('FieldStoneMill', 'stone-mill', this.world, 1430, -620, 124, 112, 19);
+-    this.pixelSprite('FieldWaterUrnA', 'field-water-urn', this.world, 1850, -875, 102, 110, 19);
++    this.pixelSprite('FieldStoneMill', 'stone-mill', root, 1430, -620, 124, 112, 19);
++    this.pixelSprite('FieldWaterUrnA', 'field-water-urn', root, 1850, -875, 102, 110, 19);
+     this.addObstacle(1430, -667, 70, 24, '田野石磨基座'); this.addObstacle(1850, -924, 46, 22, '田野储水瓮基座');
+ 
+     [[430, -510], [2870, -930], [430, -2040], [2860, -2035]].forEach((p, i) => this.createTree(p[0], p[1], 100 + i));
+     // Keep roadside tree trunks behind the north fence so the two-tile trunk
+     // road remains continuously traversable.
+     [[520, -555], [1280, -560], [1910, -555]].forEach((p, i) => this.createTreeSized(p[0], p[1], 120 + i, .72));
+-    [[420, -880], [900, -1400], [1550, -1370], [2240, -1390], [2860, -1460]].forEach((p, i) => this.pixelSprite(`JujubeBush${i}`, 'jujube-bush', this.world, p[0], p[1], 86, 78, 13));
+-    [[300, -520], [580, -2110], [980, -2110], [1540, -2110], [2050, -2110], [2700, -2110], [2920, -1050]].forEach((p, i) => this.pixelSprite(`FoxtailGrass${i}`, 'foxtail-grass', this.world, p[0], p[1], 68, 74, 12));
+-    [[360, -2050], [1020, -2050], [1660, -2080], [2710, -2070], [2890, -1170]].forEach((p, i) => this.pixelSprite(`FieldBoundaryStone${i}`, 'field-stone-cluster', this.world, p[0], p[1], 92, 78, 12));
++    [[420, -880], [900, -1400], [1550, -1370], [2240, -1390], [2860, -1460]].forEach((p, i) => this.pixelSprite(`JujubeBush${i}`, 'jujube-bush', root, p[0], p[1], 86, 78, 13));
++    [[300, -520], [580, -2110], [980, -2110], [1540, -2110], [2050, -2110], [2700, -2110], [2920, -1050]].forEach((p, i) => this.pixelSprite(`FoxtailGrass${i}`, 'foxtail-grass', root, p[0], p[1], 68, 74, 12));
++    [[360, -2050], [1020, -2050], [1660, -2080], [2710, -2070], [2890, -1170]].forEach((p, i) => this.pixelSprite(`FieldBoundaryStone${i}`, 'field-stone-cluster', root, p[0], p[1], 92, 78, 12));
+     this.worldLabel('郊外田野', 1420, -475, 25, new Color(92, 65, 38));
+   }
+ 
+@@ -2730,9 +2804,9 @@ private drawTemple() {
+     // Five-stage raised boundary: field buffer -> bright cap -> masonry face ->
+     // projecting foundation -> rubble/grass slope. The north opening stays
+     // aligned to the field pass, but the wall itself is no longer a flat bar.
+-    this.createLayeredRitualWallSegment('北墙西段', 1402, -2484, 1605, true, 0);
+-    this.createLayeredRitualWallSegment('北墙东段', 3798, -2484, 2805, true, 7);
+-    this.createLayeredRitualWallSegment('南墙', 2900, -4052, 4600, true, 13);
++    this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
++    this.createLayeredRitualWallSegment('南墙西段', 1727, -4052, 2254, true, 13);
++    this.createLayeredRitualWallSegment('南墙东段', 4073, -4052, 2254, true, 11);
+     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
+     this.createLayeredRitualWallSegment('东墙', 5154, -3270, 1662, false, 25);
+ 
+@@ -2752,9 +2826,7 @@ private drawTemple() {
+       roadRuts.strokeColor = new Color(206, 160, 91, 115); roadRuts.lineWidth = 12; this.strokeSmoothPath(roadRuts, path); roadRuts.stroke();
+     });
+     [[2300,-2520],[2270,-2730],[2640,-2940],[1580,-3070],[2860,-3650],[2290,-3800],[4210,-3160]].forEach((p, index) =>
+-      this.drawDirtRoadJunction(p[0], p[1], 90 + index, index < 3 ? 39 : 31, 8));
+-
+-    this.createLayeredRitualGate(2300, -2505);
++      this.drawDirtRoadJunction(this.world, p[0], p[1], 90 + index, index < 3 ? 39 : 31, 8));
+ 
+     // Western ritual court: three stepped earthen levels, bronze vessels,
+     // braziers and banner posts form a legible ceremonial composition.
+@@ -4932,17 +5004,58 @@ private drawTemple() {
+     return this.canStandRadius(x, y, this.playerRadius);
+   }
+ 
++  private moveBlockedReported = new Set<string>();
++
+   private canStandRadius(x: number, y: number, radius: number) {
+     const hw = this.mapWidth / 2 - 66; const hh = this.mapHeight / 2 - 66;
+-    if (x < -hw || x > hw || y < -hh || y > hh) return false;
+-    if (!this.canStandInElevationTransition(x, y, radius, this.riverbankElevationTransition)) return false;
++    if (x < -hw || x > hw || y < -hh || y > hh) {
++      this.logMoveBlocked('worldBounds', { x, y }, 'none');
++      return false;
++    }
++    if (!this.canStandInElevationTransition(x, y, radius, this.riverbankElevationTransition)) {
++      this.logMoveBlocked('elevationTransition', { x, y }, 'none');
++      return false;
++    }
++    const regionId = this.regionTransitionManager?.currentRegionId;
+     for (const r of this.obstacles) {
+-      if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) return false;
++      // Skip obstacles belonging to a different blackout region
++      if (r.regionId && regionId) {
++        const isContinuous = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
++        if (!isContinuous && r.regionId !== regionId) continue;
++      }
++      if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) {
++        this.logMoveBlocked('obstacle', { x, y }, r.name, { x: r.x, y: r.y, w: r.w, h: r.h });
++        return false;
++      }
++    }
++    if (this.pointInWater(x, y, radius)) {
++      this.logMoveBlocked('water', { x, y }, 'none');
++      return false;
+     }
+-    if (this.pointInWater(x, y, radius)) return false;
+     return true;
+   }
+ 
++  private logMoveBlocked(source: string, pos: { x: number; y: number }, name: string, bounds?: { x: number; y: number; w: number; h: number }) {
++    const key = `${source}:${name}:${Math.round(pos.x/8)}:${Math.round(pos.y/8)}`;
++    if (this.moveBlockedReported.has(key)) return;
++    this.moveBlockedReported.add(key);
++    if (this.moveBlockedReported.size > 200) this.moveBlockedReported.clear();
++    const region = this.regionTransitionManager?.currentRegionId ?? 'NONE';
++    const dir = Math.abs(this.playerMotion.x) > Math.abs(this.playerMotion.y)
++      ? (this.playerMotion.x > 0 ? 'right' : 'left')
++      : (this.playerMotion.y > 0 ? 'up' : 'down');
++    console.info('[MOVE_BLOCKED]', JSON.stringify({
++      region,
++      currentPos: { x: this.playerPos.x, y: this.playerPos.y },
++      nextPos: pos,
++      direction: dir,
++      blockSource: source,
++      obstacleName: name,
++      obstacleBounds: bounds ?? null,
++      codeLocation: 'canStandRadius',
++    }));
++  }
++
+   private canStandInElevationTransition(
+     x: number,
+     y: number,
+@@ -5211,7 +5324,26 @@ private drawTemple() {
+     return this.obstacles.some(r => x > r.x - r.w / 2 - 30 && x < r.x + r.w / 2 + 30 && y > r.y - r.h / 2 - 30 && y < r.y + r.h / 2 + 30);
+   }
+ 
+-  private addObstacle(x: number, y: number, w: number, h: number, name: string) { this.obstacles.push({ x, y, w, h, name }); }
++  private addObstacle(x: number, y: number, w: number, h: number, name: string, regionId?: string) { this.obstacles.push({ x, y, w, h, name, regionId }); }
++
++  private tagObstaclesByRegion() {
++    const tags: Array<{ pattern: RegExp; regionId: string }> = [
++      { pattern: /^田野|^Field|^田间|^粮仓|^果园|^Canal|^Well|^Granary|^Farm/, regionId: 'FIELDS' },
++      { pattern: /^Outskirts|^SouthOutskirts|^OutskirtsTree/, regionId: 'OUTSKIRTS' },
++      { pattern: /^Highland|^Mountain/, regionId: 'HIGHLAND' },
++      { pattern: /^甲骨窑穴|^王陵|^RoyalRitual|^RitualEarthen/, regionId: 'ROYAL_TOMB' },
++      { pattern: /^Riverbank|^洹水|^River/, regionId: 'RIVERBANK' },
++      { pattern: /^NorthWall|^SouthWall|^WestWall|^EastWall|^SouthGate|^WestGate|^EastGate|^NorthGate/, regionId: 'CITY' },
++      { pattern: /^CityWall/, regionId: 'CITY' },
++      { pattern: /^WorldBoundary/, regionId: '' },
++    ];
++    for (const obs of this.obstacles) {
++      if (obs.regionId) continue;
++      for (const tag of tags) {
++        if (tag.pattern.test(obs.name)) { obs.regionId = tag.regionId; break; }
++      }
++    }
++  }
+ 
+   private createWeatherOverlay() {
+     const visible = view.getVisibleSize();
+@@ -5528,6 +5660,16 @@ private drawTemple() {
+     };
+   }
+ 
++  private getOutskirtsEastExitRect() {
++    const centerY = this.cityEastWestRoadCenterY; // 440
++    const halfH = 56;
++    return {
++      boundaryX: 2020,
++      minY: centerY - halfH, // 384
++      maxY: centerY + halfH, // 496
++    };
++  }
++
+   private updateCityGameplay(dt: number) {
+     if (this.currencyLabel?.isValid) {
+       this.currencyLabel.string = `墨料 ${this.save.ink}   ·   贝币 ${this.save.coins}   ·   卜官经验 ${this.save.experience}`;
+@@ -6743,6 +6885,8 @@ private drawTemple() {
+     else if (this.worldMode === 'outside' && this.regionTransitionManager?.currentRegionId === RegionId.OUTSKIRTS) zone = '城外';
+     else if (this.worldMode === 'outside' && this.regionTransitionManager?.currentRegionId === RegionId.RIVERBANK) zone = '洹水河畔';
+     else if (this.worldMode === 'outside' && this.regionTransitionManager?.currentRegionId === RegionId.HIGHLAND) zone = '山林高地';
++    else if (this.worldMode === 'outside' && this.regionTransitionManager?.currentRegionId === RegionId.FIELDS) zone = '郊外田野';
++    else if (this.worldMode === 'outside' && this.regionTransitionManager?.currentRegionId === RegionId.ROYAL_TOMB) zone = '甲骨窑穴·王陵祭祀区';
+     this.region.string = zone;
+     this.actionKind = 'none';
+     if (this.overlay === 'none' && !this.seated) {
+@@ -7416,8 +7560,8 @@ private drawTemple() {
+     }
+   }
+ 
+-  private drawDirtRoadJunction(x: number, y: number, variant: number, radius: number, z: number) {
+-    const g = this.localGraphics(`NaturalRoadJunction${variant}`, this.world, x, y, radius * 2.7, radius * 2.7, z);
++  private drawDirtRoadJunction(parent: Node, x: number, y: number, variant: number, radius: number, z: number) {
++    const g = this.localGraphics(`NaturalRoadJunction${variant}`, parent, x, y, radius * 2.7, radius * 2.7, z);
+     const raw: Array<[number, number]> = [
+       [-1.18, -.13], [-.92, -.55], [-.31, -.66], [.13, -.49], [.76, -.57], [1.12, -.18],
+       [.94, .34], [.36, .51], [-.16, .43], [-.79, .49], [-1.08, .19],
