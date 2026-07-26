@@ -102,6 +102,10 @@ export class LearningHall extends Component {
   private reviewMistakes: HallCard[] = [];
   private reviewLibraryOpen = false;
   private reviewSource: 'normal' | 'wrongBook' = 'normal';
+  // Keep the visual and touch positions in one place: the result actions sit below the score panel.
+  private readonly reviewResultActionY = -175;
+  private readonly reviewResultActionWidth = 210;
+  private readonly reviewResultActionHeight = 58;
   private selectedWrongBookId: string | null = null;
   private poemQuestions: Array<{ definition: PoemChallengeDefinition; card: HallCard }> = [];
   private poemOptions: HallCard[] = [];
@@ -887,8 +891,8 @@ export class LearningHall extends Component {
         this.label(root, `HallReviewMistakePinyin-${index}`, card.pinyin, x + 20, y - 13, 120, 19, 12, t.goldSub, 'left', 6);
       });
     }
-    this.button(root, 'HallReviewAgain', '再复习一次', -130, -175, 210, 58, true);
-    this.button(root, 'HallReviewCodex', '查看甲骨图鉴', 130, -175, 210, 58, false);
+    this.button(root, 'HallReviewAgain', '再复习一次', -130, this.reviewResultActionY, this.reviewResultActionWidth, this.reviewResultActionHeight, true);
+    this.button(root, 'HallReviewCodex', '查看甲骨图鉴', 130, this.reviewResultActionY, this.reviewResultActionWidth, this.reviewResultActionHeight, false);
   }
 
   private renderProgress() {
@@ -1713,8 +1717,11 @@ export class LearningHall extends Component {
         this.render('review');
       });
     } else if (this.mode === 'reviewResult') {
-      if (this.hit(x, y, -130, -125, 210, 58)) { this.playSfx('confirm'); this.reviewSource === 'wrongBook' ? this.beginWrongBookReview() : this.beginReview(); }
-      else if (this.hit(x, y, 130, -125, 210, 58)) { this.playSfx('tap'); this.render('codex'); }
+      // A small invisible safety margin makes the whole rendered button easy to tap on touch screens.
+      const touchWidth = this.reviewResultActionWidth + 20;
+      const touchHeight = this.reviewResultActionHeight + 16;
+      if (this.hit(x, y, -130, this.reviewResultActionY, touchWidth, touchHeight)) { this.playSfx('confirm'); this.reviewSource === 'wrongBook' ? this.beginWrongBookReview() : this.beginReview(); }
+      else if (this.hit(x, y, 130, this.reviewResultActionY, touchWidth, touchHeight)) { this.playSfx('tap'); this.render('codex'); }
     }
   }
 
@@ -1792,6 +1799,9 @@ export class LearningHall extends Component {
     const node = new Node(name); node.parent = parent; node.setPosition(x, y, z);
     node.addComponent(UITransform).setContentSize(Math.max(1, (right - left + 1) * scale), Math.max(1, (bottom - top + 1) * scale));
     const sprite = node.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    // Oracle rubbings must read as ink, even when a source crop has pale anti-aliased pixels.
+    // Sprite tint multiplies the complete glyph (including edge pixels) to solid black.
+    sprite.color = new Color(0, 0, 0, 255);
     this.loadSprite(`oracle/${card.asset}/spriteFrame`, node, sprite, false, () => { if (fallback.node.isValid) fallback.node.active = false; });
   }
 
