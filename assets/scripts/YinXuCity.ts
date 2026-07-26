@@ -90,7 +90,7 @@ import {
   CHAPTER_NINE_NPC_POSITION,
 } from './story/ChapterNine';
 import { migrateStorySave } from './story/StoryState';
-import { StorySaveState, StoryStepDefinition } from './story/StoryTypes';
+import { DialogueLine, StorySaveState, StoryStepDefinition } from './story/StoryTypes';
 import { CHAPTER_CHAR_PLANS } from './story/ChapterCharMap';
 import { fixedGuidedCardIds, MAIN_STORY_CARD_IDS, RELIC_CARD_IDS } from './story/CollectionPlan';
 
@@ -1353,6 +1353,11 @@ export class YinXuCity extends Component {
         objective.targetY = site.y;
       }
     }
+    if (step && objective && this.isNarrativeExcavationStep(step.id)) {
+      const hint = this.narrativeExcavationHint(step.chapterId);
+      objective.title = `${hint.title} · 寻迹`;
+      objective.detail = hint.detail;
+    }
     this.questGuide.setObjective(objective);
     const xiaoShitouVisible = step?.id === 'chapter-1-meet-xiaoshitou'
       || step?.id === 'chapter-1-xiaoshitou-dialogue';
@@ -1475,7 +1480,7 @@ export class YinXuCity extends Component {
         if (presentationToken !== this.storyPresentationToken
           || this.storyController.currentStep()?.id !== step.id) return;
         this.storyDialogue.open(
-          step.dialogue ?? [],
+          this.withSceneAtmosphere(step, step.dialogue ?? []),
           () => this.completeStoryDialogue(step),
           isPrologueOpening,
         );
@@ -1489,6 +1494,48 @@ export class YinXuCity extends Component {
         this.chapterBanner.close(openDialogue);
       }
     }, hasOpeningBanner ? 2.8 : .08);
+  }
+
+  /** Keep excavation targets mysterious: the player follows an in-world clue, not a character name. */
+  private isNarrativeExcavationStep(stepId: string) {
+    return stepId.includes('seek-') || stepId.includes('seek-first-fragment')
+      || stepId.includes('seek-field-fragment') || stepId.includes('seek-water-fragment')
+      || stepId.includes('seek-earth-fragment') || stepId.includes('seek-cloud-fragment');
+  }
+
+  private narrativeExcavationHint(chapterId: string) {
+    const hints: Record<string, { title: string; detail: string }> = {
+      [CHAPTER_ONE_ID]: { title: '循异光查验土层', detail: '留意荒地上与雨痕、风声不相称的微光；它会在靠近时回应。' },
+      [CHAPTER_TWO_ID]: { title: '顺着水声查找痕迹', detail: '观察潮线、湿沙与船桩附近的异样反光，别急着只看最亮的地方。' },
+      [CHAPTER_THREE_ID]: { title: '沿逆流裂纹追查', detail: '村口与峡壁留着被水冲开的旧痕，碎甲常藏在地势转折处。' },
+      [CHAPTER_FOUR_ID]: { title: '在林雾中辨认方向', detail: '月影、树根与浅水会给出不同的线索；沿着不合常理的微光前行。' },
+      [CHAPTER_FIVE_ID]: { title: '查验护送道上的遗痕', detail: '在岔道、车辙和驿站残迹之间寻找被人匆忙掩过的土层。' },
+      [CHAPTER_SIX_ID]: { title: '循残灯余温探查', detail: '断柱、灰烬与熄灭的灯盏旁仍留着微弱回应，先分辨风向再动手。' },
+      [CHAPTER_SEVEN_ID]: { title: '从余烬中辨伪', detail: '别只追逐火光；纸灰、封泥和被搬动的书匣都可能留下真相。' },
+      [CHAPTER_EIGHT_ID]: { title: '对照陵道三证', detail: '把脚印、器痕与墙上的旧刻放在一起看，矛盾之处往往更接近答案。' },
+      [CHAPTER_NINE_ID]: { title: '循天阶残纹追寻', detail: '石阶上残留的光并不总指向高处；停下倾听，辨清它真正要引你去的地方。' },
+    };
+    return hints[chapterId] ?? { title: '调查异常土层', detail: '跟随附近微光与环境痕迹继续调查。' };
+  }
+
+  /** Adds a short environmental beat at chapter turning points without replacing existing dialogue. */
+  private withSceneAtmosphere(step: StoryStepDefinition, lines: DialogueLine[]) {
+    const phase = step.id.includes('midstream') ? 'mid' : step.id.includes('fragment-awakens') ? 'end'
+      : step.id.endsWith('opening') ? 'open' : null;
+    if (!phase) return lines;
+    const scene: Record<string, Partial<Record<'open' | 'mid' | 'end', string>>> = {
+      [CHAPTER_ONE_ID]: { open: '晨雾压在城外的荒地上，远处犬吠忽止，像有什么正在土层下屏息。', mid: '风从田埂掠过，碎骨相互轻碰，发出极细的回响。', end: '五处微光渐次暗下，荒地重新安静，却不再显得空无一物。' },
+      [CHAPTER_TWO_ID]: { open: '河面浮着薄雾，系船的麻绳被水拍得一下一下敲在木桩上。', mid: '潮水漫过旧脚印，阿潍停下话头，望向父亲当年失踪的上游。', end: '水纹在滩涂上收束，像有人将散乱的记忆一笔笔理回原位。' },
+      [CHAPTER_THREE_ID]: { open: '峡口的风裹着湿冷石屑，断壁间仍留有被洪水反复磨过的白痕。', mid: '山洪退去后，一段从未见光的壁面露了出来，阿沚沉默得比峡风更久。', end: '峡中的回声没有回答，却把众人的脚步声送向更深的山林。' },
+      [CHAPTER_FOUR_ID]: { open: '林雾贴着地面流动，树冠遮住天光，只有断续月色落在潮湿的根须上。', mid: '雾忽然变浓，熟悉的小径被吞没；阿岚摸着树皮，讲起走散的人。', end: '云隙裂开，星月把林间的水脉照成一条安静的归路。' },
+      [CHAPTER_FIVE_ID]: { open: '护送道上车辙交错，远处铃声时断时续，像有人正等着一支迟到的队伍。', mid: '一阵尘风卷过，阿归终于放下紧握的缰绳，肯把真正的担忧说出口。', end: '祭器的铜色在暮光里一闪，归途第一次有了可以相信的方向。' },
+      [CHAPTER_SIX_ID]: { open: '废墟的风穿过断窗，吹得残灯芯忽明忽灭，墙上旧烟痕像未写完的句子。', mid: '灯火被风压低，阿烛用手护住火种，低声说起师父留下的规矩。', end: '一盏盏残灯接续亮起，黑暗没有退尽，却终于露出了可走的边界。' },
+      [CHAPTER_SEVEN_ID]: { open: '书匣边的灰烬还带余温，空气里混着焦墨与潮纸的气味。', mid: '火舌舔过一页残册，阿简抢下它时手指沾满黑灰，也沾上了旧日的疑问。', end: '最后一点火星熄灭，真简与伪册终于不再混在同一片灰里。' },
+      [CHAPTER_EIGHT_ID]: { open: '陵道深处没有风，只有脚步在石壁间来回折返，像三种说法互不相让。', mid: '壁灯摇晃，三处证据在光影里彼此抵牾，阿陵第一次承认自己也曾怀疑。', end: '石门后的回声渐止，留下的不是答案本身，而是能够判断答案的凭据。' },
+      [CHAPTER_NINE_ID]: { open: '天阶上云影缓慢移动，脚下每一块石板都像在等候最后一次问答。', mid: '风从高处掠过，阿圭望着裂纹沉默良久，终于将选择交还给你。', end: '散光汇入天阶尽头，通天之契是否续写，已不再只由旧人的声音决定。' },
+    };
+    const text = phase ? scene[step.chapterId]?.[phase] : undefined;
+    return text ? [{ speaker: '旁白', kind: 'narration', text }, ...lines] : lines;
   }
 
   private completeStoryDialogue(step: StoryStepDefinition) {
