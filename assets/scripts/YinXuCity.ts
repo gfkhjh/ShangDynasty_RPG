@@ -91,15 +91,16 @@ import {
 } from './story/ChapterNine';
 import { migrateStorySave } from './story/StoryState';
 import { StorySaveState, StoryStepDefinition } from './story/StoryTypes';
-import { CHAPTER_CHAR_PLANS, SUPPLEMENT_CHARS } from './story/ChapterCharMap';
+import { CHAPTER_CHAR_PLANS } from './story/ChapterCharMap';
+import { fixedGuidedCardIds, MAIN_STORY_CARD_IDS, RELIC_CARD_IDS } from './story/CollectionPlan';
 
 // 主线/拾遗字 id 集合（基于 ChapterCharMap：主线 250 = 9 章 PLANS，拾遗 50 = SUPPLEMENT_CHARS）
 function planCardId(entry: { char: string; existingCardId: string | null }): string {
   if (entry.existingCardId) return entry.existingCardId;
   return 'catalog-u' + entry.char.codePointAt(0)!.toString(16);
 }
-const STORY_CARD_IDS = new Set<string>(CHAPTER_CHAR_PLANS.flatMap(p => p.chars.map(c => planCardId(c))));
-const SUPPLEMENT_CARD_IDS = new Set<string>(SUPPLEMENT_CHARS.map(c => planCardId(c)));
+const STORY_CARD_IDS = new Set<string>(MAIN_STORY_CARD_IDS);
+const SUPPLEMENT_CARD_IDS = new Set<string>(RELIC_CARD_IDS);
 const STORY_CHAPTER_DEFINITIONS = [
   chapterOneDefinition,
   chapterTwoDefinition,
@@ -112,6 +113,10 @@ const STORY_CHAPTER_DEFINITIONS = [
   chapterNineDefinition,
 ] as const;
 const STORY_CHAPTER_IDS = STORY_CHAPTER_DEFINITIONS.map(chapter => chapter.id);
+const STORY_CHAPTERS_WITH_GUIDED_GATES = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
+  ...chapter,
+  requiredCardIds: fixedGuidedCardIds(chapter.id),
+}));
 const ALL_STORY_FRAGMENT_CARDS = [
   ...CHAPTER_ONE_FRAGMENT_CARDS,
   ...CHAPTER_TWO_FRAGMENT_CARDS,
@@ -1165,7 +1170,7 @@ export class YinXuCity extends Component {
   }
 
   private initializeStoryInfrastructure() {
-    this.storyController = new StoryController([...STORY_CHAPTER_DEFINITIONS], this.save.story, story => {
+    this.storyController = new StoryController([...STORY_CHAPTERS_WITH_GUIDED_GATES], this.save.story, story => {
       this.save.story = story;
       this.persistCitySave();
     });
@@ -4417,7 +4422,7 @@ this.drawCityWallsAndGate();
 
   // 拾遗挖掘点：按需求散布整张可行走地图、彼此稀疏。开局隐藏，主线通关后才逐批现世。
   private createSupplementSites() {
-    const target = SUPPLEMENT_CHARS.length; // 50 个拾遗字
+    const target = RELIC_CARD_IDS.length; // 50 个拾遗字
     const bounds = this.supplementRegion;
     const MIN = YinXuCity.SUPPLEMENT_MIN_DISTANCE;
     // 确定性线性同余 PRNG：保证每次进游戏布局一致、可调试。
@@ -4593,7 +4598,10 @@ this.drawCityWallsAndGate();
     const ids = new Set<string>();
     for (const p of CHAPTER_CHAR_PLANS) {
       if (snap.completedChapterIds.includes(p.chapterId) || snap.currentChapterId === p.chapterId) {
-        for (const c of p.chars) ids.add(planCardId(c));
+        for (const c of p.chars) {
+          const cardId = planCardId(c);
+          if (STORY_CARD_IDS.has(cardId)) ids.add(cardId);
+        }
       }
     }
     return ids;

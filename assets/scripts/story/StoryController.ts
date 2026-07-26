@@ -72,13 +72,15 @@ export class StoryController {
   handle(event: StoryEvent) {
     const step = this.currentStep();
     if (!step || step.completeOn !== event.type) return false;
+    if (event.type === 'learning-completed' && event.cardId && event.correct !== false) {
+      this.state.flags[`learned-card:${event.cardId}`] = true;
+    }
     if (step.nextStepId) {
       const chapter = this.chapters.get(step.chapterId);
       if (!chapter?.steps.some(candidate => candidate.id === step.nextStepId)) return false;
       this.state.currentStepId = step.nextStepId;
     } else {
-      this.completeCurrentChapter();
-      return true;
+      return this.completeCurrentChapter();
     }
     this.commit();
     return true;
@@ -123,8 +125,19 @@ export class StoryController {
     this.commit();
   }
 
+  missingRequiredCards(chapterId = this.state.currentChapterId): string[] {
+    const chapter = chapterId ? this.chapters.get(chapterId) : undefined;
+    return (chapter?.requiredCardIds ?? []).filter(cardId => this.state.flags[`learned-card:${cardId}`] !== true);
+  }
+
   private completeCurrentChapter() {
     const chapterId = this.state.currentChapterId;
+    const missing = this.missingRequiredCards(chapterId);
+    if (missing.length > 0) {
+      this.state.flags[`chapter-blocked:${chapterId}`] = missing.length;
+      this.commit();
+      return false;
+    }
     if (chapterId && !this.state.completedChapterIds.includes(chapterId)) {
       this.state.completedChapterIds.push(chapterId);
     }
@@ -132,6 +145,7 @@ export class StoryController {
     this.state.currentStepId = null;
     this.state.reservedStorySiteId = null;
     this.commit();
+    return true;
   }
 
   private repairCurrentStep() {
