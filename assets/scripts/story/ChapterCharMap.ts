@@ -57,7 +57,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     { num: '050', char: '泉', group: 'G1', existingCardId: 'catalog-u6cc9' },
     { num: '045', char: '沙', group: 'G1', existingCardId: 'catalog-u6c99' },
     { num: '043', char: '石', group: 'G1', existingCardId: 'catalog-u77f3' },
-    { num: '042', char: '木', group: 'G1', existingCardId: 'tree-temp' },
+    { num: '042', char: '木', group: 'G1', existingCardId: 'catalog-u6728' },
     { num: '034', char: '风', group: 'G1', existingCardId: 'catalog-u98ce' },
     { num: '037', char: '山', group: 'G1', existingCardId: 'catalog-u5c71' },
     { num: '020', char: '上', group: 'G1', existingCardId: 'catalog-u4e0a' },
@@ -100,7 +100,7 @@ export const CHAPTER_CHAR_PLANS: ChapterCharPlan[] = [
     title: '山林迷径',
     charCount: 26,
     chars: [
-    { num: '032', char: '月', group: 'G1', existingCardId: 'moon-temp' },
+    { num: '032', char: '月', group: 'G1', existingCardId: 'catalog-u6708' },
     { num: '033', char: '星', group: 'G1', existingCardId: 'star-official' },
     { num: '006', char: '六', group: 'G1', existingCardId: 'catalog-u516d' },
     { num: '007', char: '七', group: 'G1', existingCardId: 'catalog-u4e03' },

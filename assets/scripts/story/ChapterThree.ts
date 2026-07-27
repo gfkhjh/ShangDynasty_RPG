@@ -24,7 +24,7 @@ import { StoryChapterDefinition } from './StoryTypes';
 //      节奏缓，避免一卜即终；三轮直接串联，末轮才逼起身（YinXuCity 占卜处理器已泛化为章无关）。
 
 export const CHAPTER_THREE_ID = 'chapter-3-upstream-trace';
-export const CHAPTER_THREE_NPC_POSITION = { x: 260, y: -980 } as const;
+export const CHAPTER_THREE_NPC_POSITION = { x: 2450, y: -3910 } as const;
 
 // 19 枚上游水文甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与学习判定。
 // cardId 为本游戏字库既有卡片；前/后/里 已预填 catalog-u524d/540e/91cc（待同伴录库，录库前引擎安全降级）。

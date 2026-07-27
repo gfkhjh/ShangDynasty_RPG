@@ -1,4 +1,4 @@
-import { CHAPTER_CHAR_PLANS, ChapterCharPlan } from './ChapterCharMap';
+import { CHAPTER_CHAR_PLANS, SUPPLEMENT_CHARS, ChapterCharPlan } from './ChapterCharMap';
 
 /**
  * The 300 target characters are intentionally split into three gameplay
@@ -8,7 +8,6 @@ import { CHAPTER_CHAR_PLANS, ChapterCharPlan } from './ChapterCharMap';
 export type CharacterCollectionLayer = 'guided' | 'main-free' | 'relic';
 
 const GUIDED_COUNTS = [3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
-const RELIC_COUNTS = [0, 1, 2, 3, 4, 5, 7, 10, 18] as const;
 
 export type ChapterCollectionPlan = {
   chapterId: string;
@@ -23,13 +22,11 @@ const cardIdFor = (char: { char: string; existingCardId: string | null }) =>
 function buildPlan(source: ChapterCharPlan, index: number): ChapterCollectionPlan {
   const cards = source.chars.map(cardIdFor);
   const guidedCount = GUIDED_COUNTS[index];
-  const relicCount = RELIC_COUNTS[index];
-  const mainCount = cards.length - relicCount;
   return {
     chapterId: source.chapterId,
     guidedCardIds: cards.slice(0, guidedCount),
-    mainFreeCardIds: cards.slice(guidedCount, mainCount),
-    relicCardIds: cards.slice(mainCount),
+    mainFreeCardIds: cards.slice(guidedCount),
+    relicCardIds: [],
   };
 }
 
@@ -38,7 +35,10 @@ export const MAIN_STORY_CARD_IDS = CHAPTER_COLLECTION_PLANS.flatMap(plan => [
   ...plan.guidedCardIds,
   ...plan.mainFreeCardIds,
 ]);
-export const RELIC_CARD_IDS = CHAPTER_COLLECTION_PLANS.flatMap(plan => plan.relicCardIds);
+// 拾遗字 = 原计划分配的 50 个补充字（编号 251–300），字形数据从仓库总字池
+// （手写卡 + imported catalog-u + 宝宝建的补充卡字）中按 id 匹配获取。
+// 仓库总字池 = 之前的字 + 补充卡字，剧情基于仓库所有字推进，但不把 152 当拾遗。
+export const RELIC_CARD_IDS = SUPPLEMENT_CHARS.map(cardIdFor);
 
 // The original story files use these two corrected ids while the historical
 // character table kept its earlier roadmap ids. Keep the data compatible
@@ -61,7 +61,7 @@ export function fixedGuidedCardIds(chapterId: string) {
   const plans = CHAPTER_COLLECTION_PLANS;
   const guided = plans.reduce((total, plan) => total + plan.guidedCardIds.length, 0);
   const main = plans.reduce((total, plan) => total + plan.guidedCardIds.length + plan.mainFreeCardIds.length, 0);
-  const relic = plans.reduce((total, plan) => total + plan.relicCardIds.length, 0);
+  const relic = RELIC_CARD_IDS.length;
   console.assert(guided === 63, `[CollectionPlan] guided count: ${guided}`);
   console.assert(main === 250, `[CollectionPlan] main count: ${main}`);
   console.assert(relic === 50, `[CollectionPlan] relic count: ${relic}`);

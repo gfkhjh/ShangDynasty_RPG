@@ -32,7 +32,7 @@ export const CHAPTER_FOUR_NPC_POSITION = { x: 3300, y: -800 } as const;
 // 26 枚山林路径甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与学习判定。
 // cardId 为本游戏字库既有卡片；待补字已预填 catalog-u{小写unicode}（录库前引擎安全降级）。
 export const CHAPTER_FOUR_FRAGMENT_CARDS = [
-  { seekStepId: 'chapter-4-seek-001', lessonStepId: 'chapter-4-lesson-001', cardId: 'moon-temp', character: '月' },
+  { seekStepId: 'chapter-4-seek-001', lessonStepId: 'chapter-4-lesson-001', cardId: 'catalog-u6708', character: '月' },
   { seekStepId: 'chapter-4-seek-002', lessonStepId: 'chapter-4-lesson-002', cardId: 'star-official', character: '星' },
   { seekStepId: 'chapter-4-seek-003', lessonStepId: 'chapter-4-lesson-003', cardId: 'catalog-u516d', character: '六' },
   { seekStepId: 'chapter-4-seek-004', lessonStepId: 'chapter-4-lesson-004', cardId: 'catalog-u4e03', character: '七' },
