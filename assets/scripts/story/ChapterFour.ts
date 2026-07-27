@@ -27,7 +27,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 
 export const CHAPTER_FOUR_ID = 'chapter-4-forest-path';
 // 守林人阿岚站位：山林入口开阔地（避开 tomb 祭祀区与 mountain 障碍），进章传送落其右侧。
-export const CHAPTER_FOUR_NPC_POSITION = { x: 3300, y: -800 } as const;
 
 // 26 枚山林路径甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与学习判定。
 // cardId 为本游戏字库既有卡片；待补字已预填 catalog-u{小写unicode}（录库前引擎安全降级）。
@@ -102,8 +101,7 @@ export const chapterFourDefinition: StoryChapterDefinition = {
       objective: {
         title: '山林迷径 · 林口',
         detail: '林深雾重，脚下腐叶沙沙。走到守林人阿岚守着的地方，向她打听那枚失踪的指路卜骨。',
-        targetX: CHAPTER_FOUR_NPC_POSITION.x,
-        targetY: CHAPTER_FOUR_NPC_POSITION.y,
+        storyLocationId: 'chapter-4-highland-npc',
         targetRadius: 200,
       },
       completeOn: 'npc-reached',
@@ -797,8 +795,7 @@ export const chapterFourDefinition: StoryChapterDefinition = {
       objective: {
         title: '山林迷径 · 第一轮问卜',
         detail: '告别林口，随阿岚返回宗庙内殿。林风渐远，灼骨之香渐近，接待前来问归途方位的阿岚。',
-        targetX: 0,
-        targetY: 1010,
+        storyLocationId: 'city-divination-temple',
         targetRadius: 110,
       },
       completeOn: 'temple-entered',

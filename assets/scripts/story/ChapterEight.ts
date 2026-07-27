@@ -5,7 +5,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 字量 44，全部来自 ChapterCharMap 第 8 章分配（编号 159~202）。
 export const CHAPTER_EIGHT_ID = 'chapter-8-tomb-three-proofs';
 // 守陵·阿陵 站位（坐标待 Cocos 微调）；进章传送落其旁。
-export const CHAPTER_EIGHT_NPC_POSITION = { x: 3000, y: -3200 } as const;
 
 export const CHAPTER_EIGHT_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-8-tomb-three-proofs-seek-001', lessonStepId: 'chapter-8-tomb-three-proofs-lesson-001', cardId: 'catalog-u5df7', character: '巷' },
@@ -75,7 +74,7 @@ export const chapterEightDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-8-tomb-three-proofs-reach-npc',
       chapterId: CHAPTER_EIGHT_ID,
-      objective: { title: '第八章：王陵三证 · 启程', detail: '走到守陵·阿陵身边，听他（她）讲清这一程要卜的事。', targetX: 3000, targetY: -3200, targetRadius: 200 },
+      objective: { title: '第八章：王陵三证 · 启程', detail: '走到守陵·阿陵身边，听他（她）讲清这一程要卜的事。', storyLocationId: 'chapter-8-royal-tomb-npc', targetRadius: 200 },
       completeOn: 'npc-reached',
       nextStepId: 'chapter-8-tomb-three-proofs-npc-dialogue',
     },
@@ -752,7 +751,7 @@ export const chapterEightDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-8-tomb-three-proofs-enter-temple',
       chapterId: CHAPTER_EIGHT_ID,
-      objective: { title: '第八章：王陵三证 · 问卜', detail: '随守陵·阿陵返回宗庙内殿，准备以本章甲骨问卜。', targetX: 0, targetY: 1010, targetRadius: 110 },
+      objective: { title: '第八章：王陵三证 · 问卜', detail: '随守陵·阿陵返回宗庙内殿，准备以本章甲骨问卜。', storyLocationId: 'city-divination-temple', targetRadius: 110 },
       completeOn: 'temple-entered',
       nextStepId: 'chapter-8-tomb-three-proofs-take-seat',
     },

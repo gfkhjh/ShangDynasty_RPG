@@ -5,7 +5,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 字量 48，全部来自 ChapterCharMap 第 9 章分配（编号 203~250）。
 export const CHAPTER_NINE_ID = 'chapter-9-renew-covenant';
 // 大卜·阿圭 站位（坐标待 Cocos 微调）；进章传送落其旁。
-export const CHAPTER_NINE_NPC_POSITION = { x: 0, y: 1010 } as const;
 
 export const CHAPTER_NINE_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-9-renew-covenant-seek-001', lessonStepId: 'chapter-9-renew-covenant-lesson-001', cardId: 'catalog-u6e38', character: '游' },
@@ -79,7 +78,7 @@ export const chapterNineDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-9-renew-covenant-reach-npc',
       chapterId: CHAPTER_NINE_ID,
-      objective: { title: '第九章：重续通天之契 · 启程', detail: '走到大卜·阿圭身边，听他（她）讲清这一程要卜的事。', targetX: 0, targetY: 1010, targetRadius: 200 },
+      objective: { title: '第九章：重续通天之契 · 启程', detail: '走到大卜·阿圭身边，听他（她）讲清这一程要卜的事。', storyLocationId: 'chapter-9-city-npc', targetRadius: 200 },
       completeOn: 'npc-reached',
       nextStepId: 'chapter-9-renew-covenant-npc-dialogue',
     },
@@ -812,7 +811,7 @@ export const chapterNineDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-9-renew-covenant-enter-temple',
       chapterId: CHAPTER_NINE_ID,
-      objective: { title: '第九章：重续通天之契 · 问卜', detail: '随大卜·阿圭返回宗庙内殿，准备以本章甲骨问卜。', targetX: 0, targetY: 1010, targetRadius: 110 },
+      objective: { title: '第九章：重续通天之契 · 问卜', detail: '随大卜·阿圭返回宗庙内殿，准备以本章甲骨问卜。', storyLocationId: 'city-divination-temple', targetRadius: 110 },
       completeOn: 'temple-entered',
       nextStepId: 'chapter-9-renew-covenant-take-seat',
     },
