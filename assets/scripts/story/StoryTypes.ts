@@ -55,6 +55,8 @@ export type StoryChapterDefinition = {
   title: string;
   firstStepId: StoryStepId;
   steps: StoryStepDefinition[];
+  /** Guided cards are the only collection requirement for chapter completion. */
+  requiredCardIds?: readonly string[];
 };
 
 export type StoryEventHistoryEntry = {

@@ -20,6 +20,8 @@ export class QuestGuide {
   private objective: StoryObjective | null = null;
   private elapsed = 0;
   private announcementTimer = 0;
+  /** 章节、背包等全屏面板打开时暂时隐藏，避免任务文字压在面板边缘。 */
+  private visible = true;
 
   constructor(world: Node, hudParent: Node) {
     this.marker = new Node('StoryQuestMarker');
@@ -79,16 +81,24 @@ export class QuestGuide {
     if (objective && previousKey !== nextKey) this.showTaskAnnouncement(objective);
     if (!objective || objective.targetX === undefined || objective.targetY === undefined) {
       this.marker.active = false;
-      this.hudRoot.active = Boolean(objective);
+      this.hudRoot.active = this.visible && Boolean(objective);
       this.objectiveLabel.string = objective?.detail ? `${objective.title} · ${objective.detail}` : objective?.title ?? '';
       this.arrowGraphics.clear();
       return;
     }
     this.marker.setPosition(objective.targetX, objective.targetY, 120);
     this.marker.active = true;
-    this.hudRoot.active = true;
+    this.hudRoot.active = this.visible;
     this.objectiveLabel.string = objective.detail ? `${objective.title} · ${objective.detail}` : objective.title;
     this.redrawMarker(0);
+  }
+
+  /**
+   * 只控制任务引导的显示，不清除当前任务；关闭面板后可无缝恢复。
+   */
+  setVisible(visible: boolean) {
+    this.visible = visible;
+    this.hudRoot.active = visible && Boolean(this.objective);
   }
 
   update(dt: number, playerPosition: Vec2, viewportWidth = 1280, viewportHeight = 720) {

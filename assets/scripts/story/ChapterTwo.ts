@@ -25,7 +25,7 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 「第二章占卜步骤」泛化处理（占卜墨料严格按需求文档：每轮 4 墨、仅首章首卜免费，第二章不免费；线索指上游），与本文件步骤 id 对应。
 
 export const CHAPTER_TWO_ID = 'chapter-2-river-echo';
-export const CHAPTER_TWO_FISHER_POSITION = { x: -700, y: -1180 } as const;
+export const CHAPTER_TWO_FISHER_POSITION = { x: -4900, y: -700 } as const;
 
 // 12 枚水文甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与
 // 学习判定（对齐第一章 CHAPTER_ONE_FRAGMENT_CARDS 的字段结构）。
@@ -35,7 +35,7 @@ export const CHAPTER_TWO_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-2-seek-002', lessonStepId: 'chapter-2-lesson-002', cardId: 'catalog-u6cc9', character: '泉' },
   { seekStepId: 'chapter-2-seek-003', lessonStepId: 'chapter-2-lesson-003', cardId: 'catalog-u6c99', character: '沙' },
   { seekStepId: 'chapter-2-seek-004', lessonStepId: 'chapter-2-lesson-004', cardId: 'catalog-u77f3', character: '石' },
-  { seekStepId: 'chapter-2-seek-005', lessonStepId: 'chapter-2-lesson-005', cardId: 'tree-temp', character: '木' },
+  { seekStepId: 'chapter-2-seek-005', lessonStepId: 'chapter-2-lesson-005', cardId: 'catalog-u6728', character: '木' },
   { seekStepId: 'chapter-2-seek-006', lessonStepId: 'chapter-2-lesson-006', cardId: 'catalog-u98ce', character: '风' },
   { seekStepId: 'chapter-2-seek-007', lessonStepId: 'chapter-2-lesson-007', cardId: 'catalog-u5c71', character: '山' },
   { seekStepId: 'chapter-2-seek-008', lessonStepId: 'chapter-2-lesson-008', cardId: 'catalog-u4e0a', character: '上' },
