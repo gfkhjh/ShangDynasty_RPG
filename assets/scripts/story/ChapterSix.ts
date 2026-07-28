@@ -7,7 +7,6 @@ export const CHAPTER_SIX_ID = 'chapter-6-ruins-lamp';
 // 灯匠·阿烛 站位（坐标待 Cocos 微调）；进章传送落其旁。
 // 古墟残灯位于王陵祭祀区的陆地。旧坐标 (-1100, -1500) 正落在洹水湖深水区，
 // 会导致人物传送后无法移动，故固定在与本章发掘点相同的古墟陆地区域。
-export const CHAPTER_SIX_NPC_POSITION = { x: 1500, y: -3180 } as const;
 
 export const CHAPTER_SIX_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-6-ruins-lamp-seek-001', lessonStepId: 'chapter-6-ruins-lamp-lesson-001', cardId: 'catalog-u65f6', character: '时' },
@@ -65,7 +64,7 @@ export const chapterSixDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-6-ruins-lamp-reach-npc',
       chapterId: CHAPTER_SIX_ID,
-      objective: { title: '第六章：古墟残灯 · 启程', detail: '走到灯匠·阿烛身边，听他（她）讲清这一程要卜的事。', targetX: -1100, targetY: -1500, targetRadius: 200 },
+      objective: { title: '第六章：古墟残灯 · 启程', detail: '走到灯匠·阿烛身边，听他（她）讲清这一程要卜的事。', storyLocationId: 'chapter-6-royal-tomb-npc', targetRadius: 200 },
       completeOn: 'npc-reached',
       nextStepId: 'chapter-6-ruins-lamp-npc-dialogue',
     },
@@ -574,7 +573,7 @@ export const chapterSixDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-6-ruins-lamp-enter-temple',
       chapterId: CHAPTER_SIX_ID,
-      objective: { title: '第六章：古墟残灯 · 问卜', detail: '随灯匠·阿烛返回宗庙内殿，准备以本章甲骨问卜。', targetX: 0, targetY: 1010, targetRadius: 110 },
+      objective: { title: '第六章：古墟残灯 · 问卜', detail: '随灯匠·阿烛返回宗庙内殿，准备以本章甲骨问卜。', storyLocationId: 'city-divination-temple', targetRadius: 110 },
       completeOn: 'temple-entered',
       nextStepId: 'chapter-6-ruins-lamp-take-seat',
     },

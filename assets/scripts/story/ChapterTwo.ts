@@ -25,7 +25,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 「第二章占卜步骤」泛化处理（占卜墨料严格按需求文档：每轮 4 墨、仅首章首卜免费，第二章不免费；线索指上游），与本文件步骤 id 对应。
 
 export const CHAPTER_TWO_ID = 'chapter-2-river-echo';
-export const CHAPTER_TWO_FISHER_POSITION = { x: -4900, y: -700 } as const;
 
 // 12 枚水文甲骨碎片。seekStepId / lessonStepId 供 YinXuCity 后续接入挖掘站点与
 // 学习判定（对齐第一章 CHAPTER_ONE_FRAGMENT_CARDS 的字段结构）。
@@ -87,8 +86,7 @@ export const chapterTwoDefinition: StoryChapterDefinition = {
       objective: {
         title: '河畔初兆 · 水声之地',
         detail: '沿水声西行，河风里夹着苇叶与鱼腥。走到河滩边，向守在那里的渔娘阿潍打听失语的水文卜骨。',
-        targetX: CHAPTER_TWO_FISHER_POSITION.x,
-        targetY: CHAPTER_TWO_FISHER_POSITION.y,
+        storyLocationId: 'chapter-2-riverbank-npc',
         targetRadius: 82,
       },
       completeOn: 'npc-reached',
@@ -488,8 +486,7 @@ export const chapterTwoDefinition: StoryChapterDefinition = {
       objective: {
         title: '河畔初兆 · 第一轮问卜',
         detail: '告别河滩，随阿潍返回宗庙内殿。河风渐远，灼骨之香渐近，接待前来问潮期的渔娘阿潍。',
-        targetX: 0,
-        targetY: 1010,
+        storyLocationId: 'city-divination-temple',
         targetRadius: 110,
       },
       completeOn: 'temple-entered',

@@ -15,6 +15,8 @@ type RegionTransitionCallbacks = {
   setPlayerPosition: (position: Readonly<Vec2>) => void;
   setPlayerFacing: (facing: FacingDirection) => void;
   canPlayerStand: (position: Readonly<Vec2>) => boolean;
+  /** Static landing validation for authored scripted entries; excludes transient actors. */
+  canScriptedEntryStand?: (entry: Readonly<RegionEntry>) => boolean;
   getCameraPosition: () => Readonly<Vec2>;
   setCameraPosition: (position: Readonly<Vec2>) => void;
   syncCameraImmediately: () => void;
@@ -22,6 +24,11 @@ type RegionTransitionCallbacks = {
   setInputLocked: (locked: boolean) => void;
   getWorldNode: () => Node;
   onRegionChanged?: (regionId: RegionId) => void;
+};
+
+type ScriptedTransitionCallbacks = {
+  onCompleted?: () => void;
+  onFailed?: (reason: string) => void;
 };
 
 /**
@@ -47,6 +54,7 @@ export class RegionTransitionManager {
   private cooldownExitCleared = false;
   private sourceSnapshot: { regionId: RegionId; position: Vec2; facing: FacingDirection; cameraPosition: Vec2 } | null = null;
   private pendingEntryId: string | null = null;
+  private pendingScriptedCallbacks: ScriptedTransitionCallbacks | null = null;
 
   constructor(
     private readonly host: Node,
@@ -67,6 +75,8 @@ export class RegionTransitionManager {
   get currentRegionId() { return this.currentRegionValue; }
   get state() { return this.stateValue; }
   get isInputLocked() { return this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN; }
+  getEntry(entryId: string): RegionEntry | null { return this.entries.get(entryId) ?? null; }
+  getRegisteredEntries(): ReadonlyArray<RegionEntry> { return Array.from(this.entries.values()); }
   get cameraBounds() {
     const definition = this.definitions.get(this.currentRegionValue);
     if (!definition || !pointInWorldBounds(this.callbacks.getPlayerFootPosition(), definition.currentWorldBounds)) return undefined;
@@ -74,11 +84,15 @@ export class RegionTransitionManager {
   }
 
   /** Uses the existing blackout state machine for scripted travel as well as exits. */
-  transitionToEntry(entryId: string) {
-    if (this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN) return false;
+  transitionToEntry(entryId: string, scriptedCallbacks?: ScriptedTransitionCallbacks) {
+    if (this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN) {
+      scriptedCallbacks?.onFailed?.(`transition-state:${this.stateValue}`);
+      return false;
+    }
     const entry = this.entries.get(entryId);
-    if (!entry || !this.callbacks.canPlayerStand(entry.worldPosition)) {
+    if (!entry) {
       console.error('[RegionTransition] scripted entry validation failed.', { entryId, entry });
+      scriptedCallbacks?.onFailed?.('entry-not-registered');
       return false;
     }
     this.sourceSnapshot = {
@@ -88,6 +102,7 @@ export class RegionTransitionManager {
       cameraPosition: new Vec2(this.callbacks.getCameraPosition().x, this.callbacks.getCameraPosition().y),
     };
     this.pendingEntryId = entryId;
+    this.pendingScriptedCallbacks = scriptedCallbacks ?? null;
     this.activeExit = null;
     this.stateValue = RegionTransitionState.FADING_OUT;
     this.stateElapsed = 0;
@@ -163,8 +178,16 @@ export class RegionTransitionManager {
     const scriptedEntry = this.pendingEntryId ? this.entries.get(this.pendingEntryId) : undefined;
     const entry = scriptedEntry ?? (exit ? this.entries.get(exit.targetEntryId) : undefined);
     const entryMatchesTarget = scriptedEntry ? true : !!exit && !!entry && entry.regionId === exit.targetRegionId;
+    // Scripted arrivals validate while the target region identity is active.
+    // This prevents source-region state (for example RIVERBANK elevation) from
+    // rejecting a valid target entry before the blackout switch commits.
+    if (scriptedEntry && entry) this.currentRegionValue = entry.regionId;
     const entryStandable = entryMatchesTarget && !!entry
-      ? this.callbacks.canPlayerStand(entry.worldPosition)
+      ? (scriptedEntry
+        ? (this.callbacks.canScriptedEntryStand
+          ? this.callbacks.canScriptedEntryStand(entry)
+          : this.callbacks.canPlayerStand(entry.worldPosition))
+        : this.callbacks.canPlayerStand(entry.worldPosition))
       : false;
     if ((!exit && !scriptedEntry) || !entry || !entryMatchesTarget || !entryStandable) {
       if (exit) {
@@ -187,6 +210,9 @@ export class RegionTransitionManager {
       this.callbacks.syncCameraImmediately();
       this.callbacks.setRegionUi(entry.regionId);
       this.callbacks.onRegionChanged?.(entry.regionId);
+      const scriptedCallbacks = this.pendingScriptedCallbacks;
+      this.pendingScriptedCallbacks = null;
+      scriptedCallbacks?.onCompleted?.();
       this.checkCoordinateMismatchOnce();
       const destinationPosition = this.callbacks.getPlayerFootPosition();
       const insideDestinationExit = this.exits.some(candidate =>
@@ -204,6 +230,9 @@ export class RegionTransitionManager {
       this.stateElapsed = 0;
     } catch (error) {
       console.error('[RegionTransition] switch failed; restoring the source state.', error);
+      const scriptedCallbacks = this.pendingScriptedCallbacks;
+      this.pendingScriptedCallbacks = null;
+      scriptedCallbacks?.onFailed?.('switch-exception');
       this.restoreSourceState();
     } finally {
       this.activeExit = null;
@@ -305,6 +334,9 @@ export class RegionTransitionManager {
    * input lock, teleport and camera synchronization state machine.
    */
   private syncRegionFromWorldPosition() {
+    // Region identities are authoritative after a blackout transition. The
+    // legacy global-coordinate regions overlap around the FIELDS west road.
+    if (this.currentRegionValue === RegionId.FIELDS) return;
     const inferred = this.inferRegionFromWorldPosition(this.callbacks.getPlayerFootPosition());
     if (!inferred || inferred === this.currentRegionValue) return;
     const isContinuousMainMapCrossing =
@@ -341,6 +373,9 @@ export class RegionTransitionManager {
     this.sourceSnapshot = null;
     this.activeExit = null;
     this.pendingEntryId = null;
+    const scriptedCallbacks = this.pendingScriptedCallbacks;
+    this.pendingScriptedCallbacks = null;
+    scriptedCallbacks?.onFailed?.('entry-validation-failed-during-switch');
     this.stateValue = RegionTransitionState.FADING_IN;
     this.stateElapsed = 0;
   }

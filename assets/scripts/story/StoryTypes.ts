@@ -35,6 +35,8 @@ export type DialogueLine = {
 export type StoryObjective = {
   title: string;
   detail?: string;
+  /** Resolved by StoryLocations; chapters never own world coordinates. */
+  storyLocationId?: string;
   targetX?: number;
   targetY?: number;
   targetRadius?: number;

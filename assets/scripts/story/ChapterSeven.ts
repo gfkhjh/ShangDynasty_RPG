@@ -5,7 +5,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 字量 38，全部来自 ChapterCharMap 第 7 章分配（编号 121~158）。
 export const CHAPTER_SEVEN_ID = 'chapter-7-wrong-scroll';
 // 守册·阿简 站位（坐标待 Cocos 微调）；进章传送落其旁。
-export const CHAPTER_SEVEN_NPC_POSITION = { x: 2200, y: -1100 } as const;
 
 export const CHAPTER_SEVEN_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-7-wrong-scroll-seek-001', lessonStepId: 'chapter-7-wrong-scroll-lesson-001', cardId: 'catalog-u638c', character: '掌' },
@@ -69,7 +68,7 @@ export const chapterSevenDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-7-wrong-scroll-reach-npc',
       chapterId: CHAPTER_SEVEN_ID,
-      objective: { title: '第七章：错册余火 · 启程', detail: '走到守册·阿简身边，听他（她）讲清这一程要卜的事。', targetX: 2200, targetY: -1100, targetRadius: 200 },
+      objective: { title: '第七章：错册余火 · 启程', detail: '走到守册·阿简身边，听他（她）讲清这一程要卜的事。', storyLocationId: 'chapter-7-highland-npc', targetRadius: 200 },
       completeOn: 'npc-reached',
       nextStepId: 'chapter-7-wrong-scroll-npc-dialogue',
     },
@@ -662,7 +661,7 @@ export const chapterSevenDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-7-wrong-scroll-enter-temple',
       chapterId: CHAPTER_SEVEN_ID,
-      objective: { title: '第七章：错册余火 · 问卜', detail: '随守册·阿简返回宗庙内殿，准备以本章甲骨问卜。', targetX: 0, targetY: 1010, targetRadius: 110 },
+      objective: { title: '第七章：错册余火 · 问卜', detail: '随守册·阿简返回宗庙内殿，准备以本章甲骨问卜。', storyLocationId: 'city-divination-temple', targetRadius: 110 },
       completeOn: 'temple-entered',
       nextStepId: 'chapter-7-wrong-scroll-take-seat',
     },

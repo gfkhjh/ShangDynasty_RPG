@@ -5,7 +5,6 @@ import { StoryChapterDefinition } from './StoryTypes';
 // 字量 26，全部来自 ChapterCharMap 第 5 章分配（编号 063~088）。
 export const CHAPTER_FIVE_ID = 'chapter-5-escort-home';
 // 归人·阿归 站位（坐标待 Cocos 微调）；进章传送落其旁。
-export const CHAPTER_FIVE_NPC_POSITION = { x: 1400, y: -1500 } as const;
 
 export const CHAPTER_FIVE_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-5-escort-home-seek-001', lessonStepId: 'chapter-5-escort-home-lesson-001', cardId: 'catalog-u5973', character: '女' },
@@ -57,7 +56,7 @@ export const chapterFiveDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-5-escort-home-reach-npc',
       chapterId: CHAPTER_FIVE_ID,
-      objective: { title: '第五章：护送归途 · 启程', detail: '走到归人·阿归身边，听他（她）讲清这一程要卜的事。', targetX: 1400, targetY: -1500, targetRadius: 200 },
+      objective: { title: '第五章：护送归途 · 启程', detail: '走到归人·阿归身边，听他（她）讲清这一程要卜的事。', storyLocationId: 'chapter-5-fields-npc', targetRadius: 200 },
       completeOn: 'npc-reached',
       nextStepId: 'chapter-5-escort-home-npc-dialogue',
     },
@@ -482,7 +481,7 @@ export const chapterFiveDefinition: StoryChapterDefinition = {
     {
       id: 'chapter-5-escort-home-enter-temple',
       chapterId: CHAPTER_FIVE_ID,
-      objective: { title: '第五章：护送归途 · 问卜', detail: '随归人·阿归返回宗庙内殿，准备以本章甲骨问卜。', targetX: 0, targetY: 1010, targetRadius: 110 },
+      objective: { title: '第五章：护送归途 · 问卜', detail: '随归人·阿归返回宗庙内殿，准备以本章甲骨问卜。', storyLocationId: 'city-divination-temple', targetRadius: 110 },
       completeOn: 'temple-entered',
       nextStepId: 'chapter-5-escort-home-take-seat',
     },
