@@ -158,7 +158,7 @@ const GUIDED_STORY_CARD_IDS = new Set<string>(
 
 const { ccclass } = _decorator;
 
-type RectObstacle = { x: number; y: number; w: number; h: number; name: string; regionId?: string };
+type RectObstacle = { x: number; y: number; w: number; h: number; name: string; regionId?: string; source?: string };
 type CircleObstacle = { x: number; y: number; radius: number; name: string };
 type WaterSegment = { ax: number; ay: number; bx: number; by: number; radius: number; name: string };
 type SwayObject = { node: Node; phase: number; amplitude: number; speed: number; reactsToPlayer?: boolean };
@@ -177,7 +177,7 @@ type Wildlife = {
   motion: WildlifeMotion; wake?: Node; bodyParts?: Node[]; wingParts?: Node[]; legParts?: Node[];
 };
 type WetlandPlantKind = 'reed' | 'grass';
-type WetlandPlant = { root: Node; sprite: Sprite; variant: number };
+type WetlandPlant = { root: Node; sprite: Sprite; variant: number; natureRegionId?: RegionId; natureName?: string; reported?: boolean };
 type RiverbankTerrainKind = 'WATER' | 'SHORE' | 'LAND' | 'ROAD' | 'BRIDGE' | 'BOUNDARY';
 type CropPlant = { root: Node; visual: Node; sprite: Sprite; frames: Array<SpriteFrame | null>; phase: number; x: number; y: number; bend: number; squash: number };
 type TorchFlame = {
@@ -190,6 +190,8 @@ type TerrainBounds = { left: number; right: number; bottom: number; top: number 
 type ElevationTransitionConfig = {
   id: string;
   regionId: RegionId;
+  /** Disabled transitions retain their authored data but do not block movement. */
+  enabled?: boolean;
   upperBounds: TerrainBounds;
   lowerBounds: TerrainBounds;
   cliffBand: TerrainBounds;
@@ -229,7 +231,7 @@ type Villager = {
   route: Vec2[]; routeIndex: number; routeDirection: number; target: Vec2; facing: Facing; walkPhase: number; displayedFrame: number;
   velocity: Vec2; speed: number; pause: number; phase: number; facingHold: number; blockedTime: number;
   avoidanceSign: number; radius: number; workFrames: Array<SpriteFrame | null>; workIndices: number[];
-  working: boolean; workTimer: number;
+  working: boolean; workTimer: number; activityRegionId?: RegionId;
 };
 type RestingVillager = {
   root: Node; visual: Node; sprite: Sprite; frames: Array<SpriteFrame | null>; displayedFrame: number; phase: number;
@@ -418,6 +420,9 @@ export class YinXuCity extends Component {
   private readonly riverbankElevationTransition: ElevationTransitionConfig = {
     id: 'riverbank-north-cliff-stairs',
     regionId: RegionId.RIVERBANK,
+    // The north highland cliff and stairs were removed. Keep the authoring
+    // data for diagnostics only; it must no longer restrict movement.
+    enabled: false,
     upperBounds: { left: -6000, right: -3800, bottom: -218, top: 850 },
     lowerBounds: { left: -6000, right: -3800, bottom: -3000, top: -410 },
     cliffBand: { left: -6000, right: -3800, bottom: -378, top: -250 },
@@ -471,6 +476,8 @@ export class YinXuCity extends Component {
   private playerMotion = new Vec2();
   private touchOrigin: Vec2 | null = null;
   private obstacles: RectObstacle[] = [];
+  /** Synchronous authoring scope inherited by addObstacle() when no region is supplied. */
+  private currentObstacleRegionId: string | undefined;
   private waterCircles: CircleObstacle[] = [];
   private waterSegments: WaterSegment[] = [];
   private waterCrossings: RectObstacle[] = [];
@@ -479,6 +486,8 @@ export class YinXuCity extends Component {
   private wetlandPlantFrames: Array<SpriteFrame | null> = [null, null, null, null, null];
   private wetlandPlantFramesRequested = false;
   private previousWetlandPlantVariant = -1;
+  /** Runtime-only audit of successfully bound regional decoration sprites. */
+  private readonly natureDecorVisibleCounts = new Map<string, number>();
   private ripples: Ripple[] = [];
   private canalFlowMarks: CanalFlowMark[] = [];
   private depthTrees: DepthTree[] = [];
@@ -1898,6 +1907,13 @@ export class YinXuCity extends Component {
     });
   }
 
+  private reportNatureDecorVisible(name: string, asset: string, node: Node, regionId: RegionId, obstacleCreated: boolean) {
+    const key = `${regionId}:${asset}`;
+    const count = (this.natureDecorVisibleCounts.get(key) ?? 0) + 1;
+    this.natureDecorVisibleCounts.set(key, count);
+    console.info('[NatureDecor]', { name, asset, count, parent: node.parent?.name, regionId, active: node.active, spriteBound: true, obstacleCreated });
+  }
+
   /**
    * Chapter 2 enters RIVERBANK's lower bank from a CITY test state. Its source
    * UPPER terrain hysteresis is not a collision at the authored landing point.
@@ -2472,6 +2488,7 @@ export class YinXuCity extends Component {
     this.sways = [];
     this.wetlandPlants = [];
     this.previousWetlandPlantVariant = -1;
+    this.natureDecorVisibleCounts.clear();
     this.ripples = [];
     this.canalFlowMarks = [];
     this.depthTrees = [];
@@ -2520,16 +2537,19 @@ export class YinXuCity extends Component {
     this.drawPixelGroundOverlay();
     this.drawRoads();
     this.drawRiver();
-    this.drawTransitionForest();
+    // Retired continuous-world transition art overlapped the new OUTSKIRTS
+    // southwest bounds and registered small legacy tree collisions. Region
+    // transitions now own this travel space, so do not instantiate the old map.
 this.drawCityWallsAndGate();
     this.drawTemple();
     this.drawVillage();
     this.drawMarket();
     this.drawTownDetails();
     this.createDecorationSlots();
-    this.drawFields();
+    this.withObstacleRegion(RegionId.FIELDS, () => this.drawFields());
     this.drawForest();
     this.drawOraclePit();
+    this.drawRegionalNatureDecorations();
     this.drawOutskirtsGroundAndRoads();
     this.createExcavationSites();
     this.scatterDynamicGrass();
@@ -2729,6 +2749,25 @@ this.drawCityWallsAndGate();
     for (let x = city.left + 96; x < city.right; x += tileStep) {
       const tile = this.pixelSprite('OutskirtsNorthGapGrass', 'grass-tile', this.outskirtsTileContainer, x, 1490, tileSize, tileSize, 61);
       tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
+    }
+
+    // The raw OutskirtsGround fill was exposed at the extreme northwest tile
+    // seam because the normal loop starts one half-step inward.  Cover that
+    // exact seam with the same opaque grass tile rather than a color block.
+    const northWestSeam = this.pixelSprite('OutskirtsNorthWestGrassSeam', 'grass-tile', this.world, -1972, 2032, tileSize + 8, tileSize + 8, 63);
+    northWestSeam.getComponent(Sprite)!.color = new Color(255, 255, 255, 255);
+
+    // This strip was formerly adjacent to the retired south-trial map.  Make
+    // the active OUTSKIRTS tile layer the last visual owner of it so no old
+    // world content can show through at the west/lower camera edge.  It is
+    // deliberately visual-only: the current region boundary owns collision.
+    const westLowerCleanup = new Node('OutskirtsWestLowerGrassCleanup');
+    westLowerCleanup.parent = this.outskirtsTileContainer;
+    for (let y = -864; y <= -288; y += tileStep) {
+      for (let x = -1924; x <= -1348; x += tileStep) {
+        const tile = this.pixelSprite('OutskirtsWestLowerGrassTile', 'grass-tile', westLowerCleanup, x, y, tileSize, tileSize, 62);
+        tile.getComponent(Sprite)!.color = new Color(235, 245, 225, 224);
+      }
     }
 
     // Four roads using road-straight sprites (matching city TownStreetTile: 92x112, rotated 90°, z=4, 100px spacing)
@@ -2995,11 +3034,6 @@ this.drawCityWallsAndGate();
     );
     this.fixedForegroundNodes.push(cliffForegroundLeft, cliffForegroundRight);
 
-    const rocks: Array<[number, number, number, number]> = [
-      [-5720, 410, 58, 55], [-5410, 145, 54, 51],
-      [-5160, 580, 62, 58], [-4630, 330, 48, 46],
-      [-4320, 610, 60, 56], [-4010, 180, 52, 50],
-    ];
     const shrubs: Array<[number, number, string, number, number]> = [
       [-5860, 720, 'jujube-bush', 64, 60],
       [-5650, 545, 'roadside-grass-clump', 55, 38],
@@ -3014,10 +3048,6 @@ this.drawCityWallsAndGate();
       [-5780, 70, 'roadside-grass-clump', 55, 38],
       [-4200, 30, 'grass-clump', 50, 52],
     ];
-    rocks.forEach(([x, y, w, h], index) => {
-      this.pixelSprite(`RiverbankNorthPlateauRock${index}`, 'mountain-rock', root, x, y, w, h, 15);
-      this.addObstacle(x, y - h * 0.16, w * 0.62, h * 0.46, `RiverbankNorthPlateauRockCollision${index}`);
-    });
     shrubs.forEach(([x, y, asset, w, h], index) => {
       this.pixelSprite(`RiverbankNorthPlateauShrub${index}`, asset, root, x, y, w, h, 16);
     });
@@ -3030,8 +3060,9 @@ this.drawCityWallsAndGate();
     ];
     trees.forEach(([x, y, scale], index) => {
       this.createTreeSized(
-        x, y, 900 + index, scale,
+        x, y, 900 + index, Math.max(1.25, scale),
         `RiverbankNorthPlateauTreeTrunk${index}`,
+        RegionId.RIVERBANK,
       );
     });
 
@@ -4146,16 +4177,15 @@ this.drawCityWallsAndGate();
     const outerWidth = waterWidth + 58;
     const g = this.localGraphics(name, this.world, centerX, centerY, length + 34, outerWidth + 26, z);
     const segments = Math.max(4, Math.ceil(length / 92));
-    const drawBand = (width: number, color: Color, offsetY = 0, seedOffset = 0) => {
+    const drawBand = (width: number, color: Color, offsetY = 0) => {
       const top: Array<[number, number]> = [];
       const bottom: Array<[number, number]> = [];
-      const amplitude = Math.max(2, Math.min(9, width * .09));
       for (let index = 0; index <= segments; index++) {
         const px = -length / 2 + length * index / segments;
-        const topStep = (((index * 7 + name.length + seedOffset) % 5) - 2) * amplitude * .42;
-        const bottomStep = (((index * 11 + name.length + seedOffset * 3) % 5) - 2) * amplitude * .42;
-        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY + topStep) / 3) * 3]);
-        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY - bottomStep) / 3) * 3]);
+        // Straight parallel bank bands prevent the old independently-jittered
+        // polygons from forming diamond-shaped seams at canal joins.
+        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY) / 3) * 3]);
+        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY) / 3) * 3]);
       }
       g.fillColor = color;
       g.moveTo(top[0][0], top[0][1]);
@@ -4163,13 +4193,13 @@ this.drawCityWallsAndGate();
       bottom.slice().reverse().forEach(point => g.lineTo(point[0], point[1]));
       g.close(); g.fill();
     };
-    drawBand(waterWidth + 58, new Color(82, 83, 69, 215), -2, 1);
-    drawBand(waterWidth + 48, new Color(111, 119, 67), 0, 2);
-    drawBand(waterWidth + 36, new Color(163, 112, 55), -1, 3);
-    drawBand(waterWidth + 23, new Color(211, 163, 84), 0, 4);
-    drawBand(waterWidth + 12, new Color(53, 72, 65), 0, 5);
-    drawBand(waterWidth, new Color(55, 128, 159), 1, 6);
-    drawBand(Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105), 1, 7);
+    drawBand(waterWidth + 58, new Color(82, 83, 69, 215), -2);
+    drawBand(waterWidth + 48, new Color(111, 119, 67), 0);
+    drawBand(waterWidth + 36, new Color(163, 112, 55), -1);
+    drawBand(waterWidth + 23, new Color(211, 163, 84), 0);
+    drawBand(waterWidth + 12, new Color(53, 72, 65), 0);
+    drawBand(waterWidth, new Color(55, 128, 159), 1);
+    drawBand(Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105), 1);
 
     // Pixel-sized soil clods, damp bank shadows and staggered chevrons keep
     // the long water surface from reading as a single coloured strip.
@@ -5397,10 +5427,11 @@ this.drawCityWallsAndGate();
     index: number,
     scale: number,
     obstacleName = '古树根部基座',
+    regionId?: RegionId,
   ) {
     const n = new Node(`Tree${index}`); n.parent = this.world; n.setPosition(x, y, 25); n.addComponent(UITransform).setContentSize(180 * scale, 220 * scale);
     this.attachPixelSprite(n, 'ancient-tree');
-    this.addObstacle(x, y - 85 * scale, 40 * scale, 22 * scale, obstacleName);
+    this.addObstacle(x, y - 85 * scale, 40 * scale, 22 * scale, obstacleName, regionId);
     this.sways.push({ node: n, phase: index * .63, amplitude: 1.4, speed: .75 });
     this.depthTrees.push({
       node: n,
@@ -5420,18 +5451,216 @@ this.drawCityWallsAndGate();
     this.addObstacle(x, y - 34 * scale, 78 * scale, 24 * scale, '山石基座');
   }
 
-  private createReeds(x: number, y: number) {
+  /**
+   * Natural-prop creation is deliberately transactional: its collision is
+   * registered only from the successful SpriteFrame callback.  This prevents
+   * an unloaded or hidden decoration from ever becoming an invisible wall.
+   */
+  private createRegionalNatureSprite(
+    name: string, asset: string, x: number, y: number, width: number, height: number,
+    regionId: RegionId, obstacle?: { x: number; y: number; w: number; h: number; name: string },
+  ) {
+    const node = new Node(name);
+    node.parent = this.world;
+    // OUTSKIRTS ground tiles render at z=61. Keep every small prop above that
+    // terrain layer; actors are still depth-sorted above these props each frame.
+    node.setPosition(x, y, 64);
+    node.addComponent(UITransform).setContentSize(width, height);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    let obstacleCreated = false;
+    this.requestFrame(asset, frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
+      if (obstacle && !obstacleCreated) {
+        this.addObstacle(obstacle.x, obstacle.y, obstacle.w, obstacle.h, obstacle.name, regionId);
+        obstacleCreated = true;
+      }
+      this.reportNatureDecorVisible(name, asset, node, regionId, obstacleCreated);
+    });
+    return node;
+  }
+
+  private createRegionalNatureTree(name: string, x: number, y: number, index: number, scale: number, regionId: RegionId, obstacleName: string) {
+    const node = new Node(name);
+    node.parent = this.world;
+    node.setPosition(x, y, 64);
+    node.addComponent(UITransform).setContentSize(180 * scale, 220 * scale);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    let obstacleCreated = false;
+    this.requestFrame('ancient-tree', frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
+      if (!obstacleCreated) {
+        this.addObstacle(x, y - 85 * scale, 40 * scale, 22 * scale, obstacleName, regionId);
+        obstacleCreated = true;
+      }
+      this.reportNatureDecorVisible(name, 'ancient-tree', node, regionId, obstacleCreated);
+    });
+    this.sways.push({ node, phase: index * .63, amplitude: 1.4, speed: .75 });
+    this.depthTrees.push({ node, trunkY: y - 84 * scale, halfWidth: 82 * scale, canopyHeight: 184 * scale, baseZ: 64 });
+  }
+
+  private createNatureShrub(name: string, asset: string, x: number, y: number, width: number, height: number, regionId: RegionId) {
+    this.createRegionalNatureSprite(name, asset, x, y, width, height, regionId, {
+      x, y: y - height * .28, w: Math.min(48, width * .56), h: Math.max(14, height * .2), name: `${name}Root`,
+    });
+  }
+
+  private createNatureGroundCover(name: string, asset: string, x: number, y: number, width: number, height: number, regionId: RegionId) {
+    this.createRegionalNatureSprite(name, asset, x, y, width, height, regionId);
+  }
+
+  /** Keep decorative collision outside every road, entrance and map edge. */
+  private canPlaceOutskirtsNature(x: number, y: number, margin = 110) {
+    const o = { left: -2020, right: 2020, bottom: -960, top: 2170 };
+    const city = { left: -1300, right: 1300, bottom: -240, top: 1450 };
+    if (x < o.left + margin || x > o.right - margin || y < o.bottom + margin || y > o.top - margin) return false;
+    if (x > city.left - margin && x < city.right + margin && y > city.bottom - margin && y < city.top + margin) return false;
+    // The north/south spine and the east/west road are permanently clear,
+    // including their approach to region entrances and the city gates.
+    if (Math.abs(x) < 150 || Math.abs(y - this.cityEastWestRoadCenterY) < 150) return false;
+    return true;
+  }
+
+  /**
+   * A compact 5x4 meadow cluster.  Individual covers overlap slightly so the
+   * result reads as one dense patch rather than scattered decoration dots.
+   */
+  private createNatureCluster(
+    prefix: string,
+    centerX: number,
+    centerY: number,
+    regionId: RegionId,
+    canPlace: (x: number, y: number) => boolean,
+  ) {
+    const offsets: Array<[number, number]> = [
+      [-76, 42], [-38, 44], [0, 42], [38, 44], [76, 42],
+      [-76, 4], [-38, 2], [0, 4], [38, 1], [76, 4],
+      [-76, -34], [-38, -38], [0, -34], [38, -38], [76, -34],
+      [-56, -70], [-18, -72], [20, -70], [58, -72],
+    ];
+    offsets.forEach(([offsetX, offsetY], index) => {
+      const x = centerX + offsetX;
+      const y = centerY + offsetY;
+      if (!canPlace(x, y)) return;
+      const flower = index % 5 === 1 || index % 7 === 0;
+      this.createNatureGroundCover(
+        `${prefix}${index}`,
+        flower ? 'wildflower-patch' : 'grass-clump',
+        x,
+        y,
+        flower ? 84 : 92,
+        flower ? 84 : 92,
+        regionId,
+      );
+    });
+  }
+
+  /**
+   * Six tightly joined meadow cells. This is intentionally a single large
+   * biome patch (roughly 456 x 256), not a set of scattered decorations.
+   */
+  private createLargeNatureCluster(
+    prefix: string,
+    centerX: number,
+    centerY: number,
+    regionId: RegionId,
+    canPlace: (x: number, y: number) => boolean,
+  ) {
+    const cells: Array<[number, number]> = [
+      [-152, -70], [0, -70], [152, -70],
+      [-152, 70], [0, 70], [152, 70],
+    ];
+    cells.forEach(([offsetX, offsetY], index) => {
+      this.createNatureCluster(`${prefix}${index}-`, centerX + offsetX, centerY + offsetY, regionId, canPlace);
+    });
+  }
+
+  /** Dense, road-safe decoration with collisions isolated to the owning region. */
+  private drawRegionalNatureDecorations() {
+    this.withObstacleRegion(RegionId.OUTSKIRTS, () => {
+      const place = (x: number, y: number, margin = 110) => {
+        const allowed = this.canPlaceOutskirtsNature(x, y, margin);
+        if (!allowed) console.debug('[NatureDecor] skipped OUTSKIRTS road/boundary placement', { x, y, margin });
+        return allowed;
+      };
+      const trees: Array<[number, number, number]> = [
+        [-1840, 1900, 1.22], [-1570, 1810, 1.16], [-1750, 1280, 1.2], [-1610, 940, 1.14], [-1740, -690, 1.18], [-1480, -720, 1.12],
+        [1500, 1940, 1.2], [1810, 1790, 1.16], [1540, 1370, 1.18], [1810, 1080, 1.14], [1540, 780, 1.2], [1830, 720, 1.12],
+        [-920, 1920, 1.16], [880, 1930, 1.18], [-650, 1700, 1.12], [640, 1710, 1.12],
+      ];
+      trees.forEach(([x, y, scale], index) => {
+        if (place(x, y, 150)) this.createRegionalNatureTree(`OutskirtsNatureTree${index}`, x, y, 70 + index, Math.max(1.25, scale), RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot');
+      });
+      const shrubs: Array<[number, number]> = [
+        [-1820, 1710], [-1640, 1510], [-1810, 1210], [-1510, 1020], [-1800, 810], [-1510, 680], [-1810, -760], [-1510, -780],
+        [1490, 1810], [1760, 1630], [1510, 1220], [1770, 1170], [1490, 920], [1780, 790], [1490, 620], [1800, 560],
+      ];
+      shrubs.forEach(([x, y], index) => { if (place(x, y)) this.createNatureShrub(`OutskirtsJujube${index}`, 'jujube-bush', x, y, 142, 142, RegionId.OUTSKIRTS); });
+      [[-1730, 1590], [-1660, 1110], [-1710, 730], [-1640, -610], [1580, 1720], [1640, 1220], [1660, 820], [1450, 650]]
+        .forEach(([x, y], index) => this.createNatureCluster(`OutskirtsMeadow${index}-`, x, y, RegionId.OUTSKIRTS, (px, py) => place(px, py, 90)));
+      // Six broad road-safe groves fill the previously empty arms. Every
+      // grove comprises six joined meadow cells, so its footprint is far
+      // larger than the retained compact meadows above.
+      [[1660, 120], [1440, -650], [720, -650], [-720, -690], [-1650, -120], [-1760, 920]]
+        .forEach(([x, y], index) => this.createLargeNatureCluster(`OutskirtsGrove${index}-`, x, y, RegionId.OUTSKIRTS, (px, py) => place(px, py, 90)));
+      [[1800, 180], [1510, -700], [900, -700], [-920, -720], [-1740, -100], [-1830, 980]]
+        .forEach(([x, y], index) => { if (place(x, y, 170)) this.createRegionalNatureTree(`OutskirtsGroveTree${index}`, x, y, 150 + index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot'); });
+    });
+
+    this.withObstacleRegion(RegionId.RIVERBANK, () => {
+      const land = (x: number, y: number, width = 88, height = 88) => this.canPlaceRiverbankObject(x, y, width, height, ['LAND']);
+      const shore = (x: number, y: number) => this.classifyRiverbankTerrain(x, y) === 'SHORE';
+      const trees: Array<[number, number, number]> = [
+        [-5750, 420, 1.25], [-5400, 300, 1.25], [-4500, 380, 1.25], [-4100, 260, 1.25],
+        [-5750, -1720, 1.25], [-5480, -1550, 1.25], [-5160, -2020, 1.25], [-4860, -1710, 1.25], [-4540, -1530, 1.25], [-4210, -1780, 1.25],
+        [-5700, -2470, 1.25], [-5350, -2640, 1.25], [-4600, -2460, 1.25], [-4140, -2310, 1.25],
+      ];
+      trees.forEach(([x, y, scale], index) => { if (land(x, y, 150, 160)) this.createRegionalNatureTree(`RiverbankNatureTree${index}`, x, y, 90 + index, scale, RegionId.RIVERBANK, 'RiverbankNatureTreeRoot'); });
+      const shrubs: Array<[number, number]> = [
+        [-5850, -1280], [-5600, -1170], [-5320, -1260], [-5050, -1390], [-4750, -1260], [-4470, -1390], [-4200, -1210], [-4020, -1450], [-5650, -2100], [-5360, -2200], [-5060, -2350], [-4540, -2200], [-4200, -2120],
+      ];
+      shrubs.forEach(([x, y], index) => { if (land(x, y, 118, 118)) this.createNatureShrub(`RiverbankJujube${index}`, 'jujube-bush', x, y, 138, 138, RegionId.RIVERBANK); });
+      [[-5680, 310], [-5450, 120], [-4400, 160], [-4140, 420], [-5700, -1480], [-5350, -1800], [-4920, -1510], [-4520, -1820], [-4200, -1510], [-5500, -2260], [-4700, -2200]]
+        .forEach(([x, y], index) => this.createNatureCluster(`RiverbankMeadow${index}-`, x, y, RegionId.RIVERBANK, (px, py) => land(px, py, 78, 78)));
+      // Mid-riverbank: two broad groves on opposite sides of the central
+      // north-bank road. They deliberately stay clear of the x=-4900 road.
+      [[-5450, -620], [-4350, -620]]
+        .forEach(([x, y], index) => this.createLargeNatureCluster(`RiverbankMidRoadGrove${index}-`, x, y, RegionId.RIVERBANK, (px, py) => land(px, py, 78, 78)));
+      [[-5600, -650], [-4200, -650]]
+        .forEach(([x, y], index) => { if (land(x, y, 170, 180)) this.createRegionalNatureTree(`RiverbankMidRoadTree${index}`, x, y, 180 + index, 1.35, RegionId.RIVERBANK, 'RiverbankNatureTreeRoot'); });
+      [[-5750, 70], [-5590, 20], [-5420, 80], [-5200, 30], [-4700, 80], [-4520, 20], [-4300, 90], [-4110, 40], [-5650, -1120], [-5350, -1180], [-5050, -1210], [-4700, -1160], [-4380, -1220], [-4150, -1160]]
+        .forEach(([x, y], index) => { if (shore(x, y)) this.createReeds(x, y, RegionId.RIVERBANK, `RiverbankNatureReedsB${index}`, 1); });
+      [[-5680, -40], [-5500, -90], [-5280, -30], [-4900, -70], [-4620, -20], [-4420, -80], [-4200, -30], [-5520, -1260], [-5220, -1320], [-4920, -1280], [-4620, -1330], [-4320, -1270]]
+        .forEach(([x, y], index) => { if (shore(x, y)) this.createReeds(x, y, RegionId.RIVERBANK, `RiverbankNatureWetGrassA${index}`, 3); });
+    });
+
+    this.withObstacleRegion(RegionId.ROYAL_TOMB, () => {
+      [[900, -2900, 1.05], [960, -3820, 1.08], [1950, -2760, 1.02], [3600, -2760, 1.04], [620, -3150, 1.0], [2460, -2780, 1.0], [3660, -3850, 1.02]]
+        .forEach(([x, y, scale], index) => this.createRegionalNatureTree(`RoyalTombNatureTree${index}`, x, y, 120 + index, scale, RegionId.ROYAL_TOMB, 'RoyalTombNatureTreeRoot'));
+    });
+  }
+
+  private createReeds(x: number, y: number, natureRegionId?: RegionId, natureName?: string, forcedVariant?: number) {
     this.loadWetlandPlantSpriteFrames();
     const seed = this.wetlandReedSeed(x, y);
-    if (((seed >>> 4) % 100) < this.wetlandPlantBlankPercent) return;
+    if (forcedVariant === undefined && ((seed >>> 4) % 100) < this.wetlandPlantBlankPercent) return;
 
-    const kind: WetlandPlantKind = ((seed >>> 24) % 100) < this.wetlandReedPercent ? 'reed' : 'grass';
+    const kind: WetlandPlantKind = forcedVariant !== undefined
+      ? (forcedVariant < this.wetlandReedVariantCount ? 'reed' : 'grass')
+      : ((seed >>> 24) % 100) < this.wetlandReedPercent ? 'reed' : 'grass';
     const firstVariant = kind === 'reed' ? 0 : this.wetlandReedVariantCount;
     const variantCount = kind === 'reed' ? this.wetlandReedVariantCount : 2;
-    let variant = firstVariant + (seed % variantCount);
+    let variant = forcedVariant ?? (firstVariant + (seed % variantCount));
     // Generation order is fixed, so rotating a repeated choice remains fully
     // deterministic while preventing obvious runs of the same silhouette.
-    if (variant === this.previousWetlandPlantVariant) {
+    if (forcedVariant === undefined && variant === this.previousWetlandPlantVariant) {
       variant = firstVariant + ((variant - firstVariant + 1) % variantCount);
     }
     this.previousWetlandPlantVariant = variant;
@@ -5442,7 +5671,7 @@ this.drawCityWallsAndGate();
     const [canvasWidth, canvasHeight] = this.wetlandPlantCanvasSizes[kind];
     const n = new Node(kind === 'reed' ? 'DynamicRiverReeds' : 'DynamicWetlandGrass');
     n.parent = this.world;
-    n.setPosition(x + jitterX, y + jitterY, 12);
+    n.setPosition(x + jitterX, y + jitterY, natureRegionId ? 64 : 12);
     n.addComponent(UITransform).setContentSize(canvasWidth, canvasHeight);
 
     const visual = new Node(kind === 'reed' ? 'WetlandReedSprite' : 'WetlandGrassSprite');
@@ -5456,15 +5685,24 @@ this.drawCityWallsAndGate();
     sprite.color = Color.WHITE;
     sprite.spriteFrame = this.wetlandPlantFrames[variant];
 
-    this.wetlandPlants.push({ root: n, sprite, variant });
+    const plant: WetlandPlant = { root: n, sprite, variant, natureRegionId, natureName };
+    this.wetlandPlants.push(plant);
+    this.reportWetlandNatureVisible(plant);
     this.depthOccluders.push({
       node: n,
       footY: y + jitterY - 24,
       halfWidth: canvasWidth * (kind === 'reed' ? .42 : .46),
       coverHeight: kind === 'reed' ? 92 : 46,
-      baseZ: 12,
+      baseZ: natureRegionId ? 64 : 12,
       foregroundZ: 98,
     });
+  }
+
+  private reportWetlandNatureVisible(plant: WetlandPlant) {
+    if (!plant.natureRegionId || plant.reported || !plant.sprite.spriteFrame || !plant.root.isValid) return;
+    plant.root.setSiblingIndex((plant.root.parent?.children.length ?? 1) - 1);
+    plant.reported = true;
+    this.reportNatureDecorVisible(plant.natureName ?? plant.root.name, 'wetland-reeds', plant.root, plant.natureRegionId, false);
   }
 
   private wetlandReedSeed(x: number, y: number) {
@@ -5487,7 +5725,10 @@ this.drawCityWallsAndGate();
         frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
         this.wetlandPlantFrames[variant] = frame;
         this.wetlandPlants.forEach(plant => {
-          if (plant.variant === variant && plant.root.isValid && plant.sprite.isValid) plant.sprite.spriteFrame = frame;
+          if (plant.variant === variant && plant.root.isValid && plant.sprite.isValid) {
+            plant.sprite.spriteFrame = frame;
+            this.reportWetlandNatureVisible(plant);
+          }
         });
       });
     });
@@ -6008,16 +6249,16 @@ this.drawCityWallsAndGate();
   }
 
   private createVillagers() {
-    const definitions: Array<{ name: string; route: Array<[number, number]>; asset: string; speed: number; workIndices?: number[] }> = [
+    const definitions: Array<{ name: string; route: Array<[number, number]>; asset: string; speed: number; workIndices?: number[]; activityRegionId?: RegionId }> = [
       { name: '巡街陶匠', route: [[0, 440], [0, 820], [600, 820], [600, 440], [600, 60], [0, 60]], asset: 'villager-farmer-v2', speed: 74 },
       { name: '汲水妇人', route: [[-600, 60], [-600, 440], [-600, 820], [0, 820], [0, 440], [0, 60]], asset: 'villager-woman-v2', speed: 66 },
       { name: '集市商贩', route: [[600, 60], [600, 440], [0, 440], [-600, 440], [-600, 820], [0, 820], [600, 820]], asset: 'villager-woman-v2', speed: 70 },
       { name: '卜骨学徒', route: [[-600, 440], [0, 440], [600, 440], [600, 820]], asset: 'villager-farmer-v2', speed: 72 },
       { name: '田间老农', route: [[250, -760], [850, -760], [1100, -760], [1040, -980], [970, -1140]], asset: 'villager-farmer-v2', speed: 60, workIndices: [3, 4] },
       { name: '赶集妇人', route: [[600, 820], [600, 440], [0, 440], [0, 60], [0, -240], [0, -760], [500, -760], [900, -760]], asset: 'villager-woman-v2', speed: 68 },
-      { name: '进城帮工', route: [[-600, 820], [-600, 440], [0, 440], [0, 60], [0, -240], [0, -760], [500, -760], [1100, -760], [1040, -980], [970, -1140]], asset: 'villager-farmer-v2', speed: 64, workIndices: [8, 9] },
-      { name: '南田雇农', route: [[1700, -760], [1640, -980], [1570, -1140]], asset: 'villager-farmer-v2', speed: 58, workIndices: [1, 2] },
-      { name: '东田雇农', route: [[2300, -760], [2240, -980], [2170, -1140]], asset: 'villager-farmer-v2', speed: 61, workIndices: [1, 2] },
+      { name: '进城帮工', route: [[500, -760], [1100, -760], [1040, -980], [970, -1140]], asset: 'villager-farmer-v2', speed: 64, workIndices: [2, 3], activityRegionId: RegionId.FIELDS },
+      { name: '南田雇农', route: [[1700, -760], [1640, -980], [1570, -1140]], asset: 'villager-farmer-v2', speed: 58, workIndices: [1, 2], activityRegionId: RegionId.FIELDS },
+      { name: '东田雇农', route: [[2300, -760], [2240, -980], [2170, -1140]], asset: 'villager-farmer-v2', speed: 61, workIndices: [1, 2], activityRegionId: RegionId.FIELDS },
     ];
     definitions.forEach((definition, index) => {
       // Keep both cross-gate CITY villagers and their continuous routes. The
@@ -6030,11 +6271,15 @@ this.drawCityWallsAndGate();
         definition.speed,
         index,
         definition.workIndices ?? [],
+        definition.activityRegionId,
       );
     });
   }
 
-  private createWalkingVillager(name: string, route: Vec2[], asset: string, speed: number, variant: number, workIndices: number[]) {
+  private createWalkingVillager(
+    name: string, route: Vec2[], asset: string, speed: number, variant: number,
+    workIndices: number[], activityRegionId?: RegionId,
+  ) {
     const root = new Node(name);
     root.parent = this.world;
     root.setPosition(route[0].x, route[0].y, 78);
@@ -6059,7 +6304,7 @@ this.drawCityWallsAndGate();
       target: route[1].clone(), facing: 'down', walkPhase: 0, displayedFrame: -1,
       velocity: new Vec2(), speed, pause: variant * .18, phase: variant * 1.37,
       facingHold: variant * .06, blockedTime: 0, avoidanceSign: variant % 2 === 0 ? 1 : -1, radius: this.actorRadius,
-      workFrames: [null, null, null, null], workIndices, working: false, workTimer: 0,
+      workFrames: [null, null, null, null], workIndices, working: false, workTimer: 0, activityRegionId,
     };
     (['down', 'left', 'right', 'up'] as Facing[]).forEach(direction => {
       for (let frameIndex = 0; frameIndex < 4; frameIndex++) {
@@ -6081,6 +6326,13 @@ this.drawCityWallsAndGate();
 
   private updateVillagers(dt: number) {
     for (const villager of this.villagers) {
+      const activeRegion = this.regionTransitionManager?.currentRegionId;
+      if (villager.activityRegionId && activeRegion !== villager.activityRegionId) {
+        villager.root.active = false;
+        villager.working = false;
+        continue;
+      }
+      villager.root.active = true;
       let movedDistance = 0;
       villager.facingHold = Math.max(0, villager.facingHold - dt);
       if (villager.working) {
@@ -6178,7 +6430,8 @@ this.drawCityWallsAndGate();
     const jitterY = (Math.random() - .5) * 10;
     const candidateX = anchor.x + jitterX;
     const candidateY = anchor.y + jitterY;
-    if (this.canStandRadius(candidateX, candidateY, villager.radius)) villager.target.set(candidateX, candidateY);
+    if (this.isNpcWalkable(villager, candidateX, candidateY)
+      && this.canStandRadius(candidateX, candidateY, villager.radius)) villager.target.set(candidateX, candidateY);
     else villager.target.set(anchor.x, anchor.y);
   }
 
@@ -6262,7 +6515,9 @@ this.drawCityWallsAndGate();
     }
 
     this.restingVillager = resting;
-    this.addObstacle(580, -635, 58, 28, '树下休息的村民');
+    // This fixed resting NPC is authored inside FIELDS, but is created after
+    // drawFields() has restored its obstacle-authoring scope.
+    this.addObstacle(580, -635, 58, 28, '树下休息的村民', RegionId.FIELDS);
   }
 
   private updateRestingVillager() {
@@ -6729,15 +6984,40 @@ this.drawCityWallsAndGate();
     if (!ignoreElevationHysteresis && !this.canStandInElevationTransition(x, y, radius, this.riverbankElevationTransition)) return false;
     const regionId = this.regionTransitionManager?.currentRegionId;
     for (const r of this.obstacles) {
-      // Skip obstacles belonging to a different region (except CITY/OUTSKIRTS which are always visible together)
-      if (r.regionId && regionId && r.regionId !== regionId) {
+      // A scoped obstacle never becomes global merely because this check runs
+      // before a manager snapshot exists. CITY/OUTSKIRTS are the one intended
+      // shared collision pair.
+      if (r.regionId && r.regionId !== regionId) {
         const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
         if (!isShared) continue;
       }
-      if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) return false;
+      if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) {
+        console.debug('[HIT]', { currentRegionId: regionId, obstacleName: r.name, obstacleRegionId: r.regionId, bounds: r, source: r.source, player: { x, y, radius } });
+        return false;
+      }
     }
     if (this.pointInWater(x, y, radius)) return false;
     return true;
+  }
+
+  /** Runtime audit for reported collision positions; mirrors canStandRadius filtering exactly. */
+  private scanCollisionProbe(label: string, x: number, y: number, radius = 112) {
+    const currentRegionId = this.regionTransitionManager?.currentRegionId;
+    const overlaps = this.obstacles.map(r => {
+      const intersects = x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2
+        && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2;
+      const sharedCityOutskirts = (currentRegionId === RegionId.CITY || currentRegionId === RegionId.OUTSKIRTS)
+        && (r.regionId === RegionId.CITY || r.regionId === RegionId.OUTSKIRTS);
+      const skippedForRegion = !!r.regionId && r.regionId !== currentRegionId && !sharedCityOutskirts;
+      return { r, intersects, skippedForRegion };
+    }).filter(candidate => candidate.intersects);
+    const waterSegments = this.waterSegments.filter(segment => this.pointToSegmentDistance(x, y, segment.ax, segment.ay, segment.bx, segment.by) < segment.radius + radius)
+      .map(segment => ({ ax: segment.ax, ay: segment.ay, bx: segment.bx, by: segment.by, radius: segment.radius }));
+    console.info('[CollisionProbe]', {
+      label, currentRegionId: currentRegionId ?? 'UNINITIALIZED', point: { x, y, radius },
+      obstacles: overlaps.map(({ r, skippedForRegion }) => ({ name: r.name, regionId: r.regionId ?? 'UNSCOPED', aabb: { x: r.x, y: r.y, width: r.w, height: r.h }, source: r.source ?? 'unclassified addObstacle()', skippedForRegion, participatesInCanStandRadius: !skippedForRegion })),
+      waterSegments,
+    });
   }
 
   private canStandInElevationTransition(
@@ -6746,6 +7026,7 @@ this.drawCityWallsAndGate();
     radius: number,
     config: ElevationTransitionConfig,
   ) {
+    if (config.enabled === false) return true;
     // Destination validation runs before RegionTransitionManager commits the
     // target RegionId. Scope elevation rules to the candidate coordinates;
     // otherwise RIVERBANK -> OUTSKIRTS incorrectly validates (0,-860) as an
@@ -6876,6 +7157,14 @@ this.drawCityWallsAndGate();
   }
 
   private isNpcWalkable(villager: Villager, x: number, y: number) {
+    if (villager.activityRegionId === RegionId.FIELDS) {
+      if (this.regionTransitionManager?.currentRegionId !== RegionId.FIELDS || !this.inRegion(x, y, this.fieldRegion)) return false;
+      const onFieldTrunkRoad = x >= 140 && x <= 3020 && Math.abs(y + 760) <= 42;
+      const onFieldLane = [1100, 1700, 2300].some(roadX => Math.abs(x - roadX) <= 24)
+        && y <= -805 && y >= -2110;
+      const inWorkPlot = x >= 420 && x <= 2860 && y <= -845 && y >= -1205;
+      return onFieldTrunkRoad || onFieldLane || inWorkPlot;
+    }
     const onMainCityRoad = Math.abs(x) <= 48 && y >= -790 && y <= 930;
     const onSideCityRoad = (Math.abs(x - 600) <= 34 || Math.abs(x + 600) <= 34) && y >= -25 && y <= 1120;
     const onCityCrossStreet = [60, 440, 820].some(roadY => Math.abs(y - roadY) <= 38)
@@ -7016,7 +7305,28 @@ this.drawCityWallsAndGate();
     return this.obstacles.some(r => x > r.x - r.w / 2 - 30 && x < r.x + r.w / 2 + 30 && y > r.y - r.h / 2 - 30 && y < r.y + r.h / 2 + 30);
   }
 
-  private addObstacle(x: number, y: number, w: number, h: number, name: string, regionId?: string) { this.obstacles.push({ x, y, w, h, name, regionId }); }
+  private withObstacleRegion<T>(regionId: string, author: () => T): T {
+    const previousRegionId = this.currentObstacleRegionId;
+    this.currentObstacleRegionId = regionId;
+    try {
+      return author();
+    } finally {
+      this.currentObstacleRegionId = previousRegionId;
+    }
+  }
+
+  private addObstacle(x: number, y: number, w: number, h: number, name: string, regionId?: string) {
+    // The two trunk-road fence strips are authored by drawFields().  Keep that
+    // ownership explicit even if a legacy caller invokes the helper outside
+    // the synchronous FIELDS authoring scope.
+    const isFieldTrunkFence = w === 170 && h === 18 && (y === -701 || y === -872)
+      && x >= 310 && x <= 2870;
+    const resolvedRegionId = regionId ?? (isFieldTrunkFence ? RegionId.FIELDS : this.currentObstacleRegionId);
+    const source = isFieldTrunkFence
+      ? `drawFields(): ${y === -701 ? 'FieldRoadFenceNorthCollision' : 'FieldRoadFenceSouthCollision'}`
+      : undefined;
+    this.obstacles.push({ x, y, w, h, name, regionId: resolvedRegionId, source });
+  }
 
   private createWeatherOverlay() {
     const visible = view.getVisibleSize();
