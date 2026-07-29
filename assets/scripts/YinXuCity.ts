@@ -30,6 +30,7 @@ import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
 import { RegionTransitionManager } from './regions/RegionTransitionManager';
 import { RegionEntry, RegionExit, RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
+import { GameAudioManager } from './GameAudioManager';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
 import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
@@ -548,6 +549,7 @@ export class YinXuCity extends Component {
   private weatherIcon!: Graphics;
   private weatherParticles!: Graphics;
   private weatherParticleNode!: Node;
+  private audioManager!: GameAudioManager;
 
   private playerPos = new Vec2(0, 20);
   private cameraPos = new Vec2(0, 20);
@@ -996,6 +998,8 @@ export class YinXuCity extends Component {
 
   private async initializeGame() {
     this.save = await this.loadCitySave();
+    this.audioManager = GameAudioManager.ensure();
+    this.audioManager.setSfxEnabled(this.save.sfxOn);
     this.restoreSavedRegionPosition();
     this.buildWorld();
     this.createRegionTransitionManager();
@@ -1085,6 +1089,7 @@ export class YinXuCity extends Component {
       },
       toggleSfx: () => {
         this.save.sfxOn = !this.save.sfxOn;
+        this.audioManager.setSfxEnabled(this.save.sfxOn);
         this.persistCitySave();
       },
       toggleNight: () => {
@@ -5486,6 +5491,7 @@ this.drawCityWallsAndGate();
     this.redrawExcavationSite(site);
     this.pendingExcavation = { site, timer: .62, rewarded: false };
     this.createDigParticleBurst(site.x, site.y);
+    this.audioManager.playShovelDig();
     if (returningToLesson) this.showStatusNotice('重新清理这个坑位，之前发现的甲骨文字仍保留在这里。', 1.1);
     this.showStatusNotice('正在清理土层……', 1.1);
   }
@@ -6599,6 +6605,7 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(104, 66, 39); g.ellipse(-20, 7, 9, 5); g.ellipse(19, 6, 10, 5); g.fill();
     g.fillColor = new Color(148, 96, 49); g.rect(-23, 9, 9, 3); g.rect(13, 9, 11, 3); g.fill();
     this.dugHoles.push({ node: hole, timer: 15, x, y });
+    this.audioManager.playShovelDig();
     this.showStatusNotice('挖出了一处小土坑，约15秒后会自然填平。');
   }
 
@@ -7931,6 +7938,7 @@ this.drawCityWallsAndGate();
 
   private setWeather(next: WeatherKind, initial = false) {
     this.weather = next;
+    this.audioManager.setRaining(next === '小雨' || next === '雨天' || next === '中雨');
     this.weatherChangeTimer = initial ? 42 + Math.random() * 42 : 55 + Math.random() * 65;
     this.precipitation = [];
     this.rainSplashes = [];
@@ -9993,6 +10001,7 @@ this.drawCityWallsAndGate();
   }
 
   private onKeyDown(e: EventKeyboard) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     if (sys.isBrowser && e.keyCode === KeyCode.ESCAPE) {
       if (this.overlay === 'divination') this.exitDivination();
@@ -10275,6 +10284,7 @@ this.drawCityWallsAndGate();
   }
 
   private onTouchStart(e: EventTouch) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     const p = e.getUILocation(); const size = view.getVisibleSize();
     const localX = p.x - size.width / 2;
