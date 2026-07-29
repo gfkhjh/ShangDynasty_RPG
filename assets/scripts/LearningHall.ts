@@ -137,6 +137,10 @@ export class LearningHall extends Component {
   private poemIndex = 0;
   private poemCorrect = 0;
   private poemLastCorrect = false;
+  // Every answer in the poem bank is backed by a real oracle image. Restrict
+  // distractors to the same audited set so catalog placeholders can never
+  // fall back to a modern Han character in this mode.
+  private readonly poemGlyphCharacters = new Set(poemChallengeBank.map(item => item.answer));
   private enteringYinXu = false;
   private yinXuTransitionTimer: ReturnType<typeof setTimeout> | null = null;
   private nameDialogOpen = false;
@@ -867,9 +871,11 @@ export class LearningHall extends Component {
       const item = this.graphics(root, `HallReviewCard-${index}`, x, y, 300, 128, 4);
       item.fillColor = t.card; item.roundRect(-150, -64, 300, 128, 14); item.fill();
       item.strokeColor = t.cardStroke; item.lineWidth = 2; item.roundRect(-148, -62, 296, 124, 12); item.stroke();
-      // 去掉甲骨文字 glyph，只保留现代汉字与释义，色调统一为大厅主题
-      this.label(root, `HallReviewCardModern-${index}`, card.modern, x, y + 22, 260, 34, 28, t.goldInk, 'center', 6);
-      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x, y - 26, 260, 56, 14, t.goldSub, 'center', 6);
+      // Review cards retain the real oracle glyph; modern Hanzi remains only
+      // as the teaching label beneath it.
+      this.oracleGlyph(root, `HallReviewCardGlyph-${index}`, card, x - 105, y, 52, 64, 6, false);
+      this.label(root, `HallReviewCardModern-${index}`, `${card.modern} · ${card.pinyin}`, x + 30, y + 25, 150, 30, 23, t.goldInk, 'left', 6);
+      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x + 30, y - 22, 166, 56, 13, t.goldSub, 'left', 6);
     });
     this.button(root, 'HallReviewStart', '开始随机 5 题', 0, -226, 230, 58, true);
   }
@@ -1171,8 +1177,20 @@ export class LearningHall extends Component {
     }
   }
 
+  private poemGlyphCards() {
+    const byModern = new Map<string, HallCard>();
+    this.cards().forEach(card => {
+      if (card.unlocked && this.hasOracleGlyphAsset(card) && !byModern.has(card.modern)) {
+        byModern.set(card.modern, card);
+      }
+    });
+    // Cocos' current Babel target does not expand Map iterators correctly here
+    // (`[].concat(byModern.values())`), so convert it explicitly.
+    return Array.from(byModern.values());
+  }
+
   private beginPoemChallenge() {
-    const unlocked = this.cards().filter(card => card.unlocked);
+    const unlocked = this.poemGlyphCards();
     const available = poemChallengeBank.map(definition => ({ definition, card: unlocked.find(card => card.modern === definition.answer) }))
       .filter((item): item is { definition: PoemChallengeDefinition; card: HallCard } => !!item.card);
     this.poemQuestions = this.shuffle(available).slice(0, Math.min(5, available.length));
@@ -1185,12 +1203,13 @@ export class LearningHall extends Component {
     const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
     this.drawHeader(root, '诗词闯关', question ? `第 ${this.poemIndex + 1} / ${this.poemQuestions.length} 关 · 选择甲骨字填空` : '先收集甲骨文字，再开始诗词闯关', true);
     this.panel(root, 'HallPoemPanel', 0, -5, 1020, 450, t.card, false);
-    if (!question || this.cards().filter(card => card.unlocked).length < 4) {
+    const glyphCards = this.poemGlyphCards();
+    if (!question || glyphCards.length < 4) {
       this.label(root, 'HallPoemLocked', '需要至少收集 4 个甲骨文字，\n才能组成一题四张不同的候选字卡。', 0, 25, 700, 90, 26, t.goldInk, 'center', 6);
       this.button(root, 'HallPoemGoCity', '进入殷墟探索', 0, -110, 220, 56, true);
       return;
     }
-    const wrong = this.cards().filter(card => card.unlocked && card.id !== question.card.id);
+    const wrong = glyphCards.filter(card => card.modern !== question.card.modern);
     this.poemOptions = this.shuffle([question.card, ...this.shuffle(wrong).slice(0, 3)]);
     this.label(root, 'HallPoemLine', question.definition.poem, 0, 132, 880, 70, 31, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemHint', '请选择一张甲骨字卡填入【】', 0, 82, 600, 28, 17, t.goldSub, 'center', 6);
@@ -1200,7 +1219,7 @@ export class LearningHall extends Component {
       const option = this.graphics(root, `HallPoemOption-${index}`, x, y, 190, 208, 4);
       option.fillColor = new Color(231, 209, 157, 248); option.roundRect(-95, -104, 190, 208, 14); option.fill();
       option.strokeColor = this.qualityColor(card.quality); option.lineWidth = 3; option.roundRect(-93, -102, 186, 204, 12); option.stroke();
-      this.oracleGlyph(root, `HallPoemGlyph-${index}`, card, x, y + 27, 92, 112, 6);
+      this.oracleGlyph(root, `HallPoemGlyph-${index}`, card, x, y + 27, 92, 112, 6, false);
       this.label(root, `HallPoemSelect-${index}`, `${String.fromCharCode(65 + index)} · 选此甲骨`, x, y - 76, 150, 24, 14, new Color(93, 56, 34), 'center', 6);
     });
   }
@@ -1218,11 +1237,10 @@ export class LearningHall extends Component {
     const root = this.createRoot('HallPoemResult', 'poemResult');
     const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
     if (!question) { this.render('home'); return; }
-    const filled = question.definition.poem.replace('【】', `【${question.card.modern}】`);
     this.drawHeader(root, this.poemLastCorrect ? '闯关成功' : '本关待巩固', this.poemLastCorrect ? '甲骨字与诗句语义相符' : '已记录到错题本，请记住正确甲骨字', true);
     this.panel(root, 'HallPoemResultPanel', 0, -8, 1010, 455, t.card, false);
-    this.label(root, 'HallPoemResultLine', filled, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
-    this.oracleGlyph(root, 'HallPoemResultGlyph', question.card, -355, 12, 110, 135, 6);
+    this.drawPoemResultLine(root, question, t);
+    this.oracleGlyph(root, 'HallPoemResultGlyph', question.card, -355, 12, 110, 135, 6, false);
     this.label(root, 'HallPoemResultChar', `${question.card.modern} · ${question.card.pinyin}`, -355, -100, 210, 28, 21, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemResultMeaning', `甲骨字义：${question.card.meaning}`, -355, -166, 230, 95, 14, t.goldSub, 'left', 6);
     this.panel(root, 'HallPoemResultInfo', 180, -12, 540, 280, new Color(223, 184, 113), true);
@@ -1232,6 +1250,25 @@ export class LearningHall extends Component {
     const last = this.poemIndex >= this.poemQuestions.length - 1;
     this.button(root, 'HallPoemNext', last ? '完成闯关' : '下一关', 310, -202, 180, 50, true);
     this.label(root, 'HallPoemScore', `本轮答对 ${this.poemCorrect} / ${this.poemIndex + 1}`, -150, -202, 260, 28, 17, t.goldInk, 'center', 6);
+  }
+
+  private drawPoemResultLine(root: Node, question: { definition: PoemChallengeDefinition; card: HallCard }, t: ReturnType<LearningHall['theme']>) {
+    const marker = '【】';
+    const markerIndex = question.definition.poem.indexOf(marker);
+    if (markerIndex < 0) {
+      this.label(root, 'HallPoemResultLine', question.definition.poem, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
+      return;
+    }
+    const poemWithGlyphSlot = question.definition.poem.replace(marker, '【　】');
+    this.label(root, 'HallPoemResultLine', poemWithGlyphSlot, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
+    // Classical-poetry lines here use full-width Chinese characters. Match the
+    // label's centered character grid and place the real oracle image inside
+    // the brackets instead of writing the modern answer back into the poem.
+    const glyphSlotIndex = Array.from(question.definition.poem.slice(0, markerIndex) + '【').length;
+    const characterCount = Array.from(poemWithGlyphSlot).length;
+    const characterAdvance = 29;
+    const glyphX = (glyphSlotIndex + .5 - characterCount / 2) * characterAdvance;
+    this.oracleGlyph(root, 'HallPoemResultInlineGlyph', question.card, glyphX, 150, 30, 42, 7, false);
   }
 
   private nextPoemChallenge() {
@@ -1836,8 +1873,12 @@ export class LearningHall extends Component {
     return items;
   }
 
-  private oracleGlyph(parent: Node, name: string, card: HallCard, x: number, y: number, maxWidth: number, maxHeight: number, z: number) {
-    const fallback = this.label(parent, `${name}Fallback`, card.glyph, x, y, maxWidth, maxHeight, Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), new Color(75, 43, 28), 'center', z);
+  private hasOracleGlyphAsset(card: HallCard) {
+    return !!card.asset && !!card.imageBounds && this.poemGlyphCharacters.has(card.modern);
+  }
+
+  private oracleGlyph(parent: Node, name: string, card: HallCard, x: number, y: number, maxWidth: number, maxHeight: number, z: number, allowTextFallback = true) {
+    const fallback = this.label(parent, `${name}Fallback`, '', x, y, maxWidth, maxHeight, Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), new Color(75, 43, 28), 'center', z);
     if (!card.asset || !card.imageBounds) return;
     const [left, top, right, bottom] = card.imageBounds;
     const scale = Math.min(maxWidth / Math.max(1, right - left + 1), maxHeight / Math.max(1, bottom - top + 1));

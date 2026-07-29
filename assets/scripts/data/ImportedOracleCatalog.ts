@@ -319,6 +319,14 @@ const RAW_CATALOG = `安|an|U60B5A|合5373
 
 const EXISTING_CATALOG_CHARACTERS = new Set(['雨', '日', '河', '云', '星', '木', '月', '水']);
 
+// A card may only be published when its matching, user-supplied oracle image
+// is actually bundled in assets/resources/oracle/catalog. RAW_CATALOG also
+// contains a larger teaching-word list; those rows are not picture assets and
+// must never fall back to modern Hanzi in the learner-facing codex.
+const IMAGE_BACKED_CATALOG_CHARACTERS = new Set(Array.from(
+  '安八白百鼻朝晨出春大刀道得地登弟豆多儿耳二发分风父敢高骨光好河黑厚画黄昏火基家肩街今金进井九酒旧可刻口哭来劳老力利六马每妹门米面民明母木男能年念女盆皮七气千墙秋去泉人日肉三沙山上少舌身生声十石水顺四岁它天田头土外万往危文我五午夕洗喜下夏小心新星行学血夜一用有右雨月云早长真知中重字走左坐',
+));
+
 const MODERN_MEANING_HINTS: Record<string, string> = {
   '小': '表示细小、数量少或程度轻', '少': '表示数量不多，也可表示年少', '大': '表示大小中的大，也可表示重要',
   '人': '表示人的侧立形象', '女': '表示女性形象', '子': '表示子女或幼小的人', '父': '表示父亲，也可联系家族关系', '母': '表示母亲',
@@ -343,7 +351,7 @@ function makeLesson(modern: string) {
 
 export const importedOracleCards: ImportedOracleCard[] = RAW_CATALOG.split('\n')
   .map(row => row.split('|'))
-  .filter(([modern]) => !EXISTING_CATALOG_CHARACTERS.has(modern))
+  .filter(([modern]) => !EXISTING_CATALOG_CHARACTERS.has(modern) && IMAGE_BACKED_CATALOG_CHARACTERS.has(modern))
   .map(([modern, pinyin]) => {
     const unicode = modern.codePointAt(0)?.toString(16).padStart(4, '0') ?? '0000';
     const lesson = makeLesson(modern);
