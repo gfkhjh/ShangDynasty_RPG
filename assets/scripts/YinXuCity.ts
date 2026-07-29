@@ -199,7 +199,12 @@ type ElevationTransitionConfig = {
   upperCommitY: number;
   lowerCommitY: number;
 };
-type ToolKind = 'none' | 'shovel' | 'fishing' | 'machete';
+type ToolKind = 'none' | 'shovel';
+type FishingCastEffect = {
+  root: Node; line: Graphics; ripple: Graphics; timer: number; target: Vec2; origin: Vec2;
+  playerOrigin: Vec2; castDuration: number; waitDuration: number;
+};
+type CutPlantRegrowth = { node: Node; timer: number };
 type BackpackTab = 'tools' | 'clothing' | 'codex';
 type DugHole = { node: Node; timer: number; x: number; y: number };
 type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement';
@@ -218,11 +223,6 @@ type RewardFlight = {
   root: Node; start: Vec2; end: Vec2; timer: number; duration: number; phase: number;
 };
 type DigParticle = { root: Node; vx: number; vy: number; gravity: number; life: number; maxLife: number };
-type FishingCastEffect = {
-  root: Node; line: Graphics; ripple: Graphics; timer: number; target: Vec2; origin: Vec2;
-  playerOrigin: Vec2; castDuration: number; waitDuration: number;
-};
-type CutPlantRegrowth = { node: Node; timer: number };
 type WeatherKind = '晴' | '雨天' | '小雨' | '中雨';
 type WeatherParticle = { x: number; y: number; vx: number; vy: number; size: number; life: number; phase: number };
 type RainSplash = { x: number; y: number; life: number; maxLife: number };
@@ -455,6 +455,10 @@ export class YinXuCity extends Component {
   private outskirtsGroundNode: Node | null = null;
   /** Container for all OutskirtsGroundTile sprites */
   private outskirtsTileContainer: Node | null = null;
+  /** OUTSKIRTS-only natural props.  Never parent these to DynamicWorld directly. */
+  private outskirtsNatureRoot: Node | null = null;
+  /** OUTSKIRTS trees and jujube bushes participate in world-depth sorting. */
+  private outskirtsNatureEntityNodes: Node[] = [];
   private player!: Node;
   private playerVisual!: Node;
   private playerSprite!: Sprite;
@@ -838,6 +842,10 @@ export class YinXuCity extends Component {
   private codexPage = 0;
   private backpackTab: BackpackTab = 'tools';
   private equippedTool: ToolKind = 'none';
+  // Kept solely to dispose a stale effect from a hot-reloaded older session;
+  // no current tool list, input, UI, or action can create these effects.
+  private fishingCastEffect: FishingCastEffect | null = null;
+  private cutPlantRegrowth: CutPlantRegrowth[] = [];
   private heldToolNode!: Node;
   private heldToolGraphics!: Graphics;
   private toolActionTimer = 0;
@@ -863,8 +871,6 @@ export class YinXuCity extends Component {
   private static readonly SUPPLEMENT_MIN_DISTANCE = 480;    // 彼此最小间距（分散些）
   private rewardFlights: RewardFlight[] = [];
   private digParticles: DigParticle[] = [];
-  private fishingCastEffect: FishingCastEffect | null = null;
-  private cutPlantRegrowth: CutPlantRegrowth[] = [];
   private backpackDetailLabel: Label | null = null;
   private selectedShopCategory: ShopCategory = 'shell';
   private selectedShopProductIndex = 0;
@@ -908,6 +914,7 @@ export class YinXuCity extends Component {
     this.restoreSavedRegionPosition();
     this.buildWorld();
     this.createRegionTransitionManager();
+    this.updateOutskirtsVisibility();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
     input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
@@ -1216,6 +1223,8 @@ export class YinXuCity extends Component {
     const show = r === RegionId.CITY || r === RegionId.OUTSKIRTS;
     if (this.outskirtsGroundNode) this.outskirtsGroundNode.active = show;
     if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
+    if (this.outskirtsNatureRoot) this.outskirtsNatureRoot.active = show;
+    this.outskirtsNatureEntityNodes.forEach(node => { if (node.isValid) node.active = show; });
   }
 
   private initializeStoryInfrastructure() {
@@ -2492,6 +2501,7 @@ export class YinXuCity extends Component {
     this.ripples = [];
     this.canalFlowMarks = [];
     this.depthTrees = [];
+    this.outskirtsNatureEntityNodes = [];
     this.depthOccluders = [];
     this.fixedForegroundNodes = [];
     this.southOutskirtsSurfaceNodes = [];
@@ -2519,8 +2529,6 @@ export class YinXuCity extends Component {
     this.excavationLearningResult = '';
     this.rewardFlights = [];
     this.digParticles = [];
-    this.fishingCastEffect = null;
-    this.cutPlantRegrowth = [];
     this.toolActionTimer = 0;
     this.statusNotice = '';
     this.statusNoticeTimer = 0;
@@ -2549,8 +2557,10 @@ this.drawCityWallsAndGate();
     this.withObstacleRegion(RegionId.FIELDS, () => this.drawFields());
     this.drawForest();
     this.drawOraclePit();
-    this.drawRegionalNatureDecorations();
     this.drawOutskirtsGroundAndRoads();
+    // OUTSKIRTS nature must be created after its tile surface so its parent is
+    // above the grass layer while remaining independently region-toggleable.
+    this.drawRegionalNatureDecorations();
     this.createExcavationSites();
     this.scatterDynamicGrass();
     this.drawWorldBoundary();
@@ -2560,9 +2570,11 @@ this.drawCityWallsAndGate();
     // OUTSKIRTS south boundary colliders with road gap at X=-56..56 (matching road width)
     this.addObstacle(-1038, -980, 1964, 32, 'OutskirtsSouthBoundaryLeft', 'OUTSKIRTS');
     this.addObstacle(1038, -980, 1964, 32, 'OutskirtsSouthBoundaryRight', 'OUTSKIRTS');
-    // HIGHLAND north and south boundary colliders
-    this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary');
-    this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary');
+    // HIGHLAND boundary colliders are region-scoped.  The west band follows the
+    // inside face of the visible wall and seals every segment, including ends.
+    this.addObstacle(4350, -400, 2700, 64, 'HighlandNorthBoundary', RegionId.HIGHLAND);
+    this.addObstacle(4350, -2200, 2700, 64, 'HighlandSouthBoundary', RegionId.HIGHLAND);
+    this.addObstacle(3060, -1300, 32, 1760, 'HighlandWestWallInteriorBoundary', RegionId.HIGHLAND);
     // OUTSKIRTS north boundary colliders with road gap at X=-56..56
     this.addObstacle(-1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryLeft', 'OUTSKIRTS');
     this.addObstacle(1038, 2165, 1964, 32, 'OutskirtsNorthBoundaryRight', 'OUTSKIRTS');
@@ -2754,8 +2766,13 @@ this.drawCityWallsAndGate();
     // The raw OutskirtsGround fill was exposed at the extreme northwest tile
     // seam because the normal loop starts one half-step inward.  Cover that
     // exact seam with the same opaque grass tile rather than a color block.
-    const northWestSeam = this.pixelSprite('OutskirtsNorthWestGrassSeam', 'grass-tile', this.world, -1972, 2032, tileSize + 8, tileSize + 8, 63);
+    const northWestSeam = this.pixelSprite('OutskirtsNorthWestGrassSeam', 'grass-tile', this.outskirtsTileContainer, -1972, 2032, tileSize + 8, tileSize + 8, 63);
     northWestSeam.getComponent(Sprite)!.color = new Color(255, 255, 255, 255);
+    // The legacy green Graphics patch occupies the extreme northwest corner
+    // outside the regular tile loop.  This intentionally overlaps it on all
+    // sides with the identical grass texture; it has no collision.
+    const northWestGreenBlockCover = this.pixelSprite('OutskirtsNorthWestGreenBlockCover', 'grass-tile', this.outskirtsTileContainer, -2020, 2110, 256, 256, 64);
+    northWestGreenBlockCover.getComponent(Sprite)!.color = new Color(255, 255, 255, 255);
 
     // This strip was formerly adjacent to the retired south-trial map.  Make
     // the active OUTSKIRTS tile layer the last visual owner of it so no old
@@ -2935,8 +2952,8 @@ this.drawCityWallsAndGate();
       x: bridgeX, y: bridgeY, w: bridgeWalkWidth, h: bridgeHeight,
       name: 'RiverbankNorthPureWoodBridgeDeck',
     });
-    this.addObstacle(bridgeX - 51, bridgeY, 18, 250, 'RiverbankNorthBridgeWestRail');
-    this.addObstacle(bridgeX + 51, bridgeY, 18, 250, 'RiverbankNorthBridgeEastRail');
+    this.addObstacle(bridgeX - 51, bridgeY, 18, 250, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
+    this.addObstacle(bridgeX + 51, bridgeY, 18, 250, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
   }
 
   private drawRiverbankPhaseOneBoundary() {
@@ -3050,6 +3067,7 @@ this.drawCityWallsAndGate();
     ];
     shrubs.forEach(([x, y, asset, w, h], index) => {
       this.pixelSprite(`RiverbankNorthPlateauShrub${index}`, asset, root, x, y, w, h, 16);
+      if (asset === 'jujube-bush') this.addObstacle(x, y - 3, w, h - 8, `RiverbankNorthPlateauShrub${index}Solid`, RegionId.RIVERBANK);
     });
 
     const trees: Array<[number, number, number]> = [
@@ -4129,7 +4147,10 @@ this.drawCityWallsAndGate();
     // Keep roadside tree trunks behind the north fence so the two-tile trunk
     // road remains continuously traversable.
     [[520, -555], [1280, -560], [1910, -555]].forEach((p, i) => this.createTreeSized(p[0], p[1], 120 + i, .72));
-    [[420, -880], [900, -1400], [1550, -1370], [2240, -1390], [2860, -1460]].forEach((p, i) => this.pixelSprite(`JujubeBush${i}`, 'jujube-bush', this.world, p[0], p[1], 86, 78, 13));
+    [[420, -880], [900, -1400], [1550, -1370], [2240, -1390], [2860, -1460]].forEach((p, i) => {
+      this.pixelSprite(`JujubeBush${i}`, 'jujube-bush', this.world, p[0], p[1], 86, 78, 13);
+      this.addObstacle(p[0], p[1] - 4, 86, 68, `JujubeBush${i}Solid`, RegionId.FIELDS);
+    });
     [[300, -520], [580, -2110], [980, -2110], [1540, -2110], [2050, -2110], [2700, -2110], [2920, -1050]].forEach((p, i) => this.pixelSprite(`FoxtailGrass${i}`, 'foxtail-grass', this.world, p[0], p[1], 68, 74, 12));
     [[360, -2050], [1020, -2050], [1660, -2080], [2710, -2070], [2890, -1170]].forEach((p, i) => this.pixelSprite(`FieldBoundaryStone${i}`, 'field-stone-cluster', this.world, p[0], p[1], 92, 78, 12));
     this.worldLabel('郊外田野', 1420, -475, 25, new Color(92, 65, 38));
@@ -4139,28 +4160,8 @@ this.drawCityWallsAndGate();
     const railX = wide ? 76 : 53;
     const railWidth = wide ? 28 : 24;
     const halfHeight = 82;
-    // Side rails are separate foreground geometry. The deck remains behind the
-    // actor, while posts and ropes cover the actor only at the physical edge.
-    const rails = this.localGraphics(
-      wide ? 'WideBridgeForegroundRails' : 'FootbridgeForegroundRails',
-      this.world, x, y, wide ? 220 : 150, 190, 106,
-    );
-    [-1, 1].forEach(side => {
-      const px = railX * side;
-      rails.fillColor = new Color(47, 35, 29, 130);
-      rails.roundRect(px - railWidth / 2 - 3, -halfHeight - 3, railWidth + 6, halfHeight * 2 + 6, 7); rails.fill();
-      rails.fillColor = new Color(105, 65, 36);
-      rails.roundRect(px - railWidth / 2, -halfHeight, railWidth, halfHeight * 2, 6); rails.fill();
-      rails.fillColor = new Color(176, 116, 55);
-      rails.rect(px - railWidth * .27, -halfHeight + 8, railWidth * .54, halfHeight * 2 - 16); rails.fill();
-      [-72, 0, 72].forEach(postY => {
-        rails.fillColor = new Color(63, 43, 31); rails.roundRect(px - railWidth * .68, postY - 12, railWidth * 1.36, 24, 5); rails.fill();
-        rails.fillColor = new Color(191, 131, 61); rails.roundRect(px - railWidth * .5, postY - 9, railWidth, 18, 4); rails.fill();
-        rails.strokeColor = new Color(224, 172, 83); rails.lineWidth = 2;
-        rails.moveTo(px - railWidth * .5, postY - 2); rails.lineTo(px + railWidth * .5, postY + 3); rails.stroke();
-      });
-    });
-    this.fixedForegroundNodes.push(rails.node);
+    // The bridge sprite already carries authored rails. The old Graphics
+    // duplicate is removed; only these narrow physical rail strips remain.
     this.addObstacle(x - railX, y, railWidth, halfHeight * 2 + 8, wide ? '宽桥西栏杆' : '木桥西栏杆');
     this.addObstacle(x + railX, y, railWidth, halfHeight * 2 + 8, wide ? '宽桥东栏杆' : '木桥东栏杆');
   }
@@ -4275,8 +4276,8 @@ this.drawCityWallsAndGate();
     outerCliff.moveTo(3060, -2152); outerCliff.lineTo(5660, -2152);
     outerCliff.moveTo(5652, -448); outerCliff.lineTo(5652, -2152); outerCliff.stroke();
     // HIGHLAND east boundary split for road gap at Y=-1346 to -1254 (exit trigger area)
-    this.addObstacle(5700, -873, 64, 946, 'HighlandBoundaryEastTop');
-    this.addObstacle(5700, -1727, 64, 946, 'HighlandBoundaryEastBottom');
+    this.addObstacle(5700, -873, 64, 946, 'HighlandBoundaryEastTop', RegionId.HIGHLAND);
+    this.addObstacle(5700, -1727, 64, 946, 'HighlandBoundaryEastBottom', RegionId.HIGHLAND);
 
     const mountainRoads = this.graphics('MountainLoopRoads', this.world, 14);
     const mainRoad: Array<[number, number]> = [[3110, -790], [3370, -820], [3730, -1030], [4100, -1210], [4600, -1320], [4920, -1300], [5350, -1120], [5580, -1260]];
@@ -4306,19 +4307,32 @@ this.drawCityWallsAndGate();
     });
 
     // Low tier: scattered stones and sparse trees.
-    [[3180, -580, .55], [3440, -1140, .62], [3200, -1720, .52], [3600, -1910, .68]].forEach(p => this.createRock(p[0], p[1], p[2]));
+    [[3180, -580, .55], [3440, -1140, .62], [3200, -1720, .52], [3600, -1910, .68]].forEach(p => {
+      this.createRock(p[0], p[1], p[2]);
+      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+    });
     [[3200, -920], [3510, -550], [3420, -1530], [3680, -1810]].forEach((p, i) => this.createTreeSized(p[0], p[1], 200 + i, .72 + (i % 2) * .12));
     // Middle tier: dense woodland and grouped rock masses.
     const middleTrees = [[3940,-560],[4180,-610],[4440,-560],[3990,-1050],[4320,-1110],[4520,-930],[3980,-1510],[4210,-1580],[4490,-1480],[4020,-1980],[4370,-2000],[4550,-1860]];
     middleTrees.forEach((p, i) => this.createTreeSized(p[0], p[1], 220 + i, .82 + (i % 3) * .08));
-    [[4080, -1320, .88], [4340, -1360, 1.02], [4460, -760, .86], [4140, -1880, .94]].forEach(p => this.createRock(p[0], p[1], p[2]));
+    [[4080, -1320, .88], [4340, -1360, 1.02], [4460, -760, .86], [4140, -1880, .94]].forEach(p => {
+      this.createRock(p[0], p[1], p[2]);
+      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+    });
     // Summit: giant standing rocks, short grass, and only isolated trees.
-    [[4920, -560, 1.22], [5350, -650, 1.35], [5520, -1540, 1.4], [5070, -1950, 1.18]].forEach(p => this.createRock(p[0], p[1], p[2]));
+    [[4920, -560, 1.22], [5350, -650, 1.35], [5520, -1540, 1.4], [5070, -1950, 1.18]].forEach(p => {
+      this.createRock(p[0], p[1], p[2]);
+      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+    });
     [[4880, -960], [5480, -980], [5270, -1960]].forEach((p, i) => this.createTreeSized(p[0], p[1], 250 + i, .88));
 
     [[3110,-520],[3290,-1450],[3590,-720],[3890,-920],[4190,-1420],[4540,-560],[4860,-1680],[5200,-580],[5480,-1800]].forEach((p, i) => this.pixelSprite(`MountainGrass${i}`, i % 2 ? 'foxtail-grass' : 'roadside-grass-clump', this.world, p[0], p[1], 70, 72, 13));
     [[3150,-760],[3260,-1320],[3500,-1680],[3650,-660],[3950,-820],[4070,-980],[4170,-1760],[4400,-820],[4530,-1650],[4860,-820],[5010,-1100],[5140,-1700],[5400,-1420],[5520,-740]].forEach((p, i) => {
-      this.pixelSprite(`MountainUnderbrush${i}`, i % 3 === 0 ? 'jujube-bush' : (i % 2 ? 'grass-clump' : 'foxtail-grass'), this.world, p[0], p[1], 66 + (i % 3) * 8, 64 + (i % 2) * 10, 16);
+      const asset = i % 3 === 0 ? 'jujube-bush' : (i % 2 ? 'grass-clump' : 'foxtail-grass');
+      const width = 66 + (i % 3) * 8;
+      const height = 64 + (i % 2) * 10;
+      this.pixelSprite(`MountainUnderbrush${i}`, asset, this.world, p[0], p[1], width, height, 16);
+      if (asset === 'jujube-bush') this.addObstacle(p[0], p[1] - 3, width, height - 8, `MountainUnderbrush${i}Solid`, RegionId.HIGHLAND);
     });
     [[3820,-610],[3790,-820],[3800,-1360],[3790,-1900],[4700,-650],[4690,-1030],[4700,-1620],[4690,-2020],[3300,-430],[5200,-430]].forEach((p, i) => {
       this.pixelSprite(`MountainCliffGrass${i}`, i % 2 ? 'roadside-grass-clump' : 'foxtail-grass', this.world, p[0], p[1], 68, 74, 15);
@@ -4450,7 +4464,11 @@ this.drawCityWallsAndGate();
     this.addObstacle(pitX + 345, pitY - pitH / 2 + 26, 350, 52, '甲骨窑穴南沿');
     this.worldLabel('室外甲骨窑穴', pitX, -2940, 21, new Color(235, 205, 139));
 
-    [[840,-2800],[900,-3710],[2030,-2760],[2260,-3930],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => this.createRock(p[0], p[1], .55 + (i % 3) * .14));
+    [[840,-2800],[900,-3710],[2030,-2760],[2260,-3930],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
+      const scale = .55 + (i % 3) * .14;
+      this.createRock(p[0], p[1], scale);
+      this.addObstacle(p[0], p[1] + 6 * scale, 112 * scale, 118 * scale, 'MountainRockSolid', RegionId.ROYAL_TOMB);
+    });
     [[930,-3480],[2020,-3520],[3510,-3880],[4830,-3160]].forEach((p, i) => this.pixelSprite(`RoyalRitualRelic${i}`, i % 2 ? 'pottery-jar-cluster' : 'field-stone-cluster', this.world, p[0], p[1], 68, 62, 15));
     this.worldLabel('甲骨窑穴 · 王陵祭祀区', 3320, -2570, 27, new Color(248, 221, 151));
   }
@@ -5431,8 +5449,7 @@ this.drawCityWallsAndGate();
   ) {
     const n = new Node(`Tree${index}`); n.parent = this.world; n.setPosition(x, y, 25); n.addComponent(UITransform).setContentSize(180 * scale, 220 * scale);
     this.attachPixelSprite(n, 'ancient-tree');
-    this.addObstacle(x, y - 85 * scale, 40 * scale, 22 * scale, obstacleName, regionId);
-    this.sways.push({ node: n, phase: index * .63, amplitude: 1.4, speed: .75 });
+    this.addObstacle(x, y - 82 * scale, 132 * scale, 54 * scale, obstacleName, regionId);
     this.depthTrees.push({
       node: n,
       trunkY: y - 84 * scale,
@@ -5461,7 +5478,9 @@ this.drawCityWallsAndGate();
     regionId: RegionId, obstacle?: { x: number; y: number; w: number; h: number; name: string },
   ) {
     const node = new Node(name);
-    node.parent = this.world;
+    const isOutskirtsEntity = regionId === RegionId.OUTSKIRTS && !!obstacle;
+    node.parent = isOutskirtsEntity ? this.world : (regionId === RegionId.OUTSKIRTS ? this.outskirtsNatureRoot ?? this.world : this.world);
+    if (isOutskirtsEntity) this.outskirtsNatureEntityNodes.push(node);
     // OUTSKIRTS ground tiles render at z=61. Keep every small prop above that
     // terrain layer; actors are still depth-sorted above these props each frame.
     node.setPosition(x, y, 64);
@@ -5486,6 +5505,7 @@ this.drawCityWallsAndGate();
   private createRegionalNatureTree(name: string, x: number, y: number, index: number, scale: number, regionId: RegionId, obstacleName: string) {
     const node = new Node(name);
     node.parent = this.world;
+    if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureEntityNodes.push(node);
     node.setPosition(x, y, 64);
     node.addComponent(UITransform).setContentSize(180 * scale, 220 * scale);
     const sprite = node.addComponent(Sprite);
@@ -5497,23 +5517,57 @@ this.drawCityWallsAndGate();
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
       if (!obstacleCreated) {
-        this.addObstacle(x, y - 85 * scale, 40 * scale, 22 * scale, obstacleName, regionId);
+        // Cover trunk, roots and baked-in stones without blocking the canopy.
+        this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, obstacleName, regionId);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'ancient-tree', node, regionId, obstacleCreated);
     });
-    this.sways.push({ node, phase: index * .63, amplitude: 1.4, speed: .75 });
     this.depthTrees.push({ node, trunkY: y - 84 * scale, halfWidth: 82 * scale, canopyHeight: 184 * scale, baseZ: 64 });
   }
 
   private createNatureShrub(name: string, asset: string, x: number, y: number, width: number, height: number, regionId: RegionId) {
-    this.createRegionalNatureSprite(name, asset, x, y, width, height, regionId, {
-      x, y: y - height * .28, w: Math.min(48, width * .56), h: Math.max(14, height * .2), name: `${name}Root`,
+    const rootY = y - height * .32;
+    const isJujube = asset === 'jujube-bush';
+    const node = this.createRegionalNatureSprite(name, asset, x, y, width, height, regionId, {
+      x,
+      y: isJujube ? y - height * .04 : rootY,
+      w: isJujube ? Math.max(96, width * .84) : Math.max(96, width * .78),
+      h: isJujube ? Math.max(64, height * .76) : Math.max(44, height * .34),
+      name: `${name}Root`,
     });
+    if (regionId === RegionId.OUTSKIRTS) {
+      this.depthTrees.push({ node, trunkY: rootY, halfWidth: width * .42, canopyHeight: height * .76, baseZ: 64 });
+    }
   }
 
   private createNatureGroundCover(name: string, asset: string, x: number, y: number, width: number, height: number, regionId: RegionId) {
     this.createRegionalNatureSprite(name, asset, x, y, width, height, regionId);
+  }
+
+  /** Visible replacement for a retired OUTSKIRTS blocker; kept under the regional visual root. */
+  private createOutskirtsAirwallJujube(name: string, x: number, y: number) {
+    const width = 142;
+    const height = 142;
+    const rootY = y - height * .32;
+    const node = new Node(name);
+    node.parent = this.outskirtsNatureRoot!;
+    node.setPosition(x, y, 64);
+    node.addComponent(UITransform).setContentSize(width, height);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    let obstacleCreated = false;
+    this.requestFrame('jujube-bush', frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      if (!obstacleCreated) {
+        this.addObstacle(x, y - height * .04, 120, 108, `${name}Solid`, RegionId.OUTSKIRTS);
+        obstacleCreated = true;
+      }
+      this.reportNatureDecorVisible(name, 'jujube-bush', node, RegionId.OUTSKIRTS, obstacleCreated);
+    });
+    this.depthTrees.push({ node, trunkY: rootY, halfWidth: 56, canopyHeight: height * .76, baseZ: 64 });
   }
 
   /** Keep decorative collision outside every road, entrance and map edge. */
@@ -5584,6 +5638,11 @@ this.drawCityWallsAndGate();
 
   /** Dense, road-safe decoration with collisions isolated to the owning region. */
   private drawRegionalNatureDecorations() {
+    this.outskirtsNatureRoot?.destroy();
+    this.outskirtsNatureRoot = new Node('OutskirtsNatureRoot');
+    this.outskirtsNatureRoot.parent = this.world;
+    this.outskirtsNatureRoot.setPosition(0, 0, 0);
+    this.outskirtsNatureRoot.addComponent(UITransform).setContentSize(4040, 3130);
     this.withObstacleRegion(RegionId.OUTSKIRTS, () => {
       const place = (x: number, y: number, margin = 110) => {
         const allowed = this.canPlaceOutskirtsNature(x, y, margin);
@@ -5598,6 +5657,9 @@ this.drawCityWallsAndGate();
       trees.forEach(([x, y, scale], index) => {
         if (place(x, y, 150)) this.createRegionalNatureTree(`OutskirtsNatureTree${index}`, x, y, 70 + index, Math.max(1.25, scale), RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot');
       });
+      [[492, -630], [492, -744], [1727, -629], [1727, -743]].forEach(([x, y], index) => {
+        this.createOutskirtsAirwallJujube(`OutskirtsSouthAirwallJujube${index + 1}`, x, y);
+      });
       const shrubs: Array<[number, number]> = [
         [-1820, 1710], [-1640, 1510], [-1810, 1210], [-1510, 1020], [-1800, 810], [-1510, 680], [-1810, -760], [-1510, -780],
         [1490, 1810], [1760, 1630], [1510, 1220], [1770, 1170], [1490, 920], [1780, 790], [1490, 620], [1800, 560],
@@ -5610,8 +5672,8 @@ this.drawCityWallsAndGate();
       // larger than the retained compact meadows above.
       [[1660, 120], [1440, -650], [720, -650], [-720, -690], [-1650, -120], [-1760, 920]]
         .forEach(([x, y], index) => this.createLargeNatureCluster(`OutskirtsGrove${index}-`, x, y, RegionId.OUTSKIRTS, (px, py) => place(px, py, 90)));
-      [[1800, 180], [1510, -700], [900, -700], [-920, -720], [-1740, -100], [-1830, 980]]
-        .forEach(([x, y], index) => { if (place(x, y, 170)) this.createRegionalNatureTree(`OutskirtsGroveTree${index}`, x, y, 150 + index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot'); });
+      [[1800, 180, 0], [-920, -720, 3], [-1740, -100, 4], [-1830, 980, 5]]
+        .forEach(([x, y, index]) => { if (place(x, y, 170)) this.createRegionalNatureTree(`OutskirtsGroveTree${index}`, x, y, 150 + index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot'); });
     });
 
     this.withObstacleRegion(RegionId.RIVERBANK, () => {
@@ -5843,9 +5905,8 @@ this.drawCityWallsAndGate();
       const x = zone.left + 80 + random() * (zone.right - zone.left - 160);
       const y = zone.bottom + 80 + random() * (zone.top - zone.bottom - 160);
       if (this.pointInAnyObstacle(x, y) || this.pointInWater(x, y, 36)) continue;
-      const n = new Node(`SwayGrass${created}`); n.parent = this.world; n.setPosition(x, y, 8); n.addComponent(UITransform).setContentSize(44, 64);
+      const n = new Node(`StaticGrass${created}`); n.parent = this.world; n.setPosition(x, y, 8); n.addComponent(UITransform).setContentSize(44, 64);
       this.attachPixelSprite(n, 'grass-clump');
-      this.sways.push({ node: n, phase: random() * Math.PI * 2, amplitude: 5 + random() * 4, speed: .9 + random() * .55, reactsToPlayer: true });
       created++;
     }
   }
@@ -5944,7 +6005,6 @@ this.drawCityWallsAndGate();
   }
 
   private equipTool(tool: ToolKind) {
-    if (this.fishingCastEffect && tool !== 'fishing') this.cancelFishingCast('已收回鱼钩。', false);
     this.equippedTool = tool;
     this.toolActionTimer = 0;
     if (tool === 'none') {
@@ -5952,14 +6012,13 @@ this.drawCityWallsAndGate();
       if (this.actionToolIconNode?.isValid) this.actionToolIconNode.active = false;
       return;
     }
-    const asset = tool === 'shovel' ? 'tool-shovel-v1' : tool === 'fishing' ? 'tool-fishing-hook-v1' : 'tool-machete-v1';
+    const asset = 'tool-shovel-v1';
     this.drawHeldTool(tool);
     if (this.heldToolNode?.isValid) this.heldToolNode.active = !this.seated;
     this.requestFrame(asset, frame => {
       if (this.actionToolIconNode?.isValid) {
         const actionSprite = this.actionToolIconNode.getComponent(Sprite);
-        const actionSize = tool === 'fishing' ? [61, 61] : [46, 58];
-        this.actionToolIconNode.getComponent(UITransform)?.setContentSize(actionSize[0], actionSize[1]);
+        this.actionToolIconNode.getComponent(UITransform)?.setContentSize(46, 58);
         if (actionSprite?.isValid) {
           actionSprite.spriteFrame = frame;
           actionSprite.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -5986,24 +6045,11 @@ this.drawCityWallsAndGate();
       g.fillColor = bronze;
       g.moveTo(-6, -10); g.lineTo(-8, -21); g.lineTo(-4, -25); g.lineTo(6, -25); g.lineTo(8, -21); g.lineTo(5, -10); g.close(); g.fill();
       g.fillColor = bronzeLight; g.rect(-5, -21, 10, 2); g.fill();
-    } else if (tool === 'machete') {
-      g.fillColor = outline; g.roundRect(-5, -24, 10, 24, 3); g.fill();
-      g.fillColor = woodDark; g.rect(-3, -21, 6, 18); g.fill();
-      g.fillColor = outline;
-      g.moveTo(-6, -1); g.lineTo(-5, 25); g.lineTo(2, 29); g.lineTo(8, 23); g.lineTo(6, -1); g.close(); g.fill();
-      g.fillColor = bronze;
-      g.moveTo(-3, 1); g.lineTo(-2, 23); g.lineTo(2, 26); g.lineTo(5, 22); g.lineTo(3, 1); g.close(); g.fill();
-      g.strokeColor = bronzeLight; g.lineWidth = 2; g.moveTo(3, 3); g.lineTo(4, 21); g.stroke();
-    } else {
-      g.strokeColor = outline; g.lineWidth = 5; g.moveTo(0, -23); g.lineTo(1, 27); g.stroke();
-      g.strokeColor = woodLight; g.lineWidth = 2; g.moveTo(0, -21); g.lineTo(1, 26); g.stroke();
-      g.fillColor = woodDark; g.rect(-5, -23, 10, 17); g.fill();
-      g.fillColor = new Color(191, 148, 72); g.rect(-5, -11, 10, 3); g.fill();
     }
 
     // A two-tone hand is painted over the handle, so the tool reads as being
     // gripped by the character instead of pasted across the body sprite.
-    const gripY = tool === 'shovel' ? 3 : tool === 'machete' ? -5 : -4;
+    const gripY = 3;
     g.fillColor = new Color(88, 48, 38); g.rect(-6, gripY - 4, 12, 9); g.fill();
     g.fillColor = new Color(222, 164, 96); g.rect(-4, gripY - 3, 8, 7); g.fill();
     g.fillColor = new Color(244, 190, 113); g.rect(-3, gripY + 2, 6, 2); g.fill();
@@ -6030,8 +6076,8 @@ this.drawCityWallsAndGate();
     else if (this.facing === 'right') { x = 8; y = -2; rotation = -26; }
     else if (this.facing === 'up') { x = 6; y = 0; z = -1; rotation = 16; }
     else { x = 8; y = -4; rotation = -20; }
-    const toolBias = this.equippedTool === 'fishing' ? -14 : this.equippedTool === 'machete' ? 7 : 0;
-    const actionArc = this.equippedTool === 'fishing' ? -58 * swing : 76 * swing;
+    const toolBias = 0;
+    const actionArc = 76 * swing;
     this.heldToolNode.setPosition(x, y + swing * 4, z);
     this.heldToolNode.setScale(this.facing === 'left' ? -1 : 1, 1, 1);
     this.heldToolNode.setRotationFromEuler(0, 0, rotation + toolBias + actionArc);
@@ -6050,9 +6096,7 @@ this.drawCityWallsAndGate();
       this.showStatusNotice('宗庙屋内不能使用野外工具。');
       return;
     }
-    if (this.equippedTool === 'shovel') this.useShovel();
-    else if (this.equippedTool === 'fishing') this.useFishingHook();
-    else this.useMachete();
+    this.useShovel();
   }
 
   private useShovel() {
@@ -6162,7 +6206,7 @@ this.drawCityWallsAndGate();
     this.toolActionDuration = .46;
     this.toolActionTimer = this.toolActionDuration;
     if (!nearest) {
-      this.showStatusNotice('砍刀挥过空气，前方没有可清理的野草或灌木。');
+      this.showStatusNotice('前方没有可清理的野生植物。');
       return;
     }
     nearest.node.active = false;
@@ -6988,9 +7032,18 @@ this.drawCityWallsAndGate();
       // before a manager snapshot exists. CITY/OUTSKIRTS are the one intended
       // shared collision pair.
       if (r.regionId && r.regionId !== regionId) {
+        // CITY may render nearby OUTSKIRTS nature, but its trees and jujube
+        // roots must never become invisible CITY collision.  Other shared
+        // CITY/OUTSKIRTS route and wall collision remains unchanged.
+        if (regionId === RegionId.CITY && r.regionId === RegionId.OUTSKIRTS
+          && /^(OutskirtsNatureTreeRoot|OutskirtsGroveTree|OutskirtsSouthAirwallTree|OutskirtsSouthAirwallJujube|OutskirtsJujube)/.test(r.name)) continue;
         const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
         if (!isShared) continue;
       }
+      // createRock() still emits a visual-era base marker. Full-body, scoped
+      // MountainRockSolid colliders own gameplay now, so the old unscoped
+      // marker must never participate in movement in another region.
+      if (!r.regionId && r.name === '\u705E\u8FA9\u7176\u9369\u54C4\u9A87') continue;
       if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) {
         console.debug('[HIT]', { currentRegionId: regionId, obstacleName: r.name, obstacleRegionId: r.regionId, bounds: r, source: r.source, player: { x, y, radius } });
         return false;
@@ -9045,8 +9098,6 @@ this.drawCityWallsAndGate();
       const tools: Array<{ id: ToolKind; name: string; note: string; asset?: string; x: number }> = [
         { id: 'none', name: '空手', note: '收起当前工具', x: -350 },
         { id: 'shovel', name: '小铲子', note: '野外挖坑 · 15秒复原', asset: 'tool-shovel-v1', x: -118 },
-        { id: 'fishing', name: '钓鱼钩', note: '临水抛钩 · 水面涟漪', asset: 'tool-fishing-hook-v1', x: 118 },
-        { id: 'machete', name: '砍刀', note: '清理野草与矮灌木', asset: 'tool-machete-v1', x: 350 },
       ];
       tools.forEach(tool => {
         const selected = this.equippedTool === tool.id;
@@ -9059,7 +9110,7 @@ this.drawCityWallsAndGate();
         socket.fillColor = new Color(46, 39, 36, 225); socket.roundRect(-59, -67, 118, 134, 12); socket.fill();
         socket.strokeColor = new Color(118, 87, 58); socket.lineWidth = 3; socket.roundRect(-59, -67, 118, 134, 12); socket.stroke();
         if (tool.asset) {
-          const iconSize = tool.id === 'fishing' ? [96, 104] : tool.id === 'shovel' ? [64, 92] : [58, 94];
+          const iconSize = tool.id === 'shovel' ? [64, 92] : [58, 94];
           this.pixelSprite(`BackpackToolIcon-${tool.id}`, tool.asset, root, tool.x, 25, iconSize[0], iconSize[1], 8);
         } else {
           const hand = this.localGraphics('EmptyHandIcon', root, tool.x, 24, 90, 104, 8);
@@ -9424,10 +9475,10 @@ this.drawCityWallsAndGate();
     // Browser-preview shortcuts only: X cycles tools and F uses the equipped
     // tool, making every mobile interaction independently regression-testable.
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_X && this.overlay === 'none' && !this.seated) {
-      const previewTools: ToolKind[] = ['none', 'shovel', 'fishing', 'machete'];
+      const previewTools: ToolKind[] = ['none', 'shovel'];
       const nextTool = previewTools[(previewTools.indexOf(this.equippedTool) + 1) % previewTools.length];
       this.equipTool(nextTool);
-      const toolName = nextTool === 'none' ? '空手' : nextTool === 'shovel' ? '小铲子' : nextTool === 'fishing' ? '钓鱼钩' : '砍刀';
+      const toolName = nextTool === 'none' ? '空手' : '小铲子';
       if (this.status?.isValid) this.status.string = `预览：已切换为${toolName}`;
       return;
     }
@@ -9790,7 +9841,7 @@ this.drawCityWallsAndGate();
       }
       if (this.backpackTab === 'tools') {
         const tools: Array<{ id: ToolKind; x: number }> = [
-          { id: 'none', x: -350 }, { id: 'shovel', x: -118 }, { id: 'fishing', x: 118 }, { id: 'machete', x: 350 },
+          { id: 'none', x: -118 }, { id: 'shovel', x: 118 },
         ];
         for (const tool of tools) {
           if (!this.pointInUiRect(x, y, tool.x, -28, 205, 292)) continue;

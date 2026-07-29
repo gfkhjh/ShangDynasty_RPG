@@ -1,4 +1,4 @@
-import { Color, DebugMode, game, Graphics, Label, Node, UIOpacity, UITransform, Vec2, view } from 'cc';
+import { Color, DebugMode, game, Graphics, Label, Node, screen, UIOpacity, UITransform, Vec2, view, Widget } from 'cc';
 import { FacingDirection, RegionDefinition, RegionEntry, RegionExit, RegionId, WorldBounds, pointInWorldBounds } from './RegionTypes';
 
 export enum RegionTransitionState {
@@ -48,6 +48,23 @@ export class RegionTransitionManager {
   private cooldownRemaining = 0;
   private overlay!: Node;
   private overlayOpacity!: UIOpacity;
+  private readonly refreshOverlay = () => {
+    if (!this.overlay?.isValid) return;
+    const transform = this.overlay.getComponent(UITransform)!;
+    const hostTransform = this.host.getComponent(UITransform);
+    const visible = view.getVisibleSize();
+    // visibleSize is the design-size viewport under SHOW_ALL and can remain
+    // 1280×720 while the browser canvas grows sideways.  screen.windowSize is
+    // the actual render target, so using the larger value covers both cases.
+    const width = Math.max(screen.windowSize.width, visible.width, hostTransform?.width ?? 0);
+    const height = Math.max(screen.windowSize.height, visible.height, hostTransform?.height ?? 0);
+    transform.setContentSize(width, height);
+    const graphics = this.overlay.getComponent(Graphics)!;
+    graphics.clear();
+    graphics.fillColor = new Color(0, 0, 0, 255);
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.fill();
+  };
   private debugWorld: Node | null = null;
   private debugLabel: Label | null = null;
   private mismatchReported = false;
@@ -244,14 +261,15 @@ export class RegionTransitionManager {
     this.overlay = new Node('RegionTransitionBlackout');
     this.overlay.parent = this.host;
     this.overlay.setPosition(0, 0, 1000);
-    const visible = view.getVisibleSize();
-    const width = Math.max(1280, visible.width);
-    const height = Math.max(720, visible.height);
-    this.overlay.addComponent(UITransform).setContentSize(width, height);
-    const graphics = this.overlay.addComponent(Graphics);
-    graphics.fillColor = new Color(0, 0, 0, 255);
-    graphics.rect(-width / 2, -height / 2, width, height);
-    graphics.fill();
+    this.overlay.addComponent(UITransform);
+    const widget = this.overlay.addComponent(Widget);
+    widget.isAlignLeft = widget.isAlignRight = widget.isAlignTop = widget.isAlignBottom = true;
+    widget.left = widget.right = widget.top = widget.bottom = 0;
+    widget.alignMode = Widget.AlignMode.ALWAYS;
+    this.overlay.addComponent(Graphics);
+    this.refreshOverlay();
+    view.on('canvas-resize', this.refreshOverlay, this);
+    view.on('design-resolution-changed', this.refreshOverlay, this);
     this.overlayOpacity = this.overlay.addComponent(UIOpacity);
     this.setOverlayAlpha(0);
   }
