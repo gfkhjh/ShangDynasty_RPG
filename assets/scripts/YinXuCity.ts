@@ -168,7 +168,7 @@ type CanalFlowMark = {
 };
 type DepthTree = { node: Node; trunkY: number; halfWidth: number; canopyHeight: number; baseZ: number };
 type DepthOccluder = {
-  node: Node; footY: number; halfWidth: number; coverHeight: number; baseZ: number; foregroundZ: number;
+  node: Node; footY: number; halfWidth: number; coverHeight: number; baseZ: number; foregroundZ: number; regionId?: string;
 };
 type StaticStructureSprite = { node: Node; asset: string };
 type WildlifeMotion = 'swim' | 'wade' | 'hop';
@@ -4080,10 +4080,10 @@ this.drawCityWallsAndGate();
       if ([1100, 1700].some(gap => Math.abs(x - gap) < 105)) continue;
       this.pixelSprite('FieldRoadFenceNorth', 'mud-fence-straight', this.world, x, -675, 158, 76, 14);
       this.pixelSprite('FieldRoadFenceSouth', 'mud-fence-straight', this.world, x, -846, 158, 76, 14);
-      // Adjacent collision strips overlap slightly, leaving openings only at
-      // the authored lanes instead of tiny gaps where an actor can climb on.
-      this.addObstacle(x, -701, 170, 18, '田野路边北矮墙基座');
-      this.addObstacle(x, -872, 170, 18, '田野路边南矮墙基座');
+      // Block the complete visible wall body from every direction. Adjacent
+      // footprints overlap slightly, while the authored lane openings remain.
+      this.addObstacle(x, -675, 170, 64, 'FieldRoadFenceNorthSolid', RegionId.FIELDS);
+      this.addObstacle(x, -846, 170, 64, 'FieldRoadFenceSouthSolid', RegionId.FIELDS);
     }
 
     const field = this.graphics('OrderedFarmPlots', this.world, 5);
@@ -4107,14 +4107,18 @@ this.drawCityWallsAndGate();
     // Layered irrigation water replaces the former flat blue rectangles. The
     // dry bank, wet soil lip, deep channel and moving highlights are separate
     // draw layers, which gives every branch an actual cut-earth profile.
-    this.drawLayeredIrrigationCanal('FieldMainCanal', 1630, -1270, 2620, 88, true, 8);
+    // The main canal now exits beneath the west boundary instead of terminating
+    // at the removed well feeder. Its existing east end remains at x=2940.
+    this.drawLayeredIrrigationCanal('FieldMainCanal', 1520, -1270, 2840, 88, true, 8);
     [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
       this.drawLayeredIrrigationCanal(`FieldBranchCanal${branchIndex}`, x, -1725, 750, 30, false, 8);
       this.drawIrrigationJunction(x, -1270, branchIndex);
-      this.addObstacle(x, -1510, 28, 290, '田间支渠');
-      this.addObstacle(x, -1925, 28, 350, '田间支渠');
+      this.drawIrrigationCanalEndCap(`FieldBranchCanal${branchIndex}SouthCap`, x, -2100, 30, 8);
+      this.addObstacle(x, -1510, 28, 290, `FieldBranchCanal${branchIndex}NorthWater`, RegionId.FIELDS);
+      this.addObstacle(x, -1925, 28, 350, `FieldBranchCanal${branchIndex}SouthWater`, RegionId.FIELDS);
+      this.addObstacle(x, -2122, 88, 44, `FieldBranchCanal${branchIndex}SouthCapWater`, RegionId.FIELDS);
     });
-    let canalStart = 320;
+    let canalStart = 100;
     [1100, 1700, 2300].forEach(gap => {
       const end = gap - 70;
       this.addObstacle((canalStart + end) / 2, -1270, end - canalStart, 108, '田野主干水渠');
@@ -4130,16 +4134,10 @@ this.drawCityWallsAndGate();
       this.createCanalBridgeRails(gap, -1270, wide);
     });
     this.addObstacle((canalStart + 2940) / 2, -1270, 2940 - canalStart, 108, '田野主干水渠');
+    this.drawIrrigationCanalEndCap('FieldMainCanalEastCap', 2940, -1270, 88, 8);
+    this.addObstacle(2976, -1270, 72, 146, 'FieldMainCanalEastCapWater', RegionId.FIELDS);
 
-    this.createVillageWell(350, -1080);
-    this.drawLayeredIrrigationCanal('WellFeederChannel', 350, -1200, 150, 24, false, 9);
-    this.drawIrrigationJunction(350, -1270, 8);
-    const outlet = this.localGraphics('AnimatedWellOutlet', this.world, 350, -1126, 72, 56, 13);
-    outlet.fillColor = new Color(61, 52, 41); outlet.rect(-24, 8, 48, 13); outlet.fill();
-    outlet.fillColor = new Color(39, 88, 111); outlet.rect(-15, -4, 30, 15); outlet.fill();
-    outlet.fillColor = new Color(104, 174, 188, 220); outlet.rect(-9, -15, 18, 17); outlet.fill();
-
-    for (let x = 420, index = 0; x <= 2840; x += 145, index++) {
+    for (let x = 140, index = 0; x <= 2840; x += 145, index++) {
       this.createCanalFlowMark(x, -1270, true, index * .17, 72 + index % 3 * 8);
     }
     [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
@@ -4147,23 +4145,23 @@ this.drawCityWallsAndGate();
         this.createCanalFlowMark(x, y, false, branchIndex * .21 + index * .16, 78);
       }
     });
-    this.createCanalFlowMark(350, -1144, false, .1, 96);
 
     this.createFieldStorehouse('东北粮仓一', 2180, -555, 'field-storehouse-a');
     this.createFieldStorehouse('东北粮仓二', 2520, -555, 'field-storehouse-b');
     this.createFieldStorehouse('东北草料仓', 2860, -555, 'field-shelter');
     [2035, 2215, 2395, 2575, 2755, 2935].forEach(x => {
       this.pixelSprite('GranaryFence', 'mud-fence-straight', this.world, x, -430, 150, 72, 15);
-      this.addObstacle(x, -454, 170, 18, '粮仓外矮墙基座');
+      this.addObstacle(x, -430, 170, 60, 'GranaryFenceSolid', RegionId.FIELDS);
     });
 
     this.pixelSprite('FieldStrawPileA', 'straw-stack', this.world, 690, -610, 112, 126, 18);
-    this.addObstacle(690, -667, 66, 22, '田野草垛底座');
+    this.addObstacle(690, -616, 82, 108, 'FieldStrawPileASolid', RegionId.FIELDS);
     this.pixelSprite('FieldStrawPileB', 'straw-stack', this.world, 2050, -885, 98, 112, 18);
-    this.addObstacle(2050, -936, 58, 20, '田野草垛底座');
+    this.addObstacle(2050, -891, 72, 96, 'FieldStrawPileBSolid', RegionId.FIELDS);
     this.pixelSprite('FieldStoneMill', 'stone-mill', this.world, 1430, -620, 124, 112, 19);
     this.pixelSprite('FieldWaterUrnA', 'field-water-urn', this.world, 1850, -875, 102, 110, 19);
-    this.addObstacle(1430, -667, 70, 24, '田野石磨基座'); this.addObstacle(1850, -924, 46, 22, '田野储水瓮基座');
+    this.addObstacle(1430, -633, 112, 84, 'FieldStoneMillSolid', RegionId.FIELDS);
+    this.addObstacle(1850, -881, 80, 88, 'FieldWaterUrnASolid', RegionId.FIELDS);
 
     [[430, -510], [2870, -930], [430, -2040], [2860, -2035]].forEach((p, i) => this.createTree(p[0], p[1], 100 + i));
     // Keep roadside tree trunks behind the north fence so the two-tile trunk
@@ -4249,6 +4247,39 @@ this.drawCityWallsAndGate();
       }
     }
     if (!horizontal) g.node.setRotationFromEuler(0, 0, 90);
+  }
+
+  private drawIrrigationCanalEndCap(
+    name: string,
+    x: number,
+    y: number,
+    waterWidth: number,
+    z: number,
+  ) {
+    const outerWidth = waterWidth + 58;
+    const g = this.localGraphics(name, this.world, x, y, outerWidth + 26, outerWidth + 26, z);
+    const bands: Array<[number, Color]> = [
+      [waterWidth + 58, new Color(82, 83, 69, 215)],
+      [waterWidth + 48, new Color(111, 119, 67)],
+      [waterWidth + 36, new Color(163, 112, 55)],
+      [waterWidth + 23, new Color(211, 163, 84)],
+      [waterWidth + 12, new Color(53, 72, 65)],
+      [waterWidth, new Color(55, 128, 159)],
+      [Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105)],
+    ];
+    bands.forEach(([diameter, color]) => {
+      g.fillColor = color;
+      g.circle(0, 0, diameter / 2);
+      g.fill();
+    });
+    // Match the straight banks with a few damp clods and a water chevron; the
+    // cap is layered canal art, never a flat solid-colour patch.
+    g.fillColor = new Color(192, 137, 67, 190);
+    g.circle(-outerWidth * .28, -outerWidth * .22, 4); g.fill();
+    g.fillColor = new Color(93, 67, 43, 210);
+    g.circle(outerWidth * .25, outerWidth * .19, 3); g.fill();
+    g.strokeColor = new Color(128, 194, 198, 160); g.lineWidth = 2;
+    g.moveTo(-10, 3); g.lineTo(0, 0); g.lineTo(10, 3); g.stroke();
   }
 
   private drawIrrigationJunction(x: number, y: number, variant: number) {
@@ -4747,7 +4778,7 @@ this.drawCityWallsAndGate();
       ],
       field: [
         [600,-600],[1500,-600],[2400,-600],
-        [600,-1300],[1500,-1300],[2400,-1300],
+        [600,-1300],[1500,-1300],[260,-1860],
         [600,-2000],[1500,-2000],[2400,-2000],
         [1100,-900],
         [2750,-900],[2750,-1600],[2000,-900],[2000,-1600],[1100,-1600],[300,-1600],[2750,-1300],[2000,-1300],[2000,-1900],
@@ -5545,7 +5576,16 @@ this.drawCityWallsAndGate();
     return node;
   }
 
-  private createRegionalNatureTree(name: string, x: number, y: number, index: number, scale: number, regionId: RegionId, obstacleName: string) {
+  private createRegionalNatureTree(
+    name: string,
+    x: number,
+    y: number,
+    index: number,
+    scale: number,
+    regionId: RegionId,
+    obstacleName: string,
+    extraRootObstacle?: { x: number; y: number; w: number; h: number; name: string },
+  ) {
     const node = new Node(name);
     // Ground cover lives under OutskirtsNatureRoot, but an occluding tree must
     // be a direct world sibling of the player so both can share one foot-Y
@@ -5557,6 +5597,7 @@ this.drawCityWallsAndGate();
     const sprite = node.addComponent(Sprite);
     sprite.sizeMode = Sprite.SizeMode.CUSTOM;
     let obstacleCreated = false;
+    let extraRootObstacleCreated = false;
     this.requestFrame('ancient-tree', frame => {
       if (this.retiredOutskirtsNatureTreeNames.has(name)) {
         if (node.isValid) node.destroy();
@@ -5574,6 +5615,18 @@ this.drawCityWallsAndGate();
         this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, nameWithOwner, regionId);
         if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(nameWithOwner);
         obstacleCreated = true;
+      }
+      if (extraRootObstacle && !extraRootObstacleCreated) {
+        this.addObstacle(
+          extraRootObstacle.x,
+          extraRootObstacle.y,
+          extraRootObstacle.w,
+          extraRootObstacle.h,
+          extraRootObstacle.name,
+          regionId,
+        );
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(extraRootObstacle.name);
+        extraRootObstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'ancient-tree', node, regionId, obstacleCreated);
     });
@@ -5762,8 +5815,24 @@ this.drawCityWallsAndGate();
         ['OutskirtsSouthRoadRightTree3', -1740, -100, 154],
         ['OutskirtsSouthRoadRightTree4', -1830, 980, 155],
       ];
+      const southRoadRightTreeAirwalls = new Map<string, { x: number; y: number; w: number; h: number; name: string }>([
+        ['OutskirtsSouthRoadRightTree1', { x: 1800, y: 75, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall1' }],
+        ['OutskirtsSouthRoadRightTree2', { x: -920, y: -825, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall2' }],
+        ['OutskirtsSouthRoadRightTree3', { x: -1740, y: -205, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall3' }],
+      ]);
       rebuiltSouthRoadRightTrees.forEach(([name, x, y, index]) => {
-        if (place(x, y, 170)) this.createRegionalNatureTree(name, x, y, index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot');
+        if (place(x, y, 170)) {
+          this.createRegionalNatureTree(
+            name,
+            x,
+            y,
+            index,
+            1.35,
+            RegionId.OUTSKIRTS,
+            'OutskirtsNatureTreeRoot',
+            southRoadRightTreeAirwalls.get(name),
+          );
+        }
       });
     });
 
@@ -6980,20 +7049,46 @@ this.drawCityWallsAndGate();
 
   private updateTreeDepthOrdering() {
     if (!this.player?.isValid || this.player.parent !== this.world) return;
+    const currentRegionId = this.regionTransitionManager?.currentRegionId;
     const actors: Array<{ node: Node; baselineY: number }> = [
       { node: this.player, baselineY: this.playerPos.y },
     ];
     this.villagers.forEach(villager => {
-      if (villager.root.isValid && villager.root.parent === this.world) actors.push({ node: villager.root, baselineY: villager.root.position.y });
+      if (villager.root.isValid && villager.root.activeInHierarchy && villager.root.parent === this.world) {
+        actors.push({ node: villager.root, baselineY: villager.root.position.y });
+      }
     });
     this.horseCarts.forEach(cart => {
-      if (cart.root.isValid && cart.root.parent === this.world) actors.push({ node: cart.root, baselineY: cart.root.position.y });
+      if (cart.root.isValid && cart.root.activeInHierarchy && cart.root.parent === this.world) {
+        actors.push({ node: cart.root, baselineY: cart.root.position.y });
+      }
     });
     for (const tree of this.depthTrees) {
-      if (tree.node.isValid && tree.node.parent === this.world) actors.push({ node: tree.node, baselineY: tree.trunkY });
+      if (tree.node.isValid && tree.node.activeInHierarchy && tree.node.parent === this.world) {
+        actors.push({ node: tree.node, baselineY: tree.trunkY });
+      }
+    }
+    if (currentRegionId === RegionId.FIELDS) {
+      for (const occluder of this.depthOccluders) {
+        if (occluder.regionId === RegionId.FIELDS
+          && occluder.node.isValid
+          && occluder.node.activeInHierarchy
+          && occluder.node.parent === this.world) {
+          actors.push({ node: occluder.node, baselineY: occluder.footY });
+        }
+      }
+      for (const site of this.excavationSites) {
+        if (site.region === 'field'
+          && site.root.isValid
+          && site.root.activeInHierarchy
+          && site.root.parent === this.world) {
+          actors.push({ node: site.root, baselineY: site.y + this.EXCAVATION_VISUAL_GROUND_Y });
+        }
+      }
     }
     // Higher/northern baselines render first; lower/southern actors render on
-    // top. Only actor nodes participate, so terrain and architecture never move.
+    // top. FIELDS wall/prop sprites join this same foot-Y pass so objects behind
+    // a wall stay behind it while foreground actors can still pass in front.
     actors.sort((a, b) => b.baselineY - a.baselineY || a.node.name.localeCompare(b.node.name));
     actors.forEach(actor => actor.node.setSiblingIndex((actor.node.parent?.children.length ?? 1) - 1));
 
@@ -7127,7 +7222,7 @@ this.drawCityWallsAndGate();
         // roots must never become invisible CITY collision.  Other shared
         // CITY/OUTSKIRTS route and wall collision remains unchanged.
         if (regionId === RegionId.CITY && r.regionId === RegionId.OUTSKIRTS
-          && /^(OutskirtsNatureTreeRoot|OutskirtsGroveTree|OutskirtsSouthAirwallTree|OutskirtsSouthAirwallJujube|OutskirtsJujube)/.test(r.name)) continue;
+          && /^(OutskirtsNatureTreeRoot|OutskirtsGroveTree|OutskirtsSouthAirwallTree|OutskirtsSouthAirwallJujube|OutskirtsSouthRoadRightTreeAirwall|OutskirtsJujube)/.test(r.name)) continue;
         const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
         if (!isShared) continue;
       }
@@ -7332,7 +7427,7 @@ this.drawCityWallsAndGate();
     let penalty = 0;
     const selfCart = this.horseCarts.find(cart => cart.root === self);
     const addCircle = (node: Node, otherRadius: number, padding = 20) => {
-      if (!node.isValid || node === self) return;
+      if (!node.isValid || !node.activeInHierarchy || node === self) return;
       const required = radius + otherRadius + padding;
       const distance = Math.hypot(x - node.position.x, y - node.position.y);
       if (distance < required) penalty += (required - distance) / required;
@@ -7345,7 +7440,7 @@ this.drawCityWallsAndGate();
       if (gapX > 0 && gapY > 0) penalty += Math.min(gapX / halfW, gapY / halfH);
     };
     const addActorRect = (node: Node) => {
-      if (!node.isValid || node === self) return;
+      if (!node.isValid || !node.activeInHierarchy || node === self) return;
       const halfW = 48;
       const halfH = 66;
       const gapX = halfW - Math.abs(x - node.position.x);
@@ -10056,6 +10151,7 @@ this.drawCityWallsAndGate();
       coverHeight: h * coverRatio,
       baseZ,
       foregroundZ: 98,
+      regionId: this.currentObstacleRegionId,
     });
   }
 
