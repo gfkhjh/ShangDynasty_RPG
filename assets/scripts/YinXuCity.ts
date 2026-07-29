@@ -3051,7 +3051,11 @@ this.drawCityWallsAndGate();
     const townRoadZ = 4;
     const townSpacing = 100;
 
-    // South road: X=0, from city.bottom down to o.bottom
+    // South road: X=0, from city.bottom down to o.bottom. These matching
+    // tiles overlap both existing runs through the south-gate threshold so
+    // the grass-arm overlay cannot leave a visible seam at the stairs.
+    [-250, -150].forEach((y, index) =>
+      this.pixelSprite(`SouthGateRoadConnector${index}`, 'road-straight', this.world, 0, y, roadW, roadW, 63));
     for (let y = city.bottom - halfW; y >= o.bottom + halfW; y -= townSpacing) {
       this.pixelSprite('OutskirtsRoadSouth', 'road-straight', this.world, 0, y, roadW, roadW, 63);
     }
@@ -4726,24 +4730,6 @@ this.drawCityWallsAndGate();
   }
 
   private drawOraclePit() {
-    // This is the existing large zone directly below the fields.  It remains
-    // one continuous outdoor map, divided by paths and terrain rather than by
-    // scene transitions or a pasted background image.
-    const ground = this.graphics('RoyalRitualMottledGround', this.world, 3);
-    ground.fillColor = new Color(105, 75, 53, 150);
-    ground.roundRect(680, -4020, 4440, 1480, 44); ground.fill();
-    let seed = 91357;
-    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < 270; i++) {
-      const x = 720 + random() * 4320; const y = -3970 + random() * 1360;
-      const palette = i % 4;
-      ground.fillColor = palette === 0 ? new Color(61, 55, 45, 90)
-        : palette === 1 ? new Color(171, 123, 68, 78)
-          : palette === 2 ? new Color(82, 93, 59, 54) : new Color(201, 156, 86, 45);
-      const width = 5 + Math.floor(random() * 19); const height = 3 + Math.floor(random() * 9);
-      ground.rect(Math.round(x / 3) * 3, Math.round(y / 3) * 3, width, height); ground.fill();
-    }
-
     // Reinforced full-width north wall with no opening; former gate deleted.
     this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
@@ -4779,18 +4765,27 @@ this.drawCityWallsAndGate();
     this.addObstacle(1450, -3260, 584, 200, 'RoyalTombRitualAltarSolid', RegionId.ROYAL_TOMB);
     this.worldLabel('王陵祭祀台', 1450, -2840, 21, new Color(237, 202, 125));
 
-    this.clearRoyalTombLandmarkRecords('RoyalTombBurialMound');
+    this.clearRoyalTombBurialMoundRecords();
     this.createRoyalTombStaticLandmark('RoyalTombBurialMound', 'royal_tomb_burial_mound', 2860, -3450, 900, 600);
-    // Stacked compact bodies follow the visible earthen terraces. Together
-    // they occupy the painted mound, but no single rectangle encloses it.
+    // Short, overlapping bodies trace the painted outer lip only.  Together
+    // they form one sealed oval, keeping every visible terrace non-walkable
+    // without a broad horizontal air wall below the mound.
     [
-      [2860, -3708, 720, 72, 'LowerTerrace'], [2860, -3628, 690, 80, 'LowerBody'],
-      [2860, -3542, 620, 80, 'MiddleLowerBody'], [2860, -3456, 540, 80, 'MiddleBody'],
-      [2860, -3370, 450, 80, 'UpperBody'], [2860, -3284, 330, 80, 'UpperTerrace'],
-      [2860, -3202, 210, 70, 'Crown'],
+      [2700, -3164, 132, 34, 'NorthWest'], [2830, -3158, 132, 34, 'NorthCenterLeft'],
+      [2960, -3164, 132, 34, 'NorthCenterRight'], [3072, -3182, 94, 42, 'NorthEast'],
+      [2588, -3192, 94, 42, 'NorthWestShoulder'], [2490, -3239, 104, 64, 'UpperWest'],
+      [2428, -3316, 46, 92, 'UpperWestSide'], [2394, -3415, 42, 108, 'MidWest'],
+      [2398, -3522, 42, 108, 'LowerWest'], [2442, -3616, 100, 82, 'LowerWestSide'],
+      [2532, -3682, 82, 52, 'SouthWestShoulder'], [2638, -3728, 132, 34, 'SouthWest'],
+      [2769, -3742, 132, 34, 'SouthCenterLeft'], [2900, -3742, 132, 34, 'SouthCenterRight'],
+      [3031, -3728, 132, 34, 'SouthEast'], [3118, -3714, 80, 40, 'SouthEastLowerJoin'],
+      [3192, -3682, 82, 52, 'SouthEastShoulder'], [3278, -3616, 92, 82, 'LowerEastSide'],
+      [3274, -3522, 42, 108, 'LowerEast'],
+      [3278, -3415, 42, 108, 'MidEast'], [3292, -3316, 46, 92, 'UpperEastSide'],
+      [3230, -3239, 104, 64, 'UpperEast'], [3138, -3192, 94, 42, 'NorthEastShoulder'],
     ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
       x as number, y as number, w as number, h as number,
-      `RoyalTombBurialMound${suffix as string}Solid`, RegionId.ROYAL_TOMB,
+      `RoyalTombBurialMoundRim${suffix as string}Solid`, RegionId.ROYAL_TOMB,
     ));
     this.worldLabel('王陵封土', 2860, -3115, 20, new Color(224, 192, 125));
 
@@ -10501,7 +10496,26 @@ this.drawCityWallsAndGate();
     return node;
   }
 
-  private clearRoyalTombLandmarkRecords(prefix: 'RoyalTombBurialMound' | 'RoyalTombOutdoorOracleKiln') {
+  /** Clears all former mound records, including unnamed legacy air-wall bodies in the painted footprint. */
+  private clearRoyalTombBurialMoundRecords() {
+    const overlapsMound = (x: number, y: number, w = 0, h = 0) =>
+      x + w / 2 > 2360 && x - w / 2 < 3360 && y + h / 2 > -3780 && y - h / 2 < -3140;
+    this.obstacles = this.obstacles.filter(obstacle =>
+      !obstacle.name.startsWith('RoyalTombBurialMound')
+      && !(obstacle.regionId === RegionId.ROYAL_TOMB && overlapsMound(obstacle.x, obstacle.y, obstacle.w, obstacle.h)));
+    this.depthTrees = this.depthTrees.filter(tree =>
+      !tree.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(tree.node.position.x, tree.node.position.y));
+    this.depthOccluders = this.depthOccluders.filter(occluder =>
+      !occluder.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(occluder.node.position.x, occluder.node.position.y));
+    this.world.children
+      .filter(node => node.name.startsWith('RoyalTombBurialMound')
+        || overlapsMound(node.position.x, node.position.y))
+      .forEach(node => node.destroy());
+  }
+
+  private clearRoyalTombLandmarkRecords(prefix: 'RoyalTombOutdoorOracleKiln') {
     this.obstacles = this.obstacles.filter(obstacle => !obstacle.name.startsWith(prefix));
     this.depthTrees = this.depthTrees.filter(tree => !tree.node.name.startsWith(prefix));
     this.depthOccluders = this.depthOccluders.filter(occluder => !occluder.node.name.startsWith(prefix));

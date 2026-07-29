@@ -65,9 +65,9 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2530, -3910), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-4-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(3460, -800), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-5-fields-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(1560, -1500), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1660, -3180), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1900, -3180), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-7-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(4710, -1100), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(3160, -3200), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2300, -3200), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(0, 1010), facingDirection: 'left', safeOffset: 72 },
     { id: 'story-return-city', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
     {
