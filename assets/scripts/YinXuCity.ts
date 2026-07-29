@@ -455,10 +455,16 @@ export class YinXuCity extends Component {
   private outskirtsGroundNode: Node | null = null;
   /** Container for all OutskirtsGroundTile sprites */
   private outskirtsTileContainer: Node | null = null;
-  /** OUTSKIRTS-only natural props.  Never parent these to DynamicWorld directly. */
+  /** OUTSKIRTS ground-cover layer. Solid nature entities live in DynamicWorld for depth sorting. */
   private outskirtsNatureRoot: Node | null = null;
   /** OUTSKIRTS trees and jujube bushes participate in world-depth sorting. */
   private outskirtsNatureEntityNodes: Node[] = [];
+  /** Obstacles created by the rebuildable OUTSKIRTS nature pass. */
+  private readonly outskirtsNatureObstacleNames = new Set<string>();
+  /** Retired grove names are ignored by delayed SpriteFrame callbacks. */
+  private readonly retiredOutskirtsNatureTreeNames = new Set<string>();
+  /** One runtime audit per OUTSKIRTS visit for the reported south-road wall. */
+  private outskirtsSouthAirwallProbeReported = false;
   private player!: Node;
   private playerVisual!: Node;
   private playerSprite!: Sprite;
@@ -1225,6 +1231,14 @@ export class YinXuCity extends Component {
     if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
     if (this.outskirtsNatureRoot) this.outskirtsNatureRoot.active = show;
     this.outskirtsNatureEntityNodes.forEach(node => { if (node.isValid) node.active = show; });
+    if (r !== RegionId.OUTSKIRTS) this.outskirtsSouthAirwallProbeReported = false;
+    if (r === RegionId.OUTSKIRTS && !this.outskirtsSouthAirwallProbeReported) {
+      // The reported blank wall was the old temporary-strip right-bottom
+      // boundary at this point. Keep an auditable runtime record of every
+      // overlapping obstacle after the duplicate has been removed.
+      this.scanCollisionProbe('OutskirtsSouthRoadRightBlankAirwall', 627, -944, this.playerRadius);
+      this.outskirtsSouthAirwallProbeReported = true;
+    }
   }
 
   private initializeStoryInfrastructure() {
@@ -1720,7 +1734,7 @@ export class YinXuCity extends Component {
     const transitionManager = this.regionTransitionManager;
     const registeredEntries = transitionManager?.getRegisteredEntries() ?? [];
     const entry = testLocation && transitionManager ? transitionManager.getEntry(testLocation.entryId) : null;
-    if (target === 2 || target === 9) this.logStoryTestEntryDiagnostics(target, transitionManager, testLocation, entry);
+    if (target === 2 || target === 3 || target === 9) this.logStoryTestEntryDiagnostics(target, transitionManager, testLocation, entry);
     console.info('[StoryTest] launch requested.', {
       chapterNumber: target,
       chapterId: testStart?.chapterId ?? null,
@@ -1753,13 +1767,13 @@ export class YinXuCity extends Component {
     const resolvedEntry = entry;
 
     const startStoryAfterArrival = () => {
-      if (target === 2 || target === 9) {
+      if (target === 2 || target === 3 || target === 9) {
         this.logStoryTestTransitionResult('success', target, transitionManager, resolvedLocation, resolvedEntry);
       }
       this.startStoryTestAfterArrival(target, testStart.chapterId);
     };
     const transitionFailed = (reason: string) => {
-      if (target === 2 || target === 9) {
+      if (target === 2 || target === 3 || target === 9) {
         this.logStoryTestTransitionResult('failed', target, transitionManager, resolvedLocation, resolvedEntry, reason);
       }
       console.error('[StoryTest] chapter test travel failed; story launch cancelled.', {
@@ -1832,9 +1846,9 @@ export class YinXuCity extends Component {
     this.persistCitySave();
   }
 
-  /** Detailed runtime diagnostics are intentionally limited to the two repaired test entries. */
+  /** Detailed runtime diagnostics are intentionally limited to repaired test entries. */
   private logStoryTestEntryDiagnostics(
-    chapterNumber: 2 | 9,
+    chapterNumber: 2 | 3 | 9,
     transitionManager: RegionTransitionManager | undefined,
     location: ReturnType<typeof storyLocation>,
     entry: RegionEntry | null,
@@ -1883,10 +1897,10 @@ export class YinXuCity extends Component {
     });
   }
 
-  /** Emits the terminal phase for the two test travels that previously failed at runtime. */
+  /** Emits the terminal phase for repaired test travels that previously failed at runtime. */
   private logStoryTestTransitionResult(
     result: 'success' | 'failed',
-    chapterNumber: 2 | 9,
+    chapterNumber: 2 | 3 | 9,
     transitionManager: RegionTransitionManager,
     location: NonNullable<ReturnType<typeof storyLocation>>,
     entry: RegionEntry,
@@ -2502,6 +2516,8 @@ export class YinXuCity extends Component {
     this.canalFlowMarks = [];
     this.depthTrees = [];
     this.outskirtsNatureEntityNodes = [];
+    this.outskirtsNatureObstacleNames.clear();
+    this.retiredOutskirtsNatureTreeNames.clear();
     this.depthOccluders = [];
     this.fixedForegroundNodes = [];
     this.southOutskirtsSurfaceNodes = [];
@@ -2693,11 +2709,11 @@ this.drawCityWallsAndGate();
       || obstacle.y + obstacle.h / 2 <= bounds.bottom);
     const roadHalfWidth = 56;
     const leftBoundaryWidth = -roadHalfWidth - bounds.left;
-    const rightBoundaryWidth = bounds.right - roadHalfWidth;
     this.addObstacle(bounds.left + leftBoundaryWidth / 2, bounds.bottom + 16, leftBoundaryWidth, 32,
       'SouthOutskirtsTrialBoundaryLeft');
-    this.addObstacle(roadHalfWidth + rightBoundaryWidth / 2, bounds.bottom + 16, rightBoundaryWidth, 32,
-      'SouthOutskirtsTrialBoundaryRight');
+    // The former SouthOutskirtsTrialBoundaryRight was an unpainted duplicate
+    // of the southern world edge.  At (627, -944) it became a standalone
+    // airwall in open grass, so it is intentionally not registered.
     this.addObstacle(bounds.left + 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialLeftBoundary');
     this.addObstacle(bounds.right - 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialRightBoundary');
 
@@ -2707,8 +2723,6 @@ this.drawCityWallsAndGate();
       debug.lineWidth = 4;
       debug.moveTo(bounds.left, bounds.bottom + 32);
       debug.lineTo(-roadHalfWidth, bounds.bottom + 32);
-      debug.moveTo(roadHalfWidth, bounds.bottom + 32);
-      debug.lineTo(bounds.right, bounds.bottom + 32);
       debug.moveTo(bounds.left + 32, bounds.bottom); debug.lineTo(bounds.left + 32, -330);
       debug.moveTo(bounds.right - 32, bounds.bottom); debug.lineTo(bounds.right - 32, -330);
       debug.stroke();
@@ -2952,8 +2966,10 @@ this.drawCityWallsAndGate();
       x: bridgeX, y: bridgeY, w: bridgeWalkWidth, h: bridgeHeight,
       name: 'RiverbankNorthPureWoodBridgeDeck',
     });
-    this.addObstacle(bridgeX - 51, bridgeY, 18, 250, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
-    this.addObstacle(bridgeX + 51, bridgeY, 18, 250, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
+    // Player-center corridor = rail inner edge - player radius - 3 px safety.
+    const railOffset = 51 - 3;
+    this.addObstacle(bridgeX - railOffset, bridgeY, 18, 250, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
+    this.addObstacle(bridgeX + railOffset, bridgeY, 18, 250, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
   }
 
   private drawRiverbankPhaseOneBoundary() {
@@ -3630,7 +3646,7 @@ this.drawCityWallsAndGate();
     [-33, 4, 38].forEach(x => { threshold.moveTo(x, -4); threshold.lineTo(x + 8, 7); }); threshold.stroke();
   }
 
-  private createAnimatedTorch(x: number, y: number, index: number) {
+  private createAnimatedTorch(x: number, y: number, index: number, regionId?: RegionId) {
     const root = new Node(`AnimatedBronzeTorch${index}`);
     root.parent = this.world;
     root.setPosition(x, y, 21);
@@ -3661,6 +3677,10 @@ this.drawCityWallsAndGate();
     const embers = emberNode.addComponent(Graphics);
     this.torchFlames.push({ root, flame, glow, embers, phase: index * 1.73 + x * .001, intensity: 1 });
     this.depthOccluders.push({ node: root, footY: y - 35, halfWidth: 32, coverHeight: 96, baseZ: 21, foregroundZ: 98 });
+    if (regionId === RegionId.ROYAL_TOMB) {
+      this.addObstacle(x, y - 3, 54, 74, `RoyalTombTorchSolid${index}`, regionId);
+      return;
+    }
     this.addObstacle(x, y - 18, 28, 32, '青铜火盆');
   }
 
@@ -3972,7 +3992,7 @@ this.drawCityWallsAndGate();
     this.worldLabel('商代集市', 1010, 1365, 19, new Color(90, 59, 38));
     this.createTownShop(1030, 630);
     this.createMarketStall(820, 1030, .72); this.createMarketStall(1060, 1030, .72);
-    this.createVillageWell(245, 620);
+    this.createVillageWell(245, 620, RegionId.CITY);
   }
 
   private drawTownDetails() {
@@ -3986,6 +4006,8 @@ this.drawCityWallsAndGate();
 
     this.pixelSprite('MarketPottery', 'pottery-jar-cluster', this.world, 1160, 540, 90, 76, 18);
     this.pixelSprite('MarketSupplies', 'barrel-crate-cluster', this.world, 820, 550, 88, 78, 18);
+    // Full, grounded footprint for the combined barrels, crate and sacks.
+    this.addObstacle(820, 528, 78, 58, 'CityMarketBarrelCrateSolid', RegionId.CITY);
     this.addObstacle(1160, 507, 48, 20, '集市陶罐底座');
     this.addObstacle(820, 512, 52, 22, '集市箱笼底座');
   }
@@ -4157,7 +4179,9 @@ this.drawCityWallsAndGate();
   }
 
   private createCanalBridgeRails(x: number, y: number, wide: boolean) {
-    const railX = wide ? 76 : 53;
+    // Move the physical rail 3 px inward so playerRadius stays inside the
+    // painted rail interior without changing bridge sprites or entrances.
+    const railX = (wide ? 76 : 53) - 3;
     const railWidth = wide ? 28 : 24;
     const halfHeight = 82;
     // The bridge sprite already carries authored rails. The old Graphics
@@ -4308,21 +4332,18 @@ this.drawCityWallsAndGate();
 
     // Low tier: scattered stones and sparse trees.
     [[3180, -580, .55], [3440, -1140, .62], [3200, -1720, .52], [3600, -1910, .68]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     [[3200, -920], [3510, -550], [3420, -1530], [3680, -1810]].forEach((p, i) => this.createTreeSized(p[0], p[1], 200 + i, .72 + (i % 2) * .12));
     // Middle tier: dense woodland and grouped rock masses.
     const middleTrees = [[3940,-560],[4180,-610],[4440,-560],[3990,-1050],[4320,-1110],[4520,-930],[3980,-1510],[4210,-1580],[4490,-1480],[4020,-1980],[4370,-2000],[4550,-1860]];
     middleTrees.forEach((p, i) => this.createTreeSized(p[0], p[1], 220 + i, .82 + (i % 3) * .08));
     [[4080, -1320, .88], [4340, -1360, 1.02], [4460, -760, .86], [4140, -1880, .94]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     // Summit: giant standing rocks, short grass, and only isolated trees.
     [[4920, -560, 1.22], [5350, -650, 1.35], [5520, -1540, 1.4], [5070, -1950, 1.18]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     [[4880, -960], [5480, -980], [5270, -1960]].forEach((p, i) => this.createTreeSized(p[0], p[1], 250 + i, .88));
 
@@ -4405,7 +4426,7 @@ this.drawCityWallsAndGate();
     altar.moveTo(-92, 0); altar.lineTo(-46, 50); altar.lineTo(0, 0); altar.lineTo(46, 50); altar.lineTo(92, 0); altar.lineTo(46, -50); altar.lineTo(0, 0); altar.lineTo(-46, -50); altar.close(); altar.stroke();
     this.addObstacle(1450, -3190, 360, 180, '王陵中心祭台');
     this.createBronzeDing(1370, -3170); this.createBronzeDing(1530, -3170);
-    [[1130,-2960],[1770,-2960],[1130,-3420],[1770,-3420]].forEach((p, i) => this.createAnimatedTorch(p[0], p[1], 20 + i));
+    [[1130,-2960],[1770,-2960],[1130,-3420],[1770,-3420]].forEach((p, i) => this.createAnimatedTorch(p[0], p[1], 20 + i, RegionId.ROYAL_TOMB));
     [[1070,-3170],[1830,-3170]].forEach((p, index) => {
       const banner = this.localGraphics(`RoyalRitualBanner${index}`, this.world, p[0], p[1], 84, 210, 23);
       banner.fillColor = new Color(58, 43, 34); banner.rect(-6, -92, 12, 184); banner.fill();
@@ -4466,10 +4487,13 @@ this.drawCityWallsAndGate();
 
     [[840,-2800],[900,-3710],[2030,-2760],[2260,-3930],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
       const scale = .55 + (i % 3) * .14;
-      this.createRock(p[0], p[1], scale);
-      this.addObstacle(p[0], p[1] + 6 * scale, 112 * scale, 118 * scale, 'MountainRockSolid', RegionId.ROYAL_TOMB);
+      this.createRock(p[0], p[1], scale, RegionId.ROYAL_TOMB);
     });
-    [[930,-3480],[2020,-3520],[3510,-3880],[4830,-3160]].forEach((p, i) => this.pixelSprite(`RoyalRitualRelic${i}`, i % 2 ? 'pottery-jar-cluster' : 'field-stone-cluster', this.world, p[0], p[1], 68, 62, 15));
+    [[930,-3480],[2020,-3520],[3510,-3880],[4830,-3160]].forEach((p, i) => {
+      const isPottery = i % 2 === 1;
+      this.pixelSprite(`RoyalRitualRelic${i}`, isPottery ? 'pottery-jar-cluster' : 'field-stone-cluster', this.world, p[0], p[1], 68, 62, 15);
+      if (isPottery) this.addObstacle(p[0], p[1] - 4, 62, 56, `RoyalTombPotterySolid${i}`, RegionId.ROYAL_TOMB);
+    });
     this.worldLabel('甲骨窑穴 · 王陵祭祀区', 3320, -2570, 27, new Color(248, 221, 151));
   }
 
@@ -5369,13 +5393,14 @@ this.drawCityWallsAndGate();
     this.addStructureFootprint('VillageShopPixelArt', x, y + 32, 214, 174);
   }
 
-  private createVillageWell(x: number, y: number) {
+  private createVillageWell(x: number, y: number, regionId?: RegionId) {
     const fallback = this.graphics('VillageWellFallback', this.world, 21);
     fallback.fillColor = new Color(98, 87, 67); fallback.circle(0, 0, 34); fallback.fill();
     fallback.strokeColor = new Color(58, 47, 36); fallback.lineWidth = 7; fallback.circle(0, 0, 34); fallback.stroke();
     fallback.node.setPosition(x, y);
     this.pixelSprite('VillageWaterWell', 'village-well', this.world, x, y + 18, 112, 112, 28);
-    this.addStructureFootprint('VillageWaterWell', x, y + 8, 76, 76);
+    if (regionId === RegionId.CITY) this.addObstacle(x, y + 10, 92, 88, 'CityVillageWellSolid', regionId);
+    else this.addStructureFootprint('VillageWaterWell', x, y + 8, 76, 76);
     this.worldLabel('水井', x, y + 84, 14, new Color(80, 57, 38));
   }
 
@@ -5459,13 +5484,30 @@ this.drawCityWallsAndGate();
     });
   }
 
-  private createRock(x: number, y: number, scale: number) {
-    const g = this.graphics('MountainRock', this.world, 18);
+  /**
+   * Large mountain-stock rocks share the tree-style depth contract: only the
+   * grounded lower mass is solid, while the upper mass sorts around actors by
+   * its visual foot.  That keeps a player behind the rock hidden without ever
+   * allowing them to stand inside its base.
+   */
+  private createRock(x: number, y: number, scale: number, regionId: RegionId) {
+    const rockName = `MountainRockSolid:${regionId}:${x}:${y}`;
+    const g = this.graphics(`MountainRockFallback:${regionId}:${x}:${y}`, this.world, 18);
     g.fillColor = new Color(105, 111, 104); g.moveTo(-45 * scale, -22 * scale); g.lineTo(-18 * scale, 45 * scale); g.lineTo(28 * scale, 52 * scale); g.lineTo(52 * scale, -15 * scale); g.close(); g.fill();
     g.fillColor = new Color(151, 153, 137); g.moveTo(-18 * scale, 45 * scale); g.lineTo(9 * scale, 23 * scale); g.lineTo(28 * scale, 52 * scale); g.close(); g.fill();
     g.node.setPosition(x, y);
-    this.pixelSprite('MountainRockPixelArt', 'mountain-rock', this.world, x, y + 12, 150 * scale, 150 * scale, 20);
-    this.addObstacle(x, y - 34 * scale, 78 * scale, 24 * scale, '山石基座');
+    const rockNode = this.pixelSprite(`MountainRockPixelArt:${regionId}:${x}:${y}`, 'mountain-rock', this.world,
+      x, y + 12 * scale, 150 * scale, 150 * scale, 20);
+    // The lower/middle stone mass is impassable.  The top remains a visual
+    // occluder so a north-side actor is hidden rather than standing on it.
+    this.addObstacle(x, y + 2 * scale, 102 * scale, 104 * scale, rockName, regionId);
+    this.depthTrees.push({
+      node: rockNode,
+      trunkY: y - 58 * scale,
+      halfWidth: 58 * scale,
+      canopyHeight: 142 * scale,
+      baseZ: 20,
+    });
   }
 
   /**
@@ -5495,6 +5537,7 @@ this.drawCityWallsAndGate();
       node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
       if (obstacle && !obstacleCreated) {
         this.addObstacle(obstacle.x, obstacle.y, obstacle.w, obstacle.h, obstacle.name, regionId);
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(obstacle.name);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, asset, node, regionId, obstacleCreated);
@@ -5504,6 +5547,9 @@ this.drawCityWallsAndGate();
 
   private createRegionalNatureTree(name: string, x: number, y: number, index: number, scale: number, regionId: RegionId, obstacleName: string) {
     const node = new Node(name);
+    // Ground cover lives under OutskirtsNatureRoot, but an occluding tree must
+    // be a direct world sibling of the player so both can share one foot-Y
+    // ordering pass (the same arrangement already used by RIVERBANK).
     node.parent = this.world;
     if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureEntityNodes.push(node);
     node.setPosition(x, y, 64);
@@ -5512,13 +5558,21 @@ this.drawCityWallsAndGate();
     sprite.sizeMode = Sprite.SizeMode.CUSTOM;
     let obstacleCreated = false;
     this.requestFrame('ancient-tree', frame => {
+      if (this.retiredOutskirtsNatureTreeNames.has(name)) {
+        if (node.isValid) node.destroy();
+        return;
+      }
       if (!node.isValid || !sprite.isValid) return;
       sprite.spriteFrame = frame;
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
       if (!obstacleCreated) {
         // Cover trunk, roots and baked-in stones without blocking the canopy.
-        this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, obstacleName, regionId);
+        // This callback runs only after SpriteFrame binding, so no invisible
+        // tree obstacle survives a failed asset load.
+        const nameWithOwner = `${obstacleName}:${name}`;
+        this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, nameWithOwner, regionId);
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(nameWithOwner);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'ancient-tree', node, regionId, obstacleCreated);
@@ -5551,7 +5605,9 @@ this.drawCityWallsAndGate();
     const height = 142;
     const rootY = y - height * .32;
     const node = new Node(name);
-    node.parent = this.outskirtsNatureRoot!;
+    // These are solid shrubs, so they share the actor-depth layer with trees.
+    node.parent = this.world;
+    this.outskirtsNatureEntityNodes.push(node);
     node.setPosition(x, y, 64);
     node.addComponent(UITransform).setContentSize(width, height);
     const sprite = node.addComponent(Sprite);
@@ -5562,7 +5618,9 @@ this.drawCityWallsAndGate();
       sprite.spriteFrame = frame;
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       if (!obstacleCreated) {
-        this.addObstacle(x, y - height * .04, 120, 108, `${name}Solid`, RegionId.OUTSKIRTS);
+        const obstacleName = `${name}Solid`;
+        this.addObstacle(x, y - height * .04, 120, 108, obstacleName, RegionId.OUTSKIRTS);
+        this.outskirtsNatureObstacleNames.add(obstacleName);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'jujube-bush', node, RegionId.OUTSKIRTS, obstacleCreated);
@@ -5636,8 +5694,30 @@ this.drawCityWallsAndGate();
     });
   }
 
+  /** Remove only the rebuildable OUTSKIRTS entities; terrain and FIELDS stay untouched. */
+  private clearOutskirtsNatureEntities() {
+    const entityNodes = new Set(this.outskirtsNatureEntityNodes);
+    entityNodes.forEach(node => { if (node.isValid) node.destroy(); });
+    this.depthTrees = this.depthTrees.filter(tree => !entityNodes.has(tree.node));
+    this.obstacles = this.obstacles.filter(obstacle => !this.outskirtsNatureObstacleNames.has(obstacle.name));
+    this.outskirtsNatureEntityNodes = [];
+    this.outskirtsNatureObstacleNames.clear();
+  }
+
+  /** Retire a known bad grove node and make any late SpriteFrame callback inert. */
+  private retireOutskirtsNatureTree(name: string) {
+    this.retiredOutskirtsNatureTreeNames.add(name);
+    const oldNodes = this.outskirtsNatureEntityNodes.filter(node => node.name === name);
+    oldNodes.forEach(node => { if (node.isValid) node.destroy(); });
+    this.outskirtsNatureEntityNodes = this.outskirtsNatureEntityNodes.filter(node => node.name !== name);
+    this.depthTrees = this.depthTrees.filter(tree => tree.node.name !== name);
+    this.obstacles = this.obstacles.filter(obstacle => obstacle.name !== `OutskirtsNatureTreeRoot:${name}`);
+    this.outskirtsNatureObstacleNames.delete(`OutskirtsNatureTreeRoot:${name}`);
+  }
+
   /** Dense, road-safe decoration with collisions isolated to the owning region. */
   private drawRegionalNatureDecorations() {
+    this.clearOutskirtsNatureEntities();
     this.outskirtsNatureRoot?.destroy();
     this.outskirtsNatureRoot = new Node('OutskirtsNatureRoot');
     this.outskirtsNatureRoot.parent = this.world;
@@ -5672,8 +5752,19 @@ this.drawCityWallsAndGate();
       // larger than the retained compact meadows above.
       [[1660, 120], [1440, -650], [720, -650], [-720, -690], [-1650, -120], [-1760, 920]]
         .forEach(([x, y], index) => this.createLargeNatureCluster(`OutskirtsGrove${index}-`, x, y, RegionId.OUTSKIRTS, (px, py) => place(px, py, 90)));
-      [[1800, 180, 0], [-920, -720, 3], [-1740, -100, 4], [-1830, 980, 5]]
-        .forEach(([x, y, index]) => { if (place(x, y, 170)) this.createRegionalNatureTree(`OutskirtsGroveTree${index}`, x, y, 150 + index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot'); });
+      // Retire the four previous grove nodes completely.  In particular, a
+      // delayed ancient-tree frame must never recreate their former collider.
+      ['OutskirtsGroveTree0', 'OutskirtsGroveTree3', 'OutskirtsGroveTree4', 'OutskirtsGroveTree5']
+        .forEach(name => this.retireOutskirtsNatureTree(name));
+      const rebuiltSouthRoadRightTrees: Array<[string, number, number, number]> = [
+        ['OutskirtsSouthRoadRightTree1', 1800, 180, 150],
+        ['OutskirtsSouthRoadRightTree2', -920, -720, 153],
+        ['OutskirtsSouthRoadRightTree3', -1740, -100, 154],
+        ['OutskirtsSouthRoadRightTree4', -1830, 980, 155],
+      ];
+      rebuiltSouthRoadRightTrees.forEach(([name, x, y, index]) => {
+        if (place(x, y, 170)) this.createRegionalNatureTree(name, x, y, index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot');
+      });
     });
 
     this.withObstacleRegion(RegionId.RIVERBANK, () => {
@@ -7040,10 +7131,6 @@ this.drawCityWallsAndGate();
         const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
         if (!isShared) continue;
       }
-      // createRock() still emits a visual-era base marker. Full-body, scoped
-      // MountainRockSolid colliders own gameplay now, so the old unscoped
-      // marker must never participate in movement in another region.
-      if (!r.regionId && r.name === '\u705E\u8FA9\u7176\u9369\u54C4\u9A87') continue;
       if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) {
         console.debug('[HIT]', { currentRegionId: regionId, obstacleName: r.name, obstacleRegionId: r.regionId, bounds: r, source: r.source, player: { x, y, radius } });
         return false;
@@ -7068,7 +7155,7 @@ this.drawCityWallsAndGate();
       .map(segment => ({ ax: segment.ax, ay: segment.ay, bx: segment.bx, by: segment.by, radius: segment.radius }));
     console.info('[CollisionProbe]', {
       label, currentRegionId: currentRegionId ?? 'UNINITIALIZED', point: { x, y, radius },
-      obstacles: overlaps.map(({ r, skippedForRegion }) => ({ name: r.name, regionId: r.regionId ?? 'UNSCOPED', aabb: { x: r.x, y: r.y, width: r.w, height: r.h }, source: r.source ?? 'unclassified addObstacle()', skippedForRegion, participatesInCanStandRadius: !skippedForRegion })),
+      obstacles: overlaps.map(({ r, skippedForRegion }) => ({ name: r.name, regionId: r.regionId ?? 'UNSCOPED', aabb: { x: r.x, y: r.y, width: r.w, height: r.h }, source: r.source ?? 'YinXuCity.addObstacle()', skippedForRegion, participatesInCanStandRadius: !skippedForRegion })),
       waterSegments,
     });
   }

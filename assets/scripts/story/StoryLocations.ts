@@ -37,7 +37,9 @@ export const STORY_LOCATIONS = {
   'chapter-2-riverbank-entry': location('chapter-2-riverbank-entry', RegionId.RIVERBANK, 'chapter-2-riverbank-entry', -5060, -700, 'right'),
   'chapter-2-riverbank-npc': location('chapter-2-riverbank-npc', RegionId.RIVERBANK, 'chapter-2-riverbank-entry', -4900, -700, 'left', 'fisher'),
 
-  'chapter-3-royal-tomb-entry': location('chapter-3-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2290, -3910, 'right'),
+  // The former point overlapped the authored mountain-rock at (2260, -3930).
+  // This location is beside the gorge keeper on clear, walkable tomb ground.
+  'chapter-3-royal-tomb-entry': location('chapter-3-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2530, -3910, 'left'),
   'chapter-3-royal-tomb-npc': location('chapter-3-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2450, -3910, 'left', 'gorge-keeper'),
 
   'chapter-4-highland-entry': location('chapter-4-highland-entry', RegionId.HIGHLAND, 'chapter-4-highland-entry', 3460, -800, 'left'),
