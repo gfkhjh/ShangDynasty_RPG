@@ -2889,7 +2889,9 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(128, 137, 74); g.rect(3000, -2200, 800, 1800); g.fill();
     g.fillColor = new Color(119, 121, 66); g.rect(3800, -2200, 900, 1800); g.fill();
     g.fillColor = new Color(145, 126, 70); g.rect(4700, -2200, 1000, 1800); g.fill();
-    g.fillColor = new Color(126, 89, 58); g.rect(this.tombRegion.left, this.tombRegion.bottom, this.tombRegion.right - this.tombRegion.left, this.tombRegion.top - this.tombRegion.bottom); g.fill();
+    // The tomb keeps the shared earth/grass base beneath its authored ground
+    // tiles.  Do not paint a region-sized brown panel here: it obscures the
+    // yellow soil texture and reads as a walkable rectangular platform.
 
     // Broad, deterministic mottling replaces tens of thousands of 48 px draw calls.
     let seed = 18471;
@@ -3831,15 +3833,32 @@ this.drawCityWallsAndGate();
 
   private drawTemple() {
     this.createTempleForecourt();
-    this.createBuilding('占卜宗庙', 0, 1190 + this.templeMoveDeltaY, 360, 210, new Color(181, 117, 68), new Color(86, 55, 39), null);
+    // The bespoke 440 x 375 sprite includes its own plinth, roof, and details;
+    // do not leave the former procedural rectangular building behind it.
     this.pixelSprite('占卜宗庙PixelArt', 'divination-temple', this.world, 0, 1210 + this.templeMoveDeltaY, 440, 375, 34);
     this.worldLabel('占卜宗庙', 0, 1400 + this.templeMoveDeltaY, 22, new Color(100, 48, 31));
-    // Split temple collision into left/right halves to clear the north road passage (X:-56~56)
-    const footprintY = 1190 + this.templeMoveDeltaY + 35;
-    const footprintH = 350;
-    this.obstacles = this.obstacles.filter(o => o.name !== 'StructureFootprint:占卜宗庙PixelArt');
-    this.addObstacle(-122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Left');
-    this.addObstacle(122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Right');
+    // Remove every former temple footprint before rebuilding its outline. This
+    // includes the old two-piece wall as well as any legacy named footprint.
+    const templeY = 1210 + this.templeMoveDeltaY;
+    this.obstacles = this.obstacles.filter(o =>
+      !o.name.includes('占卜宗庙') && !o.name.startsWith('StructureFootprint:占卜宗庙PixelArt'));
+    // Short, overlapping segments follow the painted outer roof, walls, and
+    // front plinth. The central stair remains approachable; a narrow sill just
+    // behind the enter zone prevents crossing into the painted doorway.
+    [
+      [0, templeY + 162, 64, 20, 'RearRidge'],
+      [-56, templeY + 150, 72, 22, 'RearLeftEave'], [56, templeY + 150, 72, 22, 'RearRightEave'],
+      [-112, templeY + 123, 70, 28, 'UpperLeftRoof'], [112, templeY + 123, 70, 28, 'UpperRightRoof'],
+      [-155, templeY + 72, 34, 82, 'LeftRoofEdge'], [155, templeY + 72, 34, 82, 'RightRoofEdge'],
+      [-170, templeY - 13, 28, 98, 'LeftOuterWall'], [170, templeY - 13, 28, 98, 'RightOuterWall'],
+      [-151, templeY - 93, 30, 70, 'LeftLowerWall'], [151, templeY - 93, 30, 70, 'RightLowerWall'],
+      [-111, templeY - 143, 122, 22, 'LeftFrontPlinth'], [111, templeY - 143, 122, 22, 'RightFrontPlinth'],
+      [-86, templeY - 96, 106, 14, 'LeftDoorFacade'], [0, templeY - 96, 66, 14, 'DoorSill'],
+      [86, templeY - 96, 106, 14, 'RightDoorFacade'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `StructureFootprint:占卜宗庙PixelArt:${suffix as string}`,
+    ));
   }
 
   private createTempleForecourt() {
@@ -10509,9 +10528,11 @@ this.drawCityWallsAndGate();
     this.depthOccluders = this.depthOccluders.filter(occluder =>
       !occluder.node.name.startsWith('RoyalTombBurialMound')
       && !overlapsMound(occluder.node.position.x, occluder.node.position.y));
+    // Ground tiles are normal map surface, not former mound records. Leaving
+    // them intact exposes the authored yellow earth and grass around the
+    // transparent mound sprite instead of the base map's green fill.
     this.world.children
-      .filter(node => node.name.startsWith('RoyalTombBurialMound')
-        || overlapsMound(node.position.x, node.position.y))
+      .filter(node => node.name.startsWith('RoyalTombBurialMound'))
       .forEach(node => node.destroy());
   }
 
