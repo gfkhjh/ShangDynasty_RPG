@@ -28,7 +28,7 @@ import {
 import { HallCard, LearningHall } from './LearningHall';
 import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
 import { RegionTransitionManager } from './regions/RegionTransitionManager';
-import { RegionEntry, RegionId } from './regions/RegionTypes';
+import { RegionEntry, RegionExit, RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
 import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
@@ -226,6 +226,15 @@ type DigParticle = { root: Node; vx: number; vy: number; gravity: number; life: 
 type WeatherKind = '晴' | '雨天' | '小雨' | '中雨';
 type WeatherParticle = { x: number; y: number; vx: number; vy: number; size: number; life: number; phase: number };
 type RainSplash = { x: number; y: number; life: number; maxLife: number };
+type RegionExitMarkerAnimation = {
+  aura: Node;
+  auraOpacity: UIOpacity;
+  core: Node;
+  coreOpacity: UIOpacity;
+  bloom: Node;
+  bloomOpacity: UIOpacity;
+  phase: number;
+};
 type Villager = {
   root: Node; visual: Node; sprite: Sprite; frames: Record<Facing, Array<SpriteFrame | null>>;
   route: Vec2[]; routeIndex: number; routeDirection: number; target: Vec2; facing: Facing; walkPhase: number; displayedFrame: number;
@@ -461,6 +470,9 @@ export class YinXuCity extends Component {
   private outskirtsNatureEntityNodes: Node[] = [];
   /** FIELDS visuals overlap OUTSKIRTS coordinates, so they are hidden outside their owning region. */
   private fieldVisualNodes: Node[] = [];
+  /** Purely visual, region-scoped road-exit markers; they never create collision data. */
+  private readonly regionExitMarkerRoots = new Map<RegionId, Node>();
+  private regionExitMarkerAnimations: RegionExitMarkerAnimation[] = [];
   /** Obstacles created by the rebuildable OUTSKIRTS nature pass. */
   private readonly outskirtsNatureObstacleNames = new Set<string>();
   /** Retired grove names are ignored by delayed SpriteFrame callbacks. */
@@ -1121,6 +1133,7 @@ export class YinXuCity extends Component {
       this.updateVillagers(dt);
       this.updateHorseCarts(dt);
     }
+    this.updateRegionExitMarkerAnimation();
     if (this.worldMode === 'outside') {
       this.updateRestingVillager();
       this.animateEnvironment();
@@ -1236,6 +1249,9 @@ export class YinXuCity extends Component {
     if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
     if (this.outskirtsNatureRoot) this.outskirtsNatureRoot.active = show;
     this.outskirtsNatureEntityNodes.forEach(node => { if (node.isValid) node.active = show; });
+    this.regionExitMarkerRoots.forEach((root, regionId) => {
+      if (root.isValid) root.active = regionId === RegionId.OUTSKIRTS ? show : r === regionId;
+    });
     this.updateFieldVisibility();
     if (r !== RegionId.OUTSKIRTS) this.outskirtsSouthAirwallProbeReported = false;
     if (r === RegionId.OUTSKIRTS && !this.outskirtsSouthAirwallProbeReported) {
@@ -1253,6 +1269,97 @@ export class YinXuCity extends Component {
     this.fieldVisualNodes.forEach(node => { if (node.isValid) node.active = show; });
     this.excavationSites.forEach(site => {
       if (site.region === 'field' && site.root.isValid) site.root.active = show && (site.active || site.holeTimer > 0);
+    });
+  }
+
+  /**
+   * Creates every road-exit cue directly from the registered trigger geometry.
+   * Each marker hugs the source-side trigger edge with only a 10px inset, so
+   * it reads as the actual road exit without being clipped by the map edge.
+   */
+  private createRegionExitMarkers() {
+    const { exits } = createPhaseOneRegionConfig();
+    exits.forEach((exit, index) => this.createRegionExitMarker(exit, index));
+  }
+
+  private createRegionExitMarker(exit: RegionExit, index: number) {
+    const marker = new Node(`RegionExitMarker-${exit.id}`);
+    marker.parent = this.getRegionExitMarkerRoot(exit.sourceRegionId);
+    const position = this.getRegionExitMarkerPosition(exit);
+    marker.setPosition(position.x, position.y, 0);
+    marker.addComponent(UITransform).setContentSize(64, 48);
+
+    const aura = new Node('Aura');
+    aura.parent = marker;
+    aura.addComponent(UITransform).setContentSize(64, 48);
+    const auraGraphics = aura.addComponent(Graphics);
+    auraGraphics.fillColor = new Color(123, 216, 255, 76);
+    auraGraphics.ellipse(0, 0, 32, 24);
+    auraGraphics.fill();
+    const auraOpacity = aura.addComponent(UIOpacity);
+
+    const bloom = new Node('Bloom');
+    bloom.parent = marker;
+    bloom.addComponent(UITransform).setContentSize(50, 38);
+    const bloomGraphics = bloom.addComponent(Graphics);
+    bloomGraphics.fillColor = new Color(157, 229, 255, 142);
+    bloomGraphics.ellipse(0, 0, 25, 19);
+    bloomGraphics.fill();
+    const bloomOpacity = bloom.addComponent(UIOpacity);
+
+    const core = new Node('Core');
+    core.parent = marker;
+    core.addComponent(UITransform).setContentSize(36, 27);
+    const coreGraphics = core.addComponent(Graphics);
+    coreGraphics.fillColor = new Color(224, 250, 255, 224);
+    coreGraphics.ellipse(0, 0, 18, 13.5);
+    coreGraphics.fill();
+    const coreOpacity = core.addComponent(UIOpacity);
+
+    this.regionExitMarkerAnimations.push({
+      aura,
+      auraOpacity,
+      core,
+      coreOpacity,
+      bloom,
+      bloomOpacity,
+      phase: index * 0.73,
+    });
+  }
+
+  private getRegionExitMarkerRoot(regionId: RegionId) {
+    const existing = this.regionExitMarkerRoots.get(regionId);
+    if (existing?.isValid) return existing;
+    const root = new Node(`RegionExitMarkers-${regionId}`);
+    root.parent = this.world;
+    // Ground tiles use depths up to the low sixties; actors start at 80.
+    root.setPosition(0, 0, 68);
+    root.addComponent(UITransform).setContentSize(this.mapWidth, this.mapHeight);
+    this.regionExitMarkerRoots.set(regionId, root);
+    return root;
+  }
+
+  private getRegionExitMarkerPosition(exit: RegionExit) {
+    const { minX, maxX, minY, maxY } = exit.triggerBounds;
+    const position = new Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+    const sourceSideInset = 10;
+    if (exit.travelDirection === 'up') position.y = maxY - sourceSideInset;
+    else if (exit.travelDirection === 'down') position.y = minY + sourceSideInset;
+    else if (exit.travelDirection === 'left') position.x = minX + sourceSideInset;
+    else position.x = maxX - sourceSideInset;
+    return position;
+  }
+
+  private updateRegionExitMarkerAnimation() {
+    this.regionExitMarkerAnimations.forEach(marker => {
+      if (!marker.aura.activeInHierarchy) return;
+      const pulse = (Math.sin(this.elapsed * 1.45 + marker.phase) + 1) * .5;
+      marker.aura.setScale(.98 + pulse * .08, .98 + pulse * .08, 1);
+      marker.bloom.setScale(.985 + pulse * .045, .985 + pulse * .045, 1);
+      marker.core.setScale(.99 + pulse * .025, .99 + pulse * .025, 1);
+      marker.auraOpacity.opacity = Math.round(150 + pulse * 60);
+      marker.bloomOpacity.opacity = Math.round(175 + pulse * 55);
+      marker.coreOpacity.opacity = Math.round(205 + pulse * 40);
     });
   }
 
@@ -2571,6 +2678,8 @@ export class YinXuCity extends Component {
     this.depthTrees = [];
     this.outskirtsNatureEntityNodes = [];
     this.fieldVisualNodes = [];
+    this.regionExitMarkerRoots.clear();
+    this.regionExitMarkerAnimations = [];
     this.outskirtsNatureObstacleNames.clear();
     this.retiredOutskirtsNatureTreeNames.clear();
     this.depthOccluders = [];
@@ -2631,6 +2740,7 @@ this.drawCityWallsAndGate();
     this.drawForest();
     this.drawOraclePit();
     this.drawOutskirtsGroundAndRoads();
+    this.createRegionExitMarkers();
     // OUTSKIRTS nature must be created after its tile surface so its parent is
     // above the grass layer while remaining independently region-toggleable.
     this.drawRegionalNatureDecorations();
