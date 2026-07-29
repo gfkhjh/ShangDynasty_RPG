@@ -317,7 +317,63 @@ type OracleCardData = {
   asset?: string; imageBounds?: readonly [number, number, number, number]; excavatable?: boolean;
   catalogOnlyWhenUnlocked?: boolean;
 };
+
+type OracleGlyphOverride = Partial<Pick<OracleCardData, 'asset' | 'imageBounds' | 'glyph' | 'modern'>>;
+
+// These legacy gameplay ids are kept for existing saves and story steps, but
+// their former symbol placeholders are now bound to the supplied oracle image
+// assets. Cards without an image source remain deliberately unbound and are
+// excluded from learner-facing interactions below.
+const ORACLE_GLYPH_ASSET_OVERRIDES: Record<string, OracleGlyphOverride> = {
+  field: { glyph: '', asset: 'catalog/ob-u7530', imageBounds: [0, 0, 199, 199] },
+  'water-temp': { glyph: '', modern: '水', asset: 'catalog/ob-u6c34', imageBounds: [0, 0, 199, 199] },
+  'ancestor-temp': { glyph: '', modern: '祖', asset: 'supplemental/ob-u7956', imageBounds: [0, 0, 199, 199] },
+  'ritual-temp': { glyph: '', modern: '祭', asset: 'supplemental/ob-u796d', imageBounds: [0, 0, 199, 199] },
+  'king-temp': { glyph: '', modern: '王', asset: 'supplemental/ob-u738b', imageBounds: [0, 0, 199, 199] },
+  'mountain-temp': { glyph: '', modern: '山', asset: 'catalog/ob-u5c71', imageBounds: [0, 0, 199, 199] },
+  'fire-temp': { glyph: '', modern: '火', asset: 'catalog/ob-u706b', imageBounds: [0, 0, 199, 199] },
+  'person-temp': { glyph: '', modern: '人', asset: 'catalog/ob-u4eba', imageBounds: [0, 0, 199, 199] },
+  'cow-temp': { glyph: '', modern: '牛', asset: 'supplemental/ob-u725b', imageBounds: [0, 0, 199, 199] },
+  'horse-temp': { glyph: '', modern: '马', asset: 'catalog/ob-u9a6c', imageBounds: [0, 0, 199, 199] },
+  'bird-temp': { glyph: '', modern: '鸟', asset: 'supplemental/ob-u9e1f', imageBounds: [0, 0, 199, 199] },
+  'mouth-temp': { glyph: '', modern: '口', asset: 'catalog/ob-u53e3', imageBounds: [0, 0, 199, 199] },
+  'eye-temp': { glyph: '', modern: '目', asset: 'supplemental/ob-u76ee', imageBounds: [0, 0, 199, 199] },
+  'ear-temp': { glyph: '', modern: '耳', asset: 'catalog/ob-u8033', imageBounds: [0, 0, 199, 199] },
+  'child-temp': { glyph: '', modern: '子', asset: 'supplemental/ob-u5b50', imageBounds: [0, 0, 199, 199] },
+  'woman-temp': { glyph: '', modern: '女', asset: 'catalog/ob-u5973', imageBounds: [0, 0, 199, 199] },
+  'large-temp': { glyph: '', modern: '大', asset: 'catalog/ob-u5927', imageBounds: [0, 0, 199, 199] },
+  'small-temp': { glyph: '', modern: '小', asset: 'catalog/ob-u5c0f', imageBounds: [0, 0, 199, 199] },
+  'above-temp': { glyph: '', modern: '上', asset: 'catalog/ob-u4e0a', imageBounds: [0, 0, 199, 199] },
+  'below-temp': { glyph: '', modern: '下', asset: 'catalog/ob-u4e0b', imageBounds: [0, 0, 199, 199] },
+  'earth-temp': { glyph: '', modern: '土', asset: 'catalog/ob-u571f', imageBounds: [0, 0, 199, 199] },
+  'river-temp': { glyph: '', modern: '川', asset: 'supplemental/ob-u5ddd', imageBounds: [0, 0, 199, 199] },
+  'door-temp': { glyph: '', modern: '门', asset: 'catalog/ob-u95e8', imageBounds: [0, 0, 199, 199] },
+  'dog-temp': { glyph: '', modern: '犬', asset: 'supplemental/ob-u72ac', imageBounds: [0, 0, 199, 199] },
+  'boat-temp': { glyph: '', modern: '舟', asset: 'supplemental/ob-u821f', imageBounds: [0, 0, 199, 199] },
+  'millet-temp': { glyph: '', modern: '禾' },
+  'tomb-temp': { glyph: '', modern: '陵' },
+  'hand-temp': { glyph: '', modern: '手' },
+  'foot-temp': { glyph: '', modern: '足' },
+};
 type DivinationQuestion = { villager: string; prompt: string; answerId: string; portrait: 'farmer' | 'woman' };
+
+// 第六章的三轮问卜不是随机村民题。它们分别推进「灯阵分层 →
+// 点灯时序 → 余灯指向」的线索，因此每一轮使用不同的甲骨字与问辞。
+// 这样连续完成三卜时不会反复出现同一句问题。
+const CHAPTER_SIX_DIVINATION_QUESTIONS: Record<string, DivinationQuestion> = {
+  'chapter-6-ruins-lamp-divination-1': {
+    villager: '灯匠·阿烛', portrait: 'woman', answerId: 'catalog-u5206',
+    prompt: '灯匠·阿烛求问：“残灯散在废墟四角，先要分清灯阵的层位与次第，才能找回主灯。”请从三片甲骨中选出与“分辨、分层”最相符的一字。',
+  },
+  'chapter-6-ruins-lamp-divination-2': {
+    villager: '灯匠·阿烛', portrait: 'woman', answerId: 'catalog-u65f6',
+    prompt: '灯匠·阿烛求问：“主灯已定，接下来该依什么时序点亮四周残灯，才不会让火光彼此冲乱？”请从三片甲骨中选出与“时序”最相符的一字。',
+  },
+  'chapter-6-ruins-lamp-divination-3': {
+    villager: '灯匠·阿烛', portrait: 'woman', answerId: 'catalog-u5149',
+    prompt: '灯匠·阿烛求问：“最后一盏残灯只余微光，它照出的方向正是下一段路的线索吗？”请从三片甲骨中选出与“光亮、指引”最相符的一字。',
+  },
+};
 type ShopProduct = {
   id: string; category: ShopCategory; name: string; price: number; description: string;
   quality: OracleQuality; slot?: number;
@@ -538,6 +594,7 @@ export class YinXuCity extends Component {
   private readonly oracleCards: OracleCardData[] = [
     {
       id: 'rain', glyph: '⋮', modern: '雨', pinyin: 'yǔ', quality: 'blue',
+      asset: 'catalog/ob-u96e8', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表示从天空降下的雨水，是观察自然天气的重要文字。',
       evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。',
       history: '商代卜辞常记录求雨、止雨和未来天气，帮助安排耕作与祭祀。',
@@ -767,8 +824,10 @@ export class YinXuCity extends Component {
     },
     ...importedOracleCards,
     ...supplementalOracleCards,
-  ];
-  private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(this.oracleCards);
+  ].map(card => ({ ...card, ...(ORACLE_GLYPH_ASSET_OVERRIDES[card.id] ?? {}) }));
+  private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(
+    this.oracleCards.filter(card => this.hasRealOracleGlyph(card)),
+  );
   private readonly shopProducts: ShopProduct[] = [
     { id: 'shell-clay', category: 'shell', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
     { id: 'shell-vermilion', category: 'shell', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
@@ -925,16 +984,16 @@ export class YinXuCity extends Component {
     this.learningHall.initialize({
       getCards: () => {
         const discoveryOrder = this.unlockAllCatalogForPreview
-          ? this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp').map(card => card.id)
+          ? this.oracleCards.filter(card => this.hasRealOracleGlyph(card)).map(card => card.id)
           : this.save.unlockedOracleIds;
         return this.oracleCards
-          .filter(card => (Boolean(card.asset) || card.id === 'water-temp')
+          .filter(card => this.hasRealOracleGlyph(card)
             && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
           .map(card => ({
             id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
             quality: card.quality, meaning: card.meaning, evolution: this.learningEvolution(card), history: card.history,
-            asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
-            imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
+            asset: card.asset,
+            imageBounds: card.imageBounds,
             unlocked: discoveryOrder.includes(card.id),
           } satisfies HallCard))
           .sort((a, b) => {
@@ -4830,7 +4889,7 @@ this.drawCityWallsAndGate();
 
   // 拾遗坑只产出拾遗字：未收集优先给新字，集满后重复转墨料，绝不混进主线字。
   private rollSupplementReward(): ExcavationReward {
-    const pool = this.oracleCards.filter(card => SUPPLEMENT_CARD_IDS.has(card.id));
+    const pool = this.oracleCards.filter(card => SUPPLEMENT_CARD_IDS.has(card.id) && this.hasRealOracleGlyph(card));
     const uncollected = pool.filter(card => !this.save.unlockedOracleIds.includes(card.id));
     const finalPool = uncollected.length > 0 ? uncollected : pool;
     const card = finalPool[Math.floor(Math.random() * finalPool.length)];
@@ -5001,7 +5060,7 @@ this.drawCityWallsAndGate();
     }
     // 抽到字：候选池 = 已解锁主线字（章节门控）。拾遗字仅偶发(上方12%)才出现，主体仍是主线字，杜绝主线被顺手挖光。
     const unlockedStory = this.getUnlockedStoryCardIds();
-    const excavatableCards = this.oracleCards.filter(card => card.excavatable);
+    const excavatableCards = this.oracleCards.filter(card => card.excavatable && this.hasRealOracleGlyph(card));
     const candidatePool = excavatableCards.filter(card =>
       STORY_CARD_IDS.has(card.id) && unlockedStory.has(card.id)
     );
@@ -5134,7 +5193,7 @@ this.drawCityWallsAndGate();
     site.storyTarget = false;
     const reward = site.reward;
     if (reward.kind === 'oracle' && reward.cardId) {
-      const card = this.oracleCards.find(item => item.id === reward.cardId);
+      const card = this.oracleCards.find(item => item.id === reward.cardId && this.hasRealOracleGlyph(item));
       const currentStepId = this.storyController?.currentStep()?.id;
       const expectedFragment = this.allStoryFragmentCards.find(item =>
         item.seekStepId === currentStepId && item.cardId === reward.cardId);
@@ -5187,7 +5246,7 @@ this.drawCityWallsAndGate();
     let flightText = '墨';
     let flightQuality: OracleQuality | null = null;
     if (reward.kind === 'oracle' && reward.cardId) {
-      const card = this.oracleCards.find(item => item.id === reward.cardId);
+      const card = this.oracleCards.find(item => item.id === reward.cardId && this.hasRealOracleGlyph(item));
       if (card) {
         flightText = card.glyph; flightQuality = card.quality;
         if (this.save.unlockedOracleIds.includes(card.id)) {
@@ -5235,7 +5294,7 @@ this.drawCityWallsAndGate();
     g.strokeColor = new Color(color.r, color.g, color.b, 230); g.lineWidth = 4; g.circle(0, 0, 31); g.stroke();
     g.fillColor = new Color(224, 190, 126); g.moveTo(-24, -26); g.lineTo(-29, 12); g.lineTo(-15, 29); g.lineTo(19, 26); g.lineTo(29, 6); g.lineTo(21, -27); g.close(); g.fill();
     g.strokeColor = new Color(83, 55, 39); g.lineWidth = 3; g.moveTo(-24, -26); g.lineTo(-29, 12); g.lineTo(-15, 29); g.lineTo(19, 26); g.lineTo(29, 6); g.lineTo(21, -27); g.close(); g.stroke();
-    if (card?.asset) this.createOracleGlyphVisual('RewardGlyph', root, card, 0, 0, 43, 48, 5);
+    if (card && this.hasRealOracleGlyph(card)) this.createOracleGlyphVisual('RewardGlyph', root, card, 0, 0, 43, 48, 5);
     else this.createUiLabel(root, 'RewardGlyph', glyph, 0, 0, 54, 56, glyph === '墨' ? 24 : 31, new Color(74, 43, 30));
     this.rewardFlights.push({ root, start, end, timer: 0, duration: 1.05, phase: Math.random() * Math.PI * 2 });
   }
@@ -7948,7 +8007,7 @@ this.drawCityWallsAndGate();
   }
 
   private spawnNextSupplicant() {
-    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id)).length;
+    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id && this.hasRealOracleGlyph(card))).length;
     if (unlockedCount < 3) {
       if (this.divinationText?.isValid) this.divinationText.string = '请先收集至少三枚甲骨文字，再开始三选一占卜。';
       return;
@@ -7961,15 +8020,18 @@ this.drawCityWallsAndGate();
     const storyStep = this.storyController?.currentStep();
     const currentStepId = storyStep?.id;
     const chapterCardIds = storyStep ? STORY_CHAPTER_FRAGMENT_CARDS[storyStep.chapterId] ?? [] : [];
+    const scriptedQuestion = currentStepId ? CHAPTER_SIX_DIVINATION_QUESTIONS[currentStepId] : null;
     const storyQuestion = currentStepId === 'chapter-1-first-divination'
       ? available.find(question => question.answerId === 'rain' && question.villager === '阿禾')
-      : (this.isActiveDivinationStep()
-        ? available.find(question => chapterCardIds.some(fragment => fragment.cardId === question.answerId))
-        : null);
+      : (scriptedQuestion && available.some(question => question.answerId === scriptedQuestion.answerId)
+        ? scriptedQuestion
+        : (this.isActiveDivinationStep()
+          ? available.find(question => chapterCardIds.some(fragment => fragment.cardId === question.answerId))
+          : null));
     let next = Math.floor(Math.random() * available.length);
     if (available.length > 1 && available[next] === this.currentQuestion) next = (next + 1) % available.length;
     this.currentQuestion = storyQuestion ?? available[next];
-    this.currentQuestionIndex = this.divinationQuestions.indexOf(this.currentQuestion);
+    this.currentQuestionIndex = this.divinationQuestions.findIndex(question => question.answerId === this.currentQuestion?.answerId);
     this.createSupplicant(this.currentQuestion);
     if (this.divinationText?.isValid) this.divinationText.string = `${this.currentQuestion.villager}正向占卜席走来……`;
     if (this.divinationName?.isValid) this.divinationName.string = this.currentQuestion.villager;
@@ -8087,8 +8149,9 @@ this.drawCityWallsAndGate();
     this.divinationActiveCard = null;
 
     this.createUiLabel(layer, 'SelectionInstruction', '拖动一枚甲骨到右侧完整龟腹甲上', -160, 284, 650, 42, 20, new Color(255, 230, 168));
-    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId);
-    const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id && this.save.unlockedOracleIds.includes(card.id));
+    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId && this.hasRealOracleGlyph(card));
+    const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id
+      && this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
     if (!answer || wrongCandidates.length < 2) {
       if (this.divinationText?.isValid) this.divinationText.string = '甲骨数量不足，暂时无法组成三张不同的候选甲骨。';
       this.divinationStage = 'waiting';
@@ -8344,7 +8407,7 @@ this.drawCityWallsAndGate();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
     this.currentDivinationCards = [];
-    const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId);
+    const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId && this.hasRealOracleGlyph(item));
     if (!card) return;
     const review = new Node('DivinationReviewPanel');
     review.parent = this.overlayRoot;
@@ -8520,6 +8583,11 @@ this.drawCityWallsAndGate();
     return card.modern.replace(/（.*?）/g, '').replace(/\(.*?\)/g, '').trim();
   }
 
+  /** Only supplied, bundled oracle images may be used in learning gameplay. */
+  private hasRealOracleGlyph(card: OracleCardData) {
+    return Boolean(card.asset && card.imageBounds);
+  }
+
   /** Never expose development placeholders in the learner-facing archive. */
   private learningEvolution(card: OracleCardData) {
     const text = card.evolution;
@@ -8536,7 +8604,7 @@ this.drawCityWallsAndGate();
     this.excavationLearningAttempts = 0;
     this.excavationWrongChoices = [];
     this.excavationLearningResult = '';
-    const distractors = this.oracleCards.filter(item => item.excavatable && item.id !== card.id);
+    const distractors = this.oracleCards.filter(item => item.excavatable && item.id !== card.id && this.hasRealOracleGlyph(item));
     for (let index = distractors.length - 1; index > 0; index--) {
       const swapIndex = Math.floor(Math.random() * (index + 1));
       [distractors[index], distractors[swapIndex]] = [distractors[swapIndex], distractors[index]];
@@ -8552,7 +8620,7 @@ this.drawCityWallsAndGate();
   /** Deterministic browser-only regression entry; never activates in the APK. */
   private openOracleQaPreview() {
     if (this.overlay !== 'none') return;
-    const card = this.oracleCards.find(item => item.id === 'river-official' && item.excavatable);
+    const card = this.oracleCards.find(item => item.id === 'river-official' && item.excavatable && this.hasRealOracleGlyph(item));
     const site = this.excavationSites.find(item => item.active && item.root.isValid);
     if (!card || !site) return;
     site.reward = { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0 };
@@ -8703,7 +8771,7 @@ this.drawCityWallsAndGate();
       this.save.unlockedOracleIds.push(card.id);
       this.excavationLearningResult = '辨识正确！该甲骨文字已经正式收录到背包图鉴。';
     }
-    const unlockedOrder = this.oracleCards.filter(item => this.save.unlockedOracleIds.includes(item.id));
+    const unlockedOrder = this.oracleCards.filter(item => this.save.unlockedOracleIds.includes(item.id) && this.hasRealOracleGlyph(item));
     this.selectedBackpackIndex = Math.max(0, unlockedOrder.findIndex(item => item.id === card.id));
     this.codexPage = Math.floor(this.selectedBackpackIndex / 12);
     if (this.excavationLearningSite) {
@@ -8992,7 +9060,7 @@ this.drawCityWallsAndGate();
 
     const chapterUnlocked = activeCards.filter(fragment =>
       this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
-    const totalUnlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.indexOf(card.id) >= 0).length;
+    const totalUnlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.indexOf(card.id) >= 0 && this.hasRealOracleGlyph(card)).length;
     this.createUiLabel(root, 'ChapterCollectionSummary',
       `本章骨纹 ${chapterUnlocked} / ${activeCards.length}     甲骨总收集 ${totalUnlocked} / 300     命途卜力 ${snapshot?.destinyPower ?? 0}`,
       0, -258, 760, 36, 17, new Color(247, 217, 154));
@@ -9035,16 +9103,21 @@ this.drawCityWallsAndGate();
       const row = Math.floor(index / perRow);
       const x = (col - (perRow - 1) / 2) * colGap;
       const y = contentH / 2 - rowGap / 2 - row * rowGap;
-      const unlocked = this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0;
+      const card = this.oracleCards.find(item => item.id === fragment.cardId && this.hasRealOracleGlyph(item));
+      const unlocked = Boolean(card && this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0);
       const plate = this.localGraphics(`ChapterGlyphPlate-${fragment.cardId}`, glyphContent, x, y, cell, cell, 4);
       plate.fillColor = unlocked ? new Color(223, 195, 137) : new Color(65, 54, 47);
       plate.roundRect(-cell / 2, -cell / 2, cell, cell, 10); plate.fill();
       plate.strokeColor = unlocked ? new Color(238, 176, 71) : new Color(117, 94, 70);
       plate.lineWidth = 3; plate.roundRect(-cell / 2, -cell / 2, cell, cell, 10); plate.stroke();
-      const charLabel = this.createUiLabel(glyphContent, `ChapterGlyph-${fragment.cardId}`, unlocked ? fragment.character : '？',
-        x, y + 12, 86, 52, 34, unlocked ? new Color(70, 40, 27) : new Color(157, 137, 108));
-      charLabel.overflow = Label.Overflow.CLAMP;
-      charLabel.enableWrapText = false;
+      if (unlocked && card) {
+        this.createOracleGlyphVisual(`ChapterGlyph-${fragment.cardId}`, glyphContent, card, x, y + 12, 36, 42, 5);
+      } else {
+        const charLabel = this.createUiLabel(glyphContent, `ChapterGlyph-${fragment.cardId}`, '？',
+          x, y + 12, 86, 52, 34, new Color(157, 137, 108));
+        charLabel.overflow = Label.Overflow.CLAMP;
+        charLabel.enableWrapText = false;
+      }
       const stateLabel = this.createUiLabel(glyphContent, `ChapterGlyphState-${fragment.cardId}`, unlocked ? '已唤醒' : '未发现',
         x, y - 27, 82, 18, 12, unlocked ? new Color(255, 221, 135) : new Color(169, 151, 124));
       stateLabel.overflow = Label.Overflow.CLAMP;
@@ -9135,7 +9208,7 @@ this.drawCityWallsAndGate();
       return;
     }
 
-    const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id));
+    const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
     const codexPageCount = Math.max(1, Math.ceil(unlocked.length / 12));
     this.codexPage = this.clamp(this.codexPage, 0, codexPageCount - 1);
     const codexPageStart = this.codexPage * 12;
@@ -9156,7 +9229,7 @@ this.drawCityWallsAndGate();
         plate.fillColor = new Color(229, 204, 153); plate.roundRect(-29, -21, 58, 42, 5); plate.fill();
         plate.strokeColor = new Color(139, 91, 51); plate.lineWidth = 2; plate.roundRect(-29, -21, 58, 42, 5); plate.stroke();
         this.createOracleGlyphVisual(`CodexGlyph-${index}`, root, card, cardX, cardY + 8, 34, 30, 6, new Color(70, 41, 28));
-      } else this.createUiLabel(root, `CodexGlyph-${index}`, '◇', cardX, cardY + 7, 74, 48, 28, new Color(72, 68, 65));
+      } else this.createUiLabel(root, `CodexGlyph-${index}`, '尚未发现', cardX, cardY + 7, 74, 48, 13, new Color(104, 97, 91));
       this.createUiLabel(root, `CodexState-${index}`, card?.modern ?? '尚未发现', cardX, cardY - 24, 88, 22, 12,
         card ? new Color(244, 211, 153) : new Color(104, 97, 91));
     }
@@ -9170,7 +9243,7 @@ this.drawCityWallsAndGate();
 
   private updateBackpackDetail() {
     if (!this.backpackDetailLabel?.isValid) return;
-    const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id));
+    const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
     const card = unlocked[this.selectedBackpackIndex];
     if (!card) {
       this.backpackDetailLabel.string = '尚未收录甲骨文字。请前往野外寻找发光点位。';
@@ -9841,7 +9914,10 @@ this.drawCityWallsAndGate();
       }
       if (this.backpackTab === 'tools') {
         const tools: Array<{ id: ToolKind; x: number }> = [
-          { id: 'none', x: -118 }, { id: 'shovel', x: 118 },
+          // Keep the tap targets aligned with the cards drawn in buildBackpackUi.
+          // They used to be shifted right by one card, so tapping the visible
+          // shovel either did nothing or equipped empty hands instead.
+          { id: 'none', x: -350 }, { id: 'shovel', x: -118 },
         ];
         for (const tool of tools) {
           if (!this.pointInUiRect(x, y, tool.x, -28, 205, 292)) continue;
@@ -9850,7 +9926,7 @@ this.drawCityWallsAndGate();
           return;
         }
       } else if (this.backpackTab === 'codex') {
-        const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id));
+        const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
         const codexPageCount = Math.max(1, Math.ceil(unlocked.length / 12));
         if (this.codexPage > 0 && this.pointInUiRect(x, y, -410, -258, 105, 42)) {
           this.codexPage--; this.buildBackpackUi(); return;
@@ -9998,7 +10074,7 @@ this.drawCityWallsAndGate();
     z: number,
     tint: Color = new Color(75, 43, 28),
   ) {
-    const fallback = this.createUiLabel(parent, `${name}-Fallback`, card.glyph, x, y, maxWidth, maxHeight,
+    const fallback = this.createUiLabel(parent, `${name}-Fallback`, '', x, y, maxWidth, maxHeight,
       Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), tint, 'center', z);
     if (!card.asset || !card.imageBounds) return fallback.node;
 
