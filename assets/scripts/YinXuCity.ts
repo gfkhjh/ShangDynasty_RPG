@@ -1,6 +1,7 @@
 import {
   _decorator,
   BlockInputEvents,
+  Canvas,
   Color,
   Component,
   DebugMode,
@@ -24,6 +25,7 @@ import {
   UITransform,
   Vec2,
   view,
+  Widget,
 } from 'cc';
 import { HallCard, LearningHall } from './LearningHall';
 import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
@@ -556,6 +558,8 @@ export class YinXuCity extends Component {
   private keyboard = new Vec2();
   private stick = new Vec2();
   private playerMotion = new Vec2();
+  private footstepDistance = 0;
+  private wasWalkingForAudio = false;
   private touchOrigin: Vec2 | null = null;
   private obstacles: RectObstacle[] = [];
   /** Synchronous authoring scope inherited by addObstacle() when no region is supplied. */
@@ -873,6 +877,7 @@ export class YinXuCity extends Component {
   private overlay: CityOverlay = 'none';
   private divinationStage: DivinationStage = 'none';
   private overlayRoot: Node | null = null;
+  private excavationLearningMask: Node | null = null;
   private actionLabel!: Label;
   private actionButtonNode!: Node;
   private actionToolIconNode!: Node;
@@ -999,6 +1004,7 @@ export class YinXuCity extends Component {
   private async initializeGame() {
     this.save = await this.loadCitySave();
     this.audioManager = GameAudioManager.ensure();
+    this.audioManager.setMusicEnabled(this.save.musicOn);
     this.audioManager.setSfxEnabled(this.save.sfxOn);
     this.restoreSavedRegionPosition();
     this.buildWorld();
@@ -1010,6 +1016,8 @@ export class YinXuCity extends Component {
     input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.on('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.on('design-resolution-changed', this.refreshExcavationLearningMask, this);
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
       getCards: () => {
@@ -1085,6 +1093,7 @@ export class YinXuCity extends Component {
       },
       toggleMusic: () => {
         this.save.musicOn = !this.save.musicOn;
+        this.audioManager.setMusicEnabled(this.save.musicOn);
         this.persistCitySave();
       },
       toggleSfx: () => {
@@ -1160,6 +1169,8 @@ export class YinXuCity extends Component {
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.off('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.off('design-resolution-changed', this.refreshExcavationLearningMask, this);
   }
 
   update(dt: number) {
@@ -1189,6 +1200,7 @@ export class YinXuCity extends Component {
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
     const moving = movedDistance > .01;
+    this.updatePlayerFootsteps(movedDistance, movementAllowed);
     this.updateTerrainElevationState();
     if (moving) this.playerMotion.set((this.playerPos.x - oldX) / movedDistance, (this.playerPos.y - oldY) / movedDistance);
     else this.playerMotion.set(0, 0);
@@ -5701,16 +5713,6 @@ this.drawCityWallsAndGate();
 
   private createTownHouse(name: string, x: number, y: number, asset: string, index: number) {
     const yard = this.localGraphics(`${name}FrontYard`, this.world, x, y, 190, 170, 7);
-    yard.fillColor = index % 2 === 0 ? new Color(136, 119, 73, 92) : new Color(113, 126, 72, 78);
-    yard.moveTo(-82, -91); yard.lineTo(-70, -37); yard.lineTo(-45, -23); yard.lineTo(48, -25);
-    yard.lineTo(78, -42); yard.lineTo(84, -92); yard.lineTo(52, -108); yard.lineTo(-55, -106); yard.close(); yard.fill();
-    yard.fillColor = new Color(183, 145, 84, 210);
-    yard.roundRect(-18, -140, 36, 105, 6); yard.fill();
-    yard.fillColor = new Color(220, 178, 104, 120);
-    for (let step = 0; step < 4; step++) {
-      const py = -127 + step * 23;
-      yard.rect(-13 + (step % 2) * 5, py, 18 + (step % 3) * 4, 3); yard.fill();
-    }
     yard.fillColor = new Color(91, 114, 62, 180);
     [-74, -58, 56, 73].forEach((gx, grassIndex) => {
       yard.rect(gx, -98 + grassIndex % 2 * 5, 3, 13 + grassIndex % 3 * 4);
@@ -6483,6 +6485,30 @@ this.drawCityWallsAndGate();
     if (!frame || !this.playerSprite?.isValid) return;
     this.playerSprite.spriteFrame = frame;
     this.displayedPlayerFrame = displayKey;
+  }
+
+  private updatePlayerFootsteps(movedDistance: number, movementAllowed: boolean) {
+    const walkingOnOutdoorGround = movementAllowed
+      && this.worldMode === 'outside'
+      && !this.regionInputLocked
+      && movedDistance > .01;
+    if (!walkingOnOutdoorGround) {
+      this.footstepDistance = 0;
+      this.wasWalkingForAudio = false;
+      return;
+    }
+
+    // 54 px at the current 158 px/s movement speed is roughly one step every
+    // 0.34 seconds. Starting partway into the first stride avoids a long,
+    // silent delay without producing an immediate click on direction changes.
+    if (!this.wasWalkingForAudio) {
+      this.footstepDistance = 26;
+      this.wasWalkingForAudio = true;
+    }
+    this.footstepDistance += movedDistance;
+    if (this.footstepDistance < 54) return;
+    this.footstepDistance %= 54;
+    this.audioManager.playFootstep();
   }
 
   private equipTool(tool: ToolKind) {
@@ -9038,6 +9064,8 @@ this.drawCityWallsAndGate();
   private destroyOverlayRoot() {
     this.overlayRoot?.destroy();
     this.overlayRoot = null;
+    this.excavationLearningMask?.destroy();
+    this.excavationLearningMask = null;
     this.divinationText = null;
     this.divinationName = null;
     this.riseButtonLabel = null;
@@ -9163,13 +9191,24 @@ this.drawCityWallsAndGate();
     const card = this.excavationLearningCard;
     if (!card) return;
     this.destroyOverlayRoot();
+    const canvas = this.findCanvasNode();
+    const mask = new Node('ExcavationLearningFullscreenMask');
+    mask.parent = canvas;
+    mask.setPosition(0, 0, 419);
+    mask.addComponent(UITransform).setContentSize(1280, 720);
+    const maskWidget = mask.addComponent(Widget);
+    maskWidget.isAlignTop = maskWidget.isAlignBottom = maskWidget.isAlignLeft = maskWidget.isAlignRight = true;
+    maskWidget.top = maskWidget.bottom = maskWidget.left = maskWidget.right = 0;
+    maskWidget.updateAlignment();
+    mask.addComponent(Graphics);
+    this.excavationLearningMask = mask;
+    this.refreshExcavationLearningMask();
+
     const root = new Node('ExcavationLearningOverlay');
     root.parent = this.node;
     root.setPosition(0, 0, 420);
     root.addComponent(UITransform).setContentSize(1280, 720);
     this.overlayRoot = root;
-    const shade = this.localGraphics('LearningMapShade', root, 0, 0, 1280, 720, 0);
-    shade.fillColor = new Color(31, 27, 24, 112); shade.rect(-640, -360, 1280, 720); shade.fill();
     this.drawWoodPanel(root, 'ExcavationLearningFrame', 0, 0, 1150, 650, 1, false);
     this.createUiLabel(root, 'ExcavationLearningTitle',
       this.excavationLearningStage === 'question' ? '新发现 · 甲骨文字辨识' : '甲骨文学习档案',
@@ -9216,6 +9255,26 @@ this.drawCityWallsAndGate();
     this.drawUiButton(root, 'ExcavationLearnLaterButton', '稍后学习', 425, -257, 210, 58, false);
     this.createUiLabel(root, 'ExcavationLearnLaterHint', '稍后学习不会丢失该文字；重新挖掘此坑位仍是同一个字。',
       -55, -257, 690, 40, 14, new Color(218, 198, 165), 'left', 5);
+  }
+
+  private findCanvasNode() {
+    let current: Node | null = this.node;
+    while (current && !current.getComponent(Canvas)) current = current.parent;
+    return current ?? this.node;
+  }
+
+  private refreshExcavationLearningMask() {
+    if (this.overlay !== 'excavationLearning' || !this.excavationLearningMask?.isValid) return;
+    const widget = this.excavationLearningMask.getComponent(Widget);
+    widget?.updateAlignment();
+    const transform = this.excavationLearningMask.getComponent(UITransform);
+    const graphics = this.excavationLearningMask.getComponent(Graphics);
+    if (!transform || !graphics) return;
+    const { width, height } = transform.contentSize;
+    graphics.clear();
+    graphics.fillColor = new Color(0, 0, 0, 168);
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.fill();
   }
 
   private answerExcavationLearning(optionIndex: number) {
