@@ -8379,7 +8379,9 @@ this.drawCityWallsAndGate();
 
   private setWeather(next: WeatherKind, initial = false) {
     this.weather = next;
-    this.audioManager.setRaining(next === '小雨' || next === '雨天' || next === '中雨');
+    this.audioManager.setRainWeather(
+      next === '小雨' ? 'light' : next === '雨天' ? 'normal' : next === '中雨' ? 'medium' : null,
+    );
     this.weatherChangeTimer = initial ? 42 + Math.random() * 42 : 55 + Math.random() * 65;
     this.precipitation = [];
     this.rainSplashes = [];

@@ -12,6 +12,7 @@ import {
 const { ccclass } = _decorator;
 
 export type BgmTrack = 'main' | 'wild';
+export type RainTrack = 'light' | 'normal' | 'medium';
 
 /**
  * Persistent, scene-independent audio owner.
@@ -23,11 +24,16 @@ export type BgmTrack = 'main' | 'wild';
 export class GameAudioManager extends Component {
   private static instance: GameAudioManager | null = null;
 
-  private readonly rainVolume = 0.06;
+  private readonly rainVolumes: Record<RainTrack, number> = {
+    light: 0.055,
+    normal: 0.058,
+    medium: 0.060,
+  };
   private readonly bgmVolume = 0.22;
   private readonly digVolume = 0.28;
   private readonly footstepVolume = 0.07;
   private readonly fadeDuration = 0.5;
+  private readonly rainFadeDuration = 0.8;
 
   private bgmSource!: AudioSource;
   private rainSource!: AudioSource;
@@ -39,10 +45,15 @@ export class GameAudioManager extends Component {
   private activeBgm: BgmTrack | null = null;
   private bgmTargetVolume = 0;
   private hallMuted = false;
-  private rainClip: AudioClip | null = null;
+  private readonly rainClips: Record<RainTrack, AudioClip | null> = {
+    light: null,
+    normal: null,
+    medium: null,
+  };
+  private requestedRain: RainTrack | null = null;
+  private activeRain: RainTrack | null = null;
   private digClip: AudioClip | null = null;
   private readonly footstepClips: Array<AudioClip | null> = [null, null, null, null];
-  private rainRequested = false;
   private musicEnabled = true;
   private sfxEnabled = true;
   private audioUnlocked = !sys.isBrowser;
@@ -79,15 +90,9 @@ export class GameAudioManager extends Component {
 
     this.loadBgmTrack('main', 'audio/bgm_main_loop');
     this.loadBgmTrack('wild', 'audio/bgm_wild_loop');
-    resources.load('audio/rain_loop', AudioClip, (error, clip) => {
-      if (error || !clip) {
-        console.error('[GameAudioManager] Failed to load rain_loop.wav', error);
-        return;
-      }
-      this.rainClip = clip;
-      this.rainSource.clip = clip;
-      this.applyRainState();
-    });
+    this.loadRainTrack('light', 'audio/rain_light_loop');
+    this.loadRainTrack('normal', 'audio/rain_normal_loop');
+    this.loadRainTrack('medium', 'audio/rain_medium_loop');
     resources.load('audio/shovel_dig', AudioClip, (error, clip) => {
       if (error || !clip) {
         console.error('[GameAudioManager] Failed to load shovel_dig.wav', error);
@@ -146,9 +151,9 @@ export class GameAudioManager extends Component {
     this.applyRainState();
   }
 
-  setRaining(raining: boolean) {
-    if (this.rainRequested === raining) return;
-    this.rainRequested = raining;
+  setRainWeather(track: RainTrack | null) {
+    if (this.requestedRain === track) return;
+    this.requestedRain = track;
     this.applyRainState();
   }
 
@@ -176,24 +181,66 @@ export class GameAudioManager extends Component {
     this.digPlaybackTimer = Math.max(0, this.digPlaybackTimer - dt);
     this.footstepPlaybackTimer = Math.max(0, this.footstepPlaybackTimer - dt);
     this.updateBgmFade(dt);
+    this.updateRainFade(dt);
+  }
+
+  private updateRainFade(dt: number) {
     if (!this.rainSource) return;
-    const step = this.rainVolume * dt / this.fadeDuration;
+    const activeVolume = this.activeRain ? this.rainVolumes[this.activeRain] : 0;
+    const fadeReferenceVolume = this.rainTargetVolume > 0 ? this.rainTargetVolume : activeVolume;
+    const step = fadeReferenceVolume * dt / this.rainFadeDuration;
     const current = this.rainSource.volume;
     if (Math.abs(current - this.rainTargetVolume) <= step) {
       this.rainSource.volume = this.rainTargetVolume;
-      if (this.rainTargetVolume === 0 && this.rainSource.playing) this.rainSource.stop();
+      if (this.rainTargetVolume === 0 && this.rainSource.playing) {
+        this.rainSource.stop();
+        this.activeRain = null;
+        this.applyRainState();
+      }
       return;
     }
     this.rainSource.volume = current + Math.sign(this.rainTargetVolume - current) * step;
   }
 
   private applyRainState() {
-    const shouldPlay = !this.hallMuted && this.audioUnlocked && this.sfxEnabled && this.rainRequested && Boolean(this.rainClip);
-    this.rainTargetVolume = shouldPlay ? this.rainVolume : 0;
-    if (shouldPlay && !this.rainSource.playing) {
-      this.rainSource.volume = 0;
-      this.rainSource.play();
+    if (!this.rainSource) return;
+    const requestedClip = this.requestedRain ? this.rainClips[this.requestedRain] : null;
+    const shouldPlay = !this.hallMuted && this.audioUnlocked && this.sfxEnabled && Boolean(requestedClip);
+    if (!shouldPlay) {
+      this.rainTargetVolume = 0;
+      return;
     }
+    if (this.activeRain !== this.requestedRain) {
+      if (this.rainSource.playing) {
+        this.rainTargetVolume = 0;
+      } else if (this.requestedRain) {
+        this.startRainTrack(this.requestedRain);
+      }
+      return;
+    }
+    if (!this.rainSource.playing && this.requestedRain) this.startRainTrack(this.requestedRain);
+    this.rainTargetVolume = this.rainVolumes[this.requestedRain!];
+  }
+
+  private loadRainTrack(track: RainTrack, path: string) {
+    resources.load(path, AudioClip, (error, clip) => {
+      if (error || !clip) {
+        console.error(`[GameAudioManager] Failed to load ${path}.wav`, error);
+        return;
+      }
+      this.rainClips[track] = clip;
+      this.applyRainState();
+    });
+  }
+
+  private startRainTrack(track: RainTrack) {
+    const clip = this.rainClips[track];
+    if (!clip || this.rainSource.playing) return;
+    this.activeRain = track;
+    this.rainSource.clip = clip;
+    this.rainSource.volume = 0;
+    this.rainSource.play();
+    this.rainTargetVolume = this.rainVolumes[track];
   }
 
   private loadBgmTrack(track: BgmTrack, path: string) {
