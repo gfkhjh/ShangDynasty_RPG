@@ -14,10 +14,14 @@ export class QuestGuide {
   private readonly hudRoot: Node;
   private readonly arrowGraphics: Graphics;
   private readonly objectiveLabel: Label;
+  /** Persistent chapter requirement line, kept separate from the story prose. */
+  private readonly progressLabel: Label;
   private readonly taskAnnouncement: Node;
   private readonly taskAnnouncementTitle: Label;
   private readonly taskAnnouncementDetail: Label;
   private objective: StoryObjective | null = null;
+  /** Walkable waypoints supplied by the world controller for obstacle-aware guidance. */
+  private navigationPath: Vec2[] = [];
   private elapsed = 0;
   private announcementTimer = 0;
   /** 章节、背包等全屏面板打开时暂时隐藏，避免任务文字压在面板边缘。 */
@@ -46,6 +50,18 @@ export class QuestGuide {
     this.objectiveLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
     this.objectiveLabel.verticalAlign = Label.VerticalAlign.CENTER;
     this.objectiveLabel.overflow = Label.Overflow.SHRINK;
+
+    const progressNode = new Node('StoryQuestProgressLabel');
+    progressNode.parent = this.hudRoot;
+    progressNode.setPosition(0, 226, 1);
+    progressNode.addComponent(UITransform).setContentSize(760, 24);
+    this.progressLabel = progressNode.addComponent(Label);
+    this.progressLabel.fontSize = 14;
+    this.progressLabel.lineHeight = 20;
+    this.progressLabel.color = new Color(245, 211, 133);
+    this.progressLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+    this.progressLabel.verticalAlign = Label.VerticalAlign.CENTER;
+    this.progressLabel.overflow = Label.Overflow.SHRINK;
 
     this.taskAnnouncement = new Node('StoryTaskAnnouncement');
     this.taskAnnouncement.parent = this.hudRoot;
@@ -77,6 +93,7 @@ export class QuestGuide {
       : '';
     const nextKey = objective ? `${objective.title}|${objective.detail ?? ''}` : '';
     this.objective = objective;
+    this.navigationPath = [];
     this.elapsed = 0;
     if (objective && previousKey !== nextKey) this.showTaskAnnouncement(objective);
     if (!objective || objective.targetX === undefined || objective.targetY === undefined) {
@@ -91,6 +108,22 @@ export class QuestGuide {
     this.hudRoot.active = this.visible;
     this.objectiveLabel.string = objective.detail ? `${objective.title} · ${objective.detail}` : objective.title;
     this.redrawMarker(0);
+  }
+
+  /** The arrow advances through walkable waypoints; the world ring stays on the final goal. */
+  setNavigationPath(points: ReadonlyArray<Vec2>) {
+    this.navigationPath = points.map(point => point.clone());
+  }
+
+  /** 进/出宗庙时切换箭头节点所在的父节点（world ↔ templeInterior），使室内占卜路也能指示。 */
+  setWorldNode(node: Node) {
+    this.marker.parent = node;
+  }
+
+  /** Shows collection requirements without crowding the narrative task text. */
+  setChapterProgress(text: string) {
+    this.progressLabel.string = text;
+    this.progressLabel.node.active = Boolean(text);
   }
 
   /**
@@ -108,6 +141,10 @@ export class QuestGuide {
     }
     if (!this.objective || this.objective.targetX === undefined || this.objective.targetY === undefined) return;
     this.elapsed += dt;
+    while (this.navigationPath.length > 0
+      && Vec2.distance(playerPosition, this.navigationPath[0]) <= 78) {
+      this.navigationPath.shift();
+    }
     this.redrawMarker(this.elapsed);
     this.drawOffscreenArrow(playerPosition, viewportWidth, viewportHeight);
   }
@@ -162,8 +199,11 @@ export class QuestGuide {
   }
 
   private drawOffscreenArrow(playerPosition: Vec2, viewportWidth: number, viewportHeight: number) {
-    const dx = (this.objective?.targetX ?? playerPosition.x) - playerPosition.x;
-    const dy = (this.objective?.targetY ?? playerPosition.y) - playerPosition.y;
+    const waypoint = this.navigationPath[0];
+    const targetX = waypoint?.x ?? this.objective?.targetX ?? playerPosition.x;
+    const targetY = waypoint?.y ?? this.objective?.targetY ?? playerPosition.y;
+    const dx = targetX - playerPosition.x;
+    const dy = targetY - playerPosition.y;
     const margin = 72;
     const halfWidth = viewportWidth / 2 - margin;
     const halfHeight = viewportHeight / 2 - margin;
