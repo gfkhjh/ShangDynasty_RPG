@@ -148,6 +148,28 @@ export class RegionTransitionManager {
     return true;
   }
 
+  /**
+   * 同步、无黑屏地把玩家传送到指定 entry。用于脚本化章节衔接的可靠兜底：
+   * 当黑屏状态机被占用（非 IDLE/COOLDOWN）而无法启动 transitionToEntry 时使用，
+   * 确保角色一定能落到目标着陆点、摄像机与区域视觉立即跟随，绝不脱节。
+   */
+  teleportToEntryImmediate(entryId: string): boolean {
+    const entry = this.entries.get(entryId);
+    if (!entry) return false;
+    this.currentRegionValue = entry.regionId;
+    this.callbacks.setPlayerPosition(entry.worldPosition);
+    this.callbacks.setPlayerFacing(entry.facingDirection);
+    this.callbacks.syncCameraImmediately();
+    this.callbacks.setRegionUi(entry.regionId);
+    this.callbacks.onRegionChanged?.(entry.regionId);
+    this.stateValue = RegionTransitionState.IDLE;
+    this.stateElapsed = 0;
+    this.activeExit = null;
+    this.pendingEntryId = null;
+    this.sourceSnapshot = null;
+    return true;
+  }
+
   update(dt: number) {
     this.updateDebugView();
     if (this.stateValue === RegionTransitionState.IDLE) {
@@ -228,6 +250,21 @@ export class RegionTransitionManager {
         : this.callbacks.canPlayerStand(entry.worldPosition))
       : false;
     if ((!exit && !scriptedEntry) || !entry || !entryMatchesTarget || !entryStandable) {
+      // 脚本化接章（章末自动衔接 / 测试重置）的着陆点由作者手工指定、本就可信。
+      // 即便站立校验（理论上已放宽到只查全局地图边界，不应再触发）意外拒绝，也绝不允许
+      // 把玩家弹回上一章——那正是「视觉停在上一个界面、小人错位丢失」脱节的成因。
+      // 改为直接同步兜底传送，保证小人一定落到该章落点、界面与摄像机同步跟随。
+      // 覆盖全九章所有接章落点（城外/河畔/王陵/山林/郊外），做到「任一章都不能脱节」。
+      if (scriptedEntry && entry) {
+        console.warn('[RegionTransition] scripted entry standable check failed; forcing immediate teleport fallback.', { entryId: entry.id });
+        this.teleportToEntryImmediate(entry.id);
+        this.setOverlayAlpha(0);
+        this.callbacks.setInputLocked(false);
+        const cb = this.pendingScriptedCallbacks;
+        this.pendingScriptedCallbacks = null;
+        cb?.onCompleted?.();
+        return;
+      }
       if (exit) {
         this.logTransitionDebug('validation-failed', exit, this.callbacks.getPlayerFootPosition(), {
           entryRegionId: entry?.regionId ?? null,

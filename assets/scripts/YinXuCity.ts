@@ -216,7 +216,7 @@ type FishingCastEffect = {
 type CutPlantRegrowth = { node: Node; timer: number };
 type BackpackTab = 'tools' | 'codex';
 type DugHole = { node: Node; timer: number; x: number; y: number };
-type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement';
+type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement' | 'trial';
 type ExcavationReward = {
   kind: 'oracle' | 'ink'; quality: OracleQuality | null; cardId: string | null; amount: number;
   tier?: 'story' | 'supplement'; experience?: number; coins?: number;
@@ -224,7 +224,7 @@ type ExcavationReward = {
 type ExcavationVisualState = 'idle' | 'dug';
 type ExcavationSite = {
   id: string; root: Node; sprite: Sprite; glow: Graphics; x: number; y: number;
-  region: ExcavationRegion; active: boolean; revealed: boolean; respawnTimer: number; holeTimer: number;
+  region: ExcavationRegion; mapRegion: RegionId; active: boolean; revealed: boolean; respawnTimer: number; holeTimer: number;
   awaitingStudy: boolean; reward: ExcavationReward; storyTarget?: boolean;
 };
 type PendingExcavation = { site: ExcavationSite; timer: number; rewarded: boolean };
@@ -528,6 +528,11 @@ export class YinXuCity extends Component {
   private readonly mountainRegion = { left: 3000, right: 5700, bottom: -2200, top: -400 };
   private readonly tombRegion = { left: 600, right: 5200, bottom: -4100, top: -2450 };
   private readonly southOutskirtsTrial = { left: -1300, right: 1300, bottom: -960, top: -240 };
+  // 第一章教学坑专用区：出南城门直行即达的城南试炼场中心（OUTSKIRTS 城南，y<-240），
+  // 远离试炼场左右围墙(x=±1284)与城内建筑。玩家无需 teleport、自己走几步就能到，
+  // 彻底绕开 FIELDS 北墙/地面从 x=140 起、南城门洞却在 x=0 导致的"看得见走不到"死区。
+  // 与 field(=FIELDS 内) 完全隔离，绝不污染二/五/九章的 FIELDS 坑池。
+  private readonly trialRegion = { left: -550, right: 450, bottom: -1300, top: 350 };
   /** One source of truth for both authored wall visuals and foot-point collision. */
   private readonly cityBoundary = {
     left: -1300, right: 1300, bottom: -240, top: 1450, thickness: 64,
@@ -1651,6 +1656,9 @@ export class YinXuCity extends Component {
     const show = !r || r === RegionId.FIELDS;
     this.fieldVisualNodes.forEach(node => { if (node.isValid) node.active = show; });
     this.excavationSites.forEach(site => {
+      // 第一章教学坑(trial)横跨城内南门广场与南门外可达荒地，始终按自身 active 状态可见，
+      // 不参与 FIELDS 的区域显隐（城内/城外的 trial 坑都不受 FIELDS 摄像机显隐控制）。
+      if (site.region === 'trial') { site.root.active = site.active || site.holeTimer > 0; return; }
       if (site.region === 'field' && site.root.isValid) site.root.active = show && (site.active || site.holeTimer > 0);
     });
   }
@@ -1843,9 +1851,20 @@ export class YinXuCity extends Component {
     const started = this.regionTransitionManager.transitionToEntry(location.entryId);
     if (started) {
       this.save.storyLocationId = location.id;
+      this.audioManager.playSfx('map_transition');
+      return true;
     }
-    else console.error('[StoryLocation] entry validation failed; no coordinate fallback will be used.', { locationId, entryId: location.entryId });
-    return started;
+    // 兜底：黑屏状态机被占用（非 IDLE/COOLDOWN）或校验未启动，改用同步直接传送，
+    // 保证小人可靠落到目标着陆点、视觉立即跟随，绝不出现「界面停在上一章、人消失」。
+    console.warn('[StoryLocation] blackout transition unavailable; immediate teleport fallback.', locationId);
+    const ok = this.regionTransitionManager.teleportToEntryImmediate(location.entryId);
+    if (ok) {
+      this.save.storyLocationId = location.id;
+      this.audioManager.playSfx('map_transition');
+    } else {
+      console.error('[StoryLocation] entry validation failed; no fallback available.', { locationId, entryId: location.entryId });
+    }
+    return ok;
   }
 
   /** 玩家实际坐标是否落在指定区域边界内（不依赖可能滞后的 currentRegionId）。 */
@@ -1861,6 +1880,21 @@ export class YinXuCity extends Component {
     return this.inRegion(this.playerPos.x, this.playerPos.y, bounds);
   }
 
+  /** 给定任意地图坐标，反查它落在哪个大区（用于判断挖字碎甲实际所在区域，决定跨区引导）。 */
+  private regionAtPoint(x: number, y: number): RegionId | null {
+    const boundsByRegion: Partial<Record<RegionId, { left: number; right: number; bottom: number; top: number }>> = {
+      [RegionId.HIGHLAND]: this.forestRegion,
+      [RegionId.FIELDS]: this.fieldRegion,
+      [RegionId.RIVERBANK]: this.riverRegion,
+      [RegionId.ROYAL_TOMB]: this.tombRegion,
+    };
+    for (const key of Object.keys(boundsByRegion) as RegionId[]) {
+      const bounds = boundsByRegion[key];
+      if (bounds && this.inRegion(x, y, bounds)) return key;
+    }
+    return null;
+  }
+
   /** 坑坐标离玩家极近（一眼可见、无需过图）时视为"已在目标"，直接指坑不跨区引导。 */
   private isDigSiteNearby(objective: StoryObjective): boolean {
     if (objective.targetX === undefined || objective.targetY === undefined) return false;
@@ -1870,46 +1904,40 @@ export class YinXuCity extends Component {
     return dx * dx + dy * dy < NEAR_DIG_SITE * NEAR_DIG_SITE;
   }
 
-  /** Points at a natural map exit when the chapter's dig site is elsewhere; never starts a transition. */
-  private routeNarrativeExcavationToMapExit(chapterId: string, objective: StoryObjective) {
-    const targetRegions: Record<string, RegionId> = {
-      [CHAPTER_ONE_ID]: RegionId.FIELDS,
-      [CHAPTER_TWO_ID]: RegionId.RIVERBANK,
-      [CHAPTER_THREE_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_FOUR_ID]: RegionId.HIGHLAND,
-      [CHAPTER_FIVE_ID]: RegionId.FIELDS,
-      [CHAPTER_SIX_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_SEVEN_ID]: RegionId.HIGHLAND,
-      [CHAPTER_EIGHT_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_NINE_ID]: RegionId.FIELDS,
-    };
+  /**
+   * 统一的挖字 / 寻迹区域引导（宝宝 0731 拍板：同区域内直指坑，跨区先指传送标识、一步一步引导）。
+   * - 优先用 objective.targetRegion（挖字坑自带 mapRegion，最可靠），兜底用坐标反查 regionAtPoint。
+   * - 目标与玩家同区：return false → 由 buildQuestNavigationPath 走可通行路精确直指坑。
+   * - 目标跨区：return true → 箭头改为指向「通往目标区域的下一个传送标识」（QuestGuide 画直线箭头），
+   *   玩家进入该区域后，下一帧 currentRegionId 更新，自动重新判定：同区则直指坑、否则继续指下一段传送点。
+   *   这样无论几步跨区（如 CITY→OUTSKIRTS→FIELDS），都逐级引导，绝不横跳、绝不死路。
+   * - CITY 起点特殊处理：CITY 与 OUTSKIRTS 是连续地面过渡、没有 blackout 出口，故先指向南城门让玩家出城，
+   *   出城进入 OUTSKIRTS 后由通用逻辑接管下一步传送点。
+   */
+  private routeNarrativeExcavationToMapExit(_chapterId: string, objective: StoryObjective, _kind: 'dig' | 'narrative' = 'narrative') {
     const manager = this.regionTransitionManager;
-    const targetRegion = targetRegions[chapterId];
-    if (!manager || !targetRegion) return false;
-    // 双保险①：玩家实际坐标已在目标区域 → 坑就在脚下，保持坑箭头。
-    if (this.playerInRegionBounds(targetRegion)) return false;
-    // 双保险②：坑坐标离玩家极近（一眼可见、无需过图）→ 直接指坑，不跨区引导。
-    // 覆盖"坑在城门口下方可见、但区域判定还差一点"的情形（如第一章教学坑）。
-    const near = this.isDigSiteNearby(objective);
-    if (near) return false;
-    if (manager.currentRegionId === targetRegion) return false;
-    // CITY and OUTSKIRTS share the gate passage rather than a blackout exit.
-    // For the two field-bound chapters, first guide the player through the
-    // east city gate; once OUTSKIRTS becomes active the normal exit routing
-    // below takes over and points to the field loading boundary.
-    if (manager.currentRegionId === RegionId.CITY && targetRegion === RegionId.FIELDS) {
-      objective.targetX = this.cityBoundary.right - 44;
-      objective.targetY = this.cityEastWestRoadCenterY;
-      objective.title = '从东城门前往郊外田野';
-      objective.detail = '先沿道路穿过东城门；到达郊外后，箭头会继续指向田野入口。';
+    if (!manager || objective.targetX === undefined || objective.targetY === undefined) return false;
+    const pitRegion = objective.targetRegion ?? this.regionAtPoint(objective.targetX, objective.targetY);
+    if (!pitRegion) return false; // 无法判定区域，退化直指坑坐标（由 BFS 处理）
+    const current = manager.currentRegionId;
+    if (pitRegion === current) return false; // 同区直指坑
+
+    // 跨区：先指往目标区域的下一步传送标识。
+    if (current === RegionId.CITY) {
+      // CITY 与 OUTSKIRTS 连续过渡、无 blackout 出口：先引玩家出南城门进入 OUTSKIRTS，
+      // 之后若在 OUTSKIRTS 仍与目标区不同，由下方 getExitToward 接管指下一步传送点。
+      objective.targetX = 0;
+      objective.targetY = -300;
+      objective.title = '前往城外';
+      objective.detail = '沿金色箭头穿过南城门；到达城外后，箭头会指引你前往本章调查区。';
       return true;
     }
-    const exit = manager.getExitToward(targetRegion);
+    const exit = manager.getExitToward(pitRegion);
     if (!exit) return false;
     objective.targetX = (exit.triggerBounds.minX + exit.triggerBounds.maxX) / 2;
     objective.targetY = (exit.triggerBounds.minY + exit.triggerBounds.maxY) / 2;
-    objective.title = '循路前往下一片调查区';
-    objective.detail = '沿箭头走到道路尽头；抵达边缘后会按原有方式加载下一张地图。';
+    objective.title = '前往目标区域';
+    objective.detail = '沿金色箭头走到区域边缘的传送标识；进入目标区域后，箭头会精确指向待挖的碎甲。';
     return true;
   }
 
@@ -1991,39 +2019,45 @@ export class YinXuCity extends Component {
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
     const isChapterNineFragment = CHAPTER_NINE_FRAGMENT_CARDS.some(item =>
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
-    if (CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
-      item.seekStepId === step?.id || item.lessonStepId === step?.id)
-      || isChapterTwoFragment || isChapterThreeFragment || isChapterFourFragment
+    const isChapterOneFragment = CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
+      item.seekStepId === step?.id || item.lessonStepId === step?.id);
+    if (isChapterOneFragment || isChapterTwoFragment || isChapterThreeFragment || isChapterFourFragment
       || isChapterFiveFragment || isChapterSixFragment || isChapterSevenFragment
       || isChapterEightFragment || isChapterNineFragment) {
-      const site = isChapterTwoFragment
-        ? this.reserveChapterTwoExcavationSite()
-        : isChapterThreeFragment
-          ? this.reserveChapterThreeExcavationSite()
-          : isChapterFourFragment
-            ? this.reserveChapterFourExcavationSite()
-            : isChapterFiveFragment
-              ? this.reserveStoryExcavationSite(CHAPTER_FIVE_FRAGMENT_CARDS, 'field', CHAPTER_FIVE_ID)
-              : isChapterSixFragment
-                ? this.reserveStoryExcavationSite(CHAPTER_SIX_FRAGMENT_CARDS, 'royal', CHAPTER_SIX_ID)
-                : isChapterSevenFragment
-                  ? this.reserveStoryExcavationSite(CHAPTER_SEVEN_FRAGMENT_CARDS, 'forest', CHAPTER_SEVEN_ID)
-                  : isChapterEightFragment
-                    ? this.reserveStoryExcavationSite(CHAPTER_EIGHT_FRAGMENT_CARDS, 'royal', CHAPTER_EIGHT_ID)
-                    : isChapterNineFragment
-                      ? this.reserveStoryExcavationSite(CHAPTER_NINE_FRAGMENT_CARDS, 'field', CHAPTER_NINE_ID)
-                      : this.reserveChapterOneExcavationSite();
+      const chapterReserve = [
+        { match: isChapterOneFragment, cards: CHAPTER_ONE_FRAGMENT_CARDS, id: CHAPTER_ONE_ID },
+        { match: isChapterTwoFragment, cards: CHAPTER_TWO_FRAGMENT_CARDS, id: CHAPTER_TWO_ID },
+        { match: isChapterThreeFragment, cards: CHAPTER_THREE_FRAGMENT_CARDS, id: CHAPTER_THREE_ID },
+        { match: isChapterFourFragment, cards: CHAPTER_FOUR_FRAGMENT_CARDS, id: CHAPTER_FOUR_ID },
+        { match: isChapterFiveFragment, cards: CHAPTER_FIVE_FRAGMENT_CARDS, id: CHAPTER_FIVE_ID },
+        { match: isChapterSixFragment, cards: CHAPTER_SIX_FRAGMENT_CARDS, id: CHAPTER_SIX_ID },
+        { match: isChapterSevenFragment, cards: CHAPTER_SEVEN_FRAGMENT_CARDS, id: CHAPTER_SEVEN_ID },
+        { match: isChapterEightFragment, cards: CHAPTER_EIGHT_FRAGMENT_CARDS, id: CHAPTER_EIGHT_ID },
+        { match: isChapterNineFragment, cards: CHAPTER_NINE_FRAGMENT_CARDS, id: CHAPTER_NINE_ID },
+      ].find(entry => entry.match);
+      const site = chapterReserve
+        ? this.reserveStoryExcavationSite(chapterReserve.cards, chapterReserve.id)
+        : null;
       if (site && objective) {
         objective.targetX = site.x;
         objective.targetY = site.y;
+        objective.targetRegion = site.mapRegion;
       }
     }
     let routingToMapExit = false;
     if (step && objective && this.isNarrativeExcavationStep(step.id)) {
+      const isFragment = isChapterOneFragment || isChapterTwoFragment || isChapterThreeFragment
+        || isChapterFourFragment || isChapterFiveFragment || isChapterSixFragment
+        || isChapterSevenFragment || isChapterEightFragment || isChapterNineFragment;
       const hint = this.narrativeExcavationHint(step.chapterId);
-      objective.title = `${hint.title} · 寻迹`;
-      objective.detail = hint.detail;
-      routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective);
+      const kind: 'dig' | 'narrative' = isFragment ? 'dig' : 'narrative';
+      // 挖字步骤由上面的 reserve 已锁定坑坐标：跨区时只覆盖为传送标识、
+      // 保留任务标题，不覆盖成“·寻迹”文案；寻迹步骤按原提示展示。
+      if (!isFragment) {
+        objective.title = `${hint.title} · 寻迹`;
+        objective.detail = hint.detail;
+      }
+      routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective, kind);
 
     }
     // 宗庙内部 world 被隐藏，引导箭头节点已切到 templeInterior；改用内部坐标指向占卜席，覆盖外部 storyLocation 坐标。
@@ -2182,6 +2216,7 @@ export class YinXuCity extends Component {
       const openDialogue = () => {
         if (presentationToken !== this.storyPresentationToken
           || this.storyController.currentStep()?.id !== step.id) return;
+        this.audioManager.playSfx('dialog_open');
         this.storyDialogue.open(
           this.withSceneAtmosphere(step, step.dialogue ?? []),
           () => this.completeStoryDialogue(step),
@@ -2401,7 +2436,7 @@ export class YinXuCity extends Component {
    */
   private prepareChapterFreeExploration(chapterId: string) {
     const regions: Record<string, ExcavationRegion[]> = {
-      [CHAPTER_ONE_ID]: ['field'],
+      [CHAPTER_ONE_ID]: ['trial'],
       [CHAPTER_TWO_ID]: ['river', 'lake'],
       [CHAPTER_THREE_ID]: ['royal'],
       [CHAPTER_FOUR_ID]: ['forest'],
@@ -2767,9 +2802,18 @@ export class YinXuCity extends Component {
    * UPPER terrain hysteresis is not a collision at the authored landing point.
    * All other scripted entries retain the normal static terrain validation.
    */
+  /**
+   * 作者手工指定的落点是可信的着陆点，只做全局地图边界检查，跳过水域 / 障碍 /
+   * NPC 碰撞 / 地形高程校验。否则像 chapter-2-riverbank-entry(-5060,-700) 这样落在
+   * 河岸水边 / 礁石旁的落点会被 canStandRadius 的 pointInWater 误拒，导致章末接章的
+   * scripted 传送站立校验失败、玩家被弹回上一章，而章节状态已切到新章——出现
+   * 「视觉还停在上一个界面、小人错位丢失」的脱节。放宽后所有章节的接章落点统一可靠。
+   */
   private canScriptedEntryStand(entry: Readonly<RegionEntry>) {
-    const ignoreSourceElevationHysteresis = entry.id === 'chapter-2-riverbank-entry';
-    return this.canStandRadius(entry.worldPosition.x, entry.worldPosition.y, this.playerRadius, ignoreSourceElevationHysteresis);
+    const hw = this.mapWidth / 2 - 66;
+    const hh = this.mapHeight / 2 - 66;
+    const { x, y } = entry.worldPosition;
+    return x >= -hw && x <= hw && y >= -hh && y <= hh;
   }
 
   // 把一批剧情碎片卡标记为已唤醒（解锁 + 学习进度），用于重测前置章时保持进度面板一致。
@@ -2913,83 +2957,13 @@ export class YinXuCity extends Component {
     this.storyNpcThree = root;
   }
 
-  private reserveChapterOneExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_ONE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_ONE_FRAGMENT_CARDS[fragmentIndex];
-    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
-    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    // First chapter used to retain whichever generic field point happened to
-    // be first in the array.  Keep all five teaching pits inside the current
-    // field scene rather than a stale/off-map coordinate from an old layout.
-    this.positionStorySiteForChapter(site, CHAPTER_ONE_ID, fragmentIndex);
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 雨/田/云 有卡；水(catalog-u6c34)/土(catalog-u571f) 为待补字暂无卡牌定义。
-      // 待补字仍预留坑位并标引导箭头，挖到后走「未录入」分支连带完成，不卡死、不丢箭头。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
 
-  private reserveChapterTwoExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_TWO_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_TWO_FRAGMENT_CARDS[fragmentIndex];
-    const waterSites = this.excavationSites.filter(candidate =>
-      candidate.region === 'river' || candidate.region === 'lake');
-    const site = waterSites[fragmentIndex] ?? waterSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 待补字（字卡尚未录入）：仍预留坑位并标引导箭头，挖到走「未录入」分支连带完成。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
 
-  // 第三章复用 field 区域（与第一章同源；两章顺序激活、不会同时占用）。
-  // 前/后/里 cardId 为 null（待补字）：不再提前 return null，改为与
-  // reserveStoryExcavationSite 一致地给一个暂定坑位，让引导箭头正常指向；
-  // 挖到后走「未录入」分支连带完成 learning，不卡死、地图有引导点。
-  private reserveChapterThreeExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_THREE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_THREE_FRAGMENT_CARDS[fragmentIndex];
-    const tombSites = this.excavationSites.filter(candidate => candidate.region === 'royal');
-    const site = tombSites[fragmentIndex % tombSites.length] ?? tombSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
+
+
+
+
+
 
   private markStoryTarget(site: ExcavationSite) {
     this.excavationSites.forEach(candidate => {
@@ -3093,34 +3067,7 @@ export class YinXuCity extends Component {
     this.storyNpcFour = root;
   }
 
-  // 第四章用 forest 区域（与一~三章区域互不冲突；章节顺序激活、不会同时占用）。
-  // 待补字（江湖海爸妈爷奶哥姐孩）cardId 已预填 catalog-u，录库前 oracleCards 查不到 → card 为 undefined，
-  // 但仍 reserve 坑位并标金色引导光环（reward.cardId 写入预填的 catalog-u 非空串），
-  // completeExcavation 会匹配 expectedFragment 并走降级分支连带完成 learning-completed，不卡死、且地图有引导点；
-  // 录库后引擎自动对上、弹出辨识学习面板。
-  private reserveChapterFourExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_FOUR_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_FOUR_FRAGMENT_CARDS[fragmentIndex];
-    const forestSites = this.excavationSites.filter(candidate => candidate.region === 'forest');
-    const site = forestSites[fragmentIndex] ?? forestSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    this.positionStorySiteForChapter(site, CHAPTER_FOUR_ID, fragmentIndex);
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 待补字（或字卡尚未录入）：仍 reserve + 标引导光环，让玩家有目标点。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
+
 
   private updateChapterFourStory() {
     const step = this.storyController?.currentStep();
@@ -3243,11 +3190,10 @@ export class YinXuCity extends Component {
       '大卜·阿圭', 'chapter-9-renew-covenant-reach-npc', 'grand-diviner');
   }
 
-  // 五~九章挖掘预约通用逻辑：与第四章相同，只是区域和字表参数化。
-  // fragmentIndex 取模区域坑位数，让大章（>坑数）也能均匀复用坑位、不会全挤在一个坑。
+  // 全部章节（一~九）统一挖掘预约逻辑：字表参数化，坑由 takeChapterPit 跨区分散分配。
+  // fragmentIndex 取模坑池长度，让大章（>坑数）也能均匀复用坑位、不会全挤在一个坑。
   private reserveStoryExcavationSite(
     fragmentCards: ReadonlyArray<{ seekStepId: string; lessonStepId: string; cardId?: string | null }>,
-    region: ExcavationRegion,
     chapterId: string,
   ) {
     const stepId = this.storyController.currentStep()?.id;
@@ -3255,10 +3201,7 @@ export class YinXuCity extends Component {
       item.seekStepId === stepId || item.lessonStepId === stepId);
     if (fragmentIndex < 0) return null;
     const fragment = fragmentCards[fragmentIndex];
-    const regionSites = this.excavationSites.filter(candidate => candidate.region === region);
-    if (!regionSites.length) return null;
-    const site = regionSites[fragmentIndex % regionSites.length]
-      ?? regionSites.find(candidate => candidate.active) ?? null;
+    const site = this.takeChapterPit(chapterId, fragmentIndex);
     if (!site) return null;
     this.positionStorySiteForChapter(site, chapterId, fragmentIndex);
     const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
@@ -3280,53 +3223,92 @@ export class YinXuCity extends Component {
    * so reloading a save returns the active story pit to the same place.
    */
   private positionStorySiteForChapter(site: ExcavationSite, chapterId: string, fragmentIndex: number) {
-    const zones: Record<string, { left: number; right: number; bottom: number; top: number }> = {
-      [CHAPTER_ONE_ID]: { left: 420, right: 1260, bottom: -1660, top: -860 },
-      [CHAPTER_THREE_ID]: { left: 260, right: 1280, bottom: -2100, top: -920 },
-      [CHAPTER_FOUR_ID]: { left: 3950, right: 5480, bottom: -2050, top: -580 },
-      [CHAPTER_FIVE_ID]: { left: 1550, right: 2920, bottom: -2050, top: -520 },
-      [CHAPTER_SIX_ID]: { left: 720, right: 2260, bottom: -3980, top: -2700 },
-      [CHAPTER_SEVEN_ID]: { left: 4550, right: 5480, bottom: -2050, top: -620 },
-      [CHAPTER_EIGHT_ID]: { left: 2550, right: 5050, bottom: -3980, top: -2700 },
-      [CHAPTER_NINE_ID]: { left: 280, right: 1420, bottom: -2050, top: -520 },
-    };
-    const zone = zones[chapterId];
-    if (!zone) return;
-    let seed = fragmentIndex + 1;
-    for (let index = 0; index < chapterId.length; index++) seed = (seed * 31 + chapterId.charCodeAt(index)) >>> 0;
-    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    // 各章剧情土坑必须以玩家落点为中心就近生成：
-    // 1) 避免整片 zone 随机把坑甩到障碍孤岛（箭头“指向死路”）；
-    // 2) 避免读到旧地图残留的土坑种子坐标；
-    // 3) 保证金色箭头始终指向当前章节真正要挖的那枚碎甲。
-    // 落点本身是设计上的畅通点，坑在附近即天然可达、方向稳定。
-    const usePlayerCenter = this.playerPos != null;
-    const centerX = usePlayerCenter ? this.playerPos.x : (zone.left + zone.right) / 2;
-    const centerY = usePlayerCenter ? this.playerPos.y : (zone.top + zone.bottom) / 2;
-    const halfW = usePlayerCenter ? 540 : (zone.right - zone.left - 112) / 2;
-    const halfH = usePlayerCenter ? 540 : (zone.top - zone.bottom - 112) / 2;
-    for (let attempt = 0; attempt < 64; attempt++) {
-      const x = Math.round(centerX - halfW + random() * (halfW * 2));
-      const y = Math.round(centerY - halfH + random() * (halfH * 2));
-      if (!this.isExcavationPositionValid(x, y, site.region, site, 170)) continue;
-      site.x = x;
-      site.y = y;
-      site.root.setPosition(x, y, 21);
-      this.redrawExcavationSite(site);
-      return;
-    }
-    // 章节专属区域内遇到密集障碍时，退回玩家落点附近的安全位置；
-    // 绝不保留可能已经被地图改动覆盖的旧 zone 中心坐标。
-    const fallback = this.resolveExcavationPosition(
-      this.playerPos != null ? this.playerPos.x : (zone.left + zone.right) / 2,
-      this.playerPos != null ? this.playerPos.y : (zone.bottom + zone.top) / 2,
-      site.region,
-      site,
-    );
-    site.x = fallback.x;
-    site.y = fallback.y;
+    void chapterId;
+    void fragmentIndex; // 坑坐标由 reserve 阶段按章确定性分配（跨区域分散），此处只做可通行兜底
+    // 本章的字如今散落在地图各处（reserve 时从跨区域坑池中为每个字挑了
+    // 一个彼此分开、且经过 resolveExcavationPosition 校验可通行的坑位），
+    // 不再把所有字重定位到 zone 中心导致堆叠。这里仅当预生成点意外不可
+    // 通行时，在附近找一个可通行点兜底；绝不再按 zone 中心重排，避免重叠
+    // 或把字锁死在一小块区域。
+    if (this.isExcavationPositionValid(site.x, site.y, site.region, site, 170)) return;
+    const safe = this.resolveExcavationPosition(site.x, site.y, site.region, site);
+    site.x = safe.x;
+    site.y = safe.y;
     site.root.setPosition(site.x, site.y, 21);
     this.redrawExcavationSite(site);
+  }
+
+  // 章节剧情坑分配：一~九所有章统一从“全图可通行坑池”分配，挖掘引导
+  // 由 routeNarrativeExcavationToMapExit 统一处理（同区直指坑、跨区先指传送点），
+  // 与后续章节完全一致。区别仅在取坑偏好：其余章按章名确定性打乱后分散到
+  // 各地；第一章优先取离出生点(chapter-1-city-entry=188,20)近的坑，避免新手章
+  // 过于分散。挖出的字严格绑定本章 fragmentCards（reserve 时写入 site.reward.cardId），
+  // 不会混进他章字。
+  private takeChapterPit(chapterId: string, fragmentIndex: number): ExcavationSite | null {
+    const pool = this.chapterPitPool(chapterId);
+    if (!pool.length) return null;
+    return pool[fragmentIndex % pool.length] ?? null;
+  }
+
+  /** Maps an excavation pit's storage region to the gameplay RegionId used for navigation. */
+  private excavationRegionToMapRegion(region: ExcavationRegion): RegionId {
+    switch (region) {
+      case 'river': return RegionId.RIVERBANK;
+      case 'lake': return RegionId.OUTSKIRTS; // 湖在城南西南方，出南门直行即达，无需 blackout 传送
+      case 'field': return RegionId.FIELDS;
+      case 'royal': return RegionId.ROYAL_TOMB;
+      case 'forest': return RegionId.HIGHLAND;
+      case 'trial': return RegionId.OUTSKIRTS;
+      default: return RegionId.OUTSKIRTS;
+    }
+  }
+
+  private chapterPitPool(chapterId: string): ExcavationSite[] {
+    const all = this.excavationSites.filter(s => s.region !== 'supplement');
+    if (chapterId === CHAPTER_ONE_ID) {
+      // 第一章（新手教学）：坑限定在独立的 trial 区域（城内南门广场 + 南门外可达荒地），
+      // 避免进入 FIELDS 死区，也避免跨 CITY/OUTSKIRTS 边界横跳。按离出生点(188,20)
+      // 的直线距离升序，前几个优先落在城内南门附近，后续逐步向南拉开。
+      const ox = 188, oy = 20;
+      return all.filter(s => s.region === 'trial')
+        .sort((a, b) =>
+          ((a.x - ox) * (a.x - ox) + (a.y - oy) * (a.y - oy)) -
+          ((b.x - ox) * (b.x - ox) + (b.y - oy) * (b.y - oy)));
+    }
+    // 其余章：每章锁定自己的专属 region 坑池（与 prepareChapterFreeExploration 一致），
+    // 字只在本章区域内散落不同位置，绝不会跨到别的章的区域、也不会散落全图导致跨区死路。
+    // 池内按章名确定性 Fisher-Yates 打乱，大章（字数 > 坑数）取模复用坑位均匀分散。
+    const regionsForChapter: Record<string, ExcavationRegion[]> = {
+      [CHAPTER_TWO_ID]: ['river', 'lake'],
+      [CHAPTER_THREE_ID]: ['royal'],
+      [CHAPTER_FOUR_ID]: ['forest'],
+      [CHAPTER_FIVE_ID]: ['field'],
+      [CHAPTER_SIX_ID]: ['royal'],
+      [CHAPTER_SEVEN_ID]: ['forest'],
+      [CHAPTER_EIGHT_ID]: ['royal'],
+      [CHAPTER_NINE_ID]: ['field'],
+    };
+    const allowed = regionsForChapter[chapterId];
+    if (!allowed || !allowed.length) return all.filter(s => s.region !== 'trial');
+    const pool = all.filter(s => allowed.includes(s.region));
+    if (!pool.length) return all.filter(s => s.region !== 'trial');
+    let s = this.hashString(chapterId) >>> 0 || 1;
+    const rand = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    const arr = pool.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  private hashString(str: string): number {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
   }
 
   // 五~九章到达判定通用逻辑：与第四章相同，只是 stepId / NPC 坐标 / npcId 参数化。
@@ -5749,12 +5731,30 @@ this.drawCityWallsAndGate();
         [-5940,-250],[-5590,-255],[-5210,-430],[-4710,-380],[-4090,-620],
         [-4200,-1320],[-5470,-1770],[-4920,-1980],[-4200,-2320],[-5440,-2790],
       ],
+      // field=FIELDS 内田野坑，现供第二/五/九章使用（玩家经脚本化 entry 直接落入 FIELDS）。
+      // 第一章教学坑已迁出 FIELDS，改用下方 trial 区（出南城门直行即达的城南试炼场），
+      // 因 FIELDS 北墙/地面从 x=140 起、南城门洞却在 x=0，玩家无法从 CITY 直行进入 FIELDS，
+      // 原「出南城门直行即达」设计在实际 region 切换下是走不到的死区。
       field: [
-        [600,-600],[1500,-600],[2400,-600],
-        [600,-1300],[1500,-1300],[260,-1860],
-        [600,-2000],[1500,-2000],[2400,-2000],
-        [1100,-900],
-        [2750,-900],[2750,-1600],[2000,-900],[2000,-1600],[1100,-1600],[300,-1600],[2750,-1300],[2000,-1300],[2000,-1900],
+        [200,-1100],[200,-1400],[480,-1100],[200,-1700],[480,-1400],
+        [700,-1150],[1300,-1150],[1900,-1150],[2500,-1150],[2900,-1150],
+        [700,-1500],[1300,-1500],[1900,-1500],[2500,-1500],[2900,-1500],
+        [700,-1850],[1300,-1850],[1900,-1850],[2500,-1850],[2900,-1850],
+      ],
+      // 第一章教学坑(trial)：出南城门直行即达的城南试炼场(OUTSKIRTS 城南)中心 + 城内南门广场。
+      // 玩家从 chapter-1-city-entry(188,20) 出南门后自己走几步即到，无需 teleport、
+      // 不进 FIELDS，彻底避开 FIELDS 北墙/地面从 x=140 起、南城门却在 x=0 导致的死区。
+      // 数组前 5 个（也是离出生点最近的 5 个）为教学坑（雨田水土地云），由
+      // chapterPitPool 距离升序优先取；数组后 3 个（index>=5，城外更南处）为
+      // 「拾遗补充坑」，createExcavationSites 里直接出拾遗字（见 reward 分支），
+      // 让教学章挖完 5 字后还能在城南就近挖到拾遗字、不重复主线字。
+      trial: [
+        // 城内南门广场：让第一章前几字在教学区内就能挖到
+        [-200, 80], [200, 160], [0, 280],
+        // 南门外左侧可达荒地（x<140，避开 FIELDS 死区），逐步往南拉开距离
+        [-250, -400], [80, -520], [-350, -700],
+        // 以下 3 个为拾遗补充坑（index>=5，最远，挖完教学字再往南才到）
+        [0, -900], [-450, -1150],
       ],
       lake: [
         [-1500,-1800],[-1050,-1800],[-600,-1800],
@@ -5781,11 +5781,23 @@ this.drawCityWallsAndGate();
       layouts[region].forEach((seedPoint, index) => {
         const point = this.resolveExcavationPosition(seedPoint[0], seedPoint[1], region);
         const { root, sprite, glow } = this.spawnExcavationSiteNode(`${region}-${index}`, point.x, point.y);
+        // 第一章教学坑(trial)只占用按距离排序后最近的 5 个（见 chapterPitPool）；
+        // 其余 trial 坑作为「城内/城外近处的拾遗补充坑」，直接出拾遗字，避免教学章
+        // 挖来挖去全是重复主线字。region 仍为 'trial'（可见可挖、不受主线后渐进
+        // 揭示控制），仅 reward 走 rollSupplementReward（tier='supplement'）。
+        const reward = (region === 'trial' && index >= 5)
+          ? this.rollSupplementReward()
+          : this.rollExcavationReward(region);
         const site: ExcavationSite = {
           id: `${region}-${index}`, root, sprite, glow, x: point.x, y: point.y,
           region,
+          // trial 区横跨城内(CITY)与城南(OUTSKIRTS)：按坑实际坐标所属大区定 mapRegion，
+          // 否则城内那几个教学坑会被误判成 OUTSKIRTS，导致玩家在城内时箭头却指向南城门、越走越远。
+          mapRegion: region === 'trial'
+            ? (this.inRegion(point.x, point.y, this.cityBoundary) ? RegionId.CITY : RegionId.OUTSKIRTS)
+            : this.excavationRegionToMapRegion(region),
           active: true, revealed: true, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
-          reward: this.rollExcavationReward(region), storyTarget: false,
+          reward, storyTarget: false,
         };
         this.excavationSites.push(site);
         this.redrawExcavationSite(site);
@@ -5825,6 +5837,7 @@ this.drawCityWallsAndGate();
       const site: ExcavationSite = {
         id: `supplement-${index}`, root, sprite, glow, x: point[0], y: point[1],
         region: 'supplement',
+        mapRegion: RegionId.OUTSKIRTS,
         active: false, revealed: false, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
         reward: this.rollExcavationReward('supplement'), storyTarget: false,
       };
@@ -5885,7 +5898,8 @@ this.drawCityWallsAndGate();
   private resolveExcavationPosition(seedX: number, seedY: number, region: ExcavationRegion, ignoreSite: ExcavationSite | null = null) {
     const bounds = region === 'supplement' ? this.supplementRegion
       : region === 'river' ? this.riverRegion : region === 'field' ? this.fieldRegion
-      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion : this.tombRegion;
+      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion
+      : region === 'trial' ? this.trialRegion : this.tombRegion;
     // Authored seeds may sit exactly on a regional seam.  Pull them into the
     // usable interior before probing so world creation remains deterministic
     // and never performs hundreds of expensive full-map collision scans.
@@ -5915,7 +5929,17 @@ this.drawCityWallsAndGate();
         if (this.isExcavationPositionValid(x, y, region, ignoreSite, relaxedSpacing)) return new Vec2(x, y);
       }
     }
-    console.warn(`[YinXuCity] excavation site ${region} used fallback position`, seedX, seedY);
+    // 最后保底：以粗网格扫描整个区域，只要"可站立且不在障碍内"即可（忽略坑间距），
+    // 绝不返回未经校验的坐标，避免土坑落在不可通行处。
+    const gridStep = 80;
+    for (let gy = bounds.bottom + 60; gy <= bounds.top - 60; gy += gridStep) {
+      for (let gx = bounds.left + 60; gx <= bounds.right - 60; gx += gridStep) {
+        if (this.canStandRadius(gx, gy, 24) && !this.pointInAnyObstacle(gx, gy)) {
+          return new Vec2(gx, gy);
+        }
+      }
+    }
+    console.warn(`[YinXuCity] excavation site ${region} NO walkable fallback found`, seedX, seedY);
     return new Vec2(seedX, seedY);
   }
 
@@ -5924,7 +5948,8 @@ this.drawCityWallsAndGate();
   ) {
     const bounds = region === 'supplement' ? this.supplementRegion
       : region === 'river' ? this.riverRegion : region === 'field' ? this.fieldRegion
-      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion : this.tombRegion;
+      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion
+      : region === 'trial' ? this.trialRegion : this.tombRegion;
     if ((region === 'river' || region === 'field') && this.inRegion(x, y, this.southOutskirtsTrial)) return false;
     if (x < bounds.left + 48 || x > bounds.right - 48 || y < bounds.bottom + 48 || y > bounds.top - 48) return false;
     if (!this.canStandRadius(x, y, 24) || this.pointInAnyObstacle(x, y)) return false;
@@ -5945,7 +5970,8 @@ this.drawCityWallsAndGate();
     const previousX = site.x; const previousY = site.y;
     const bounds = site.region === 'supplement' ? this.supplementRegion
       : site.region === 'river' ? this.riverRegion : site.region === 'field' ? this.fieldRegion
-      : site.region === 'lake' ? this.lakeRegion : site.region === 'forest' ? this.forestRegion : this.tombRegion;
+      : site.region === 'lake' ? this.lakeRegion : site.region === 'forest' ? this.forestRegion
+      : site.region === 'trial' ? this.trialRegion : this.tombRegion;
     for (let attempt = 0; attempt < 84; attempt++) {
       const x = Math.round(bounds.left + 70 + Math.random() * (bounds.right - bounds.left - 140));
       const y = Math.round(bounds.bottom + 70 + Math.random() * (bounds.top - bounds.bottom - 140));
@@ -6012,7 +6038,7 @@ this.drawCityWallsAndGate();
     // 这样「发现拾遗」才是一次真正的探索奖励。
     const roll = Math.random();
     let quality: OracleQuality | null = null;
-    if (region === 'river' || region === 'field') {
+    if (region === 'river' || region === 'field' || region === 'trial') {
       if (roll < .70) quality = 'blue';
       else if (roll < .78) quality = 'red';
     } else if (region === 'lake') {
@@ -6057,7 +6083,9 @@ this.drawCityWallsAndGate();
     site.glow.node.setScale(1, 1, 1);
     site.glow.node.setRotationFromEuler(0, 0, 0);
     const currentRegionId = this.regionTransitionManager?.currentRegionId;
-    const hiddenFieldSite = site.region === 'field' && !!currentRegionId && currentRegionId !== RegionId.FIELDS;
+    // 当前章节正在指引的剧情目标坑即便落在其它区域（本章的字散落各区域），
+    // 也始终保持可见，保证金色箭头指向的碎甲不会被跨区隐藏逻辑藏掉。
+    const hiddenFieldSite = site.region === 'field' && !!currentRegionId && currentRegionId !== RegionId.FIELDS && !site.storyTarget;
     site.root.active = true;
     if (!site.active) {
       if (site.holeTimer <= 0) {
@@ -6164,6 +6192,17 @@ this.drawCityWallsAndGate();
     return parts.length > 0 ? `拾遗所得：${parts.join('、')}。` : null;
   }
 
+  /** 统一发放卜官经验；跨段位阈值时播放升级音效。阈值与 LearningHall RANKS 对齐（0/1000/3000/6000/12000）。 */
+  private gainExperience(amount: number) {
+    if (!amount) return;
+    const before = this.save.experience;
+    this.save.experience += amount;
+    const thresholds = [1000, 3000, 6000, 12000];
+    const beforeRank = thresholds.filter(t => before >= t).length;
+    const afterRank = thresholds.filter(t => this.save.experience >= t).length;
+    if (afterRank > beforeRank) this.audioManager.playSfx('level_up');
+  }
+
   private completeExcavation(site: ExcavationSite) {
     site.storyTarget = false;
     const reward = site.reward;
@@ -6187,10 +6226,11 @@ this.drawCityWallsAndGate();
       }
       if (card) {
         // 字卡已录入：弹出辨识学习面板，学完再推进「学习完成」。
+        this.audioManager.playSfx('reward_get');
         site.awaitingStudy = true;
         // 拾遗字(supplement)挖到即发放档位奖励(墨料/经验)；主线字 amount/experience 为 0，发放无害。
         if (reward.amount) { this.save.ink += reward.amount; }
-        if (reward.experience) { this.save.experience += reward.experience; }
+        if (reward.experience) { this.gainExperience(reward.experience); }
         this.persistCitySave();
         const rewardNotice = this.supplementRewardNotice(reward);
         if (rewardNotice) this.showStatusNotice(rewardNotice, 3.6);
@@ -6200,7 +6240,7 @@ this.drawCityWallsAndGate();
       // 字卡尚未录入（待补字）：直接连带完成「学习完成」，避免卡死；拾遗档位奖励仍发放。
       site.awaitingStudy = false;
       if (reward.amount) { this.save.ink += reward.amount; }
-      if (reward.experience) { this.save.experience += reward.experience; }
+      if (reward.experience) { this.gainExperience(reward.experience); }
       if (expectedFragment) {
         this.storyController.handle({ type: 'learning-completed', cardId: reward.cardId, correct: true });
       }
@@ -6212,7 +6252,7 @@ this.drawCityWallsAndGate();
     }
     site.awaitingStudy = false;
     this.save.ink += reward.amount;
-    if (reward.experience) { this.save.experience += reward.experience; }
+    if (reward.experience) { this.gainExperience(reward.experience); }
     this.persistCitySave();
     this.createExcavationRewardFlight(site.x, site.y, reward.experience ? '验' : '墨', null);
     let msg = `这处土层没有甲骨文，收集到 ${reward.amount} 份墨料。`;
@@ -6312,7 +6352,11 @@ this.drawCityWallsAndGate();
         site.respawnTimer = Math.max(0, site.respawnTimer - dt);
         if (!site.awaitingStudy && site.respawnTimer <= 0) {
           this.moveExcavationSiteToRandomLocation(site);
-          site.reward = this.rollExcavationReward(site.region);
+          // 拾遗型坑（trial 内的拾遗补充坑，reward.tier==='supplement'）刷新后仍出拾遗字，
+          // 不回落成普通主线字，保证「城内/城外近处也能挖到拾遗」的体验延续。
+          site.reward = site.reward.tier === 'supplement'
+            ? this.rollSupplementReward()
+            : this.rollExcavationReward(site.region);
           site.active = true;
           site.holeTimer = 0;
           site.root.active = true;
@@ -9283,6 +9327,7 @@ this.drawCityWallsAndGate();
     this.currentMasteryStars = 0;
     if (this.divinationText?.isValid) this.divinationText.string = this.currentQuestion.prompt;
     if (this.divinationName?.isValid) this.divinationName.string = this.currentQuestion.villager;
+    this.audioManager.playSfx('card_flip');
     this.buildOracleSelection();
     this.updateRiseButtonState();
   }
@@ -9445,7 +9490,7 @@ this.drawCityWallsAndGate();
     this.currentRewardCoins = Math.round(20 * multiplier);
     this.currentRewardExperience = Math.round(10 * multiplier);
     this.save.coins += this.currentRewardCoins;
-    this.save.experience += this.currentRewardExperience;
+    this.gainExperience(this.currentRewardExperience);
     const previous = this.save.mastery[card.id] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
     this.save.mastery[card.id] = {
       attempts: previous.attempts + this.currentAttempts,
@@ -9560,6 +9605,7 @@ this.drawCityWallsAndGate();
   private showDivinationReview() {
     if (!this.overlayRoot || !this.currentQuestion || this.divinationStage !== 'animating') return;
     this.divinationStage = 'review';
+    this.audioManager.playSfx('divine_success');
     this.overlayRoot.getChildByName('OracleSelectionLayer')?.destroy();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
@@ -9640,6 +9686,7 @@ this.drawCityWallsAndGate();
       this.storyController.setFlag(
         (finishedChapterId && chapterClueFlags[finishedChapterId]) || 'clue.west-river-fragment', true);
       this.storyController.addDestinyPower(1);
+      this.audioManager.playSfx('chapter_clear');
     }
     // handle 之后，若当前步骤仍是「占卜步骤」，说明还有下一轮，保持 overlay 自动续接；
     // 否则（末轮）逼玩家起身查看裂纹。

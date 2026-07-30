@@ -10,6 +10,12 @@ native/
 # Local/third-party editor tooling
 extensions/cocos-mcp-server/
 
+# One-off backup / snapshot directories (never commit)
+library_bak_*/
+library_draft_ver/
+temp_backup_*/
+temp_bak_*/
+
 # Dependencies and caches
 node_modules/
 coverage/
