@@ -394,7 +394,7 @@ export class LearningHall extends Component {
     if (!this.callbacks) return;
     if (mode === 'home') this.renderHome();
     else if (mode === 'enteringYinXu') this.renderEnteringYinXu();
-    else if (mode === 'characterSelect') this.renderCharacterSelect();
+    else if (mode === 'characterSelect') this.drawCharacterSelect();
     else if (mode === 'codex') this.renderCodex(selectedId);
     else if (mode === 'review') this.renderReview();
     else if (mode === 'reviewResult') this.renderReviewResult();
@@ -404,7 +404,6 @@ export class LearningHall extends Component {
     else if (mode === 'story') this.renderStoryRoadmap();
     else if (mode === 'ranks') this.renderRanks();
     else if (mode === 'avatarCrop') this.drawAvatarCrop();
-    else if (mode === 'characterSelect') this.drawCharacterSelect();
     else this.renderPlaceholder(mode);
   }
 
@@ -425,7 +424,7 @@ export class LearningHall extends Component {
   private beginYinXuTransition() {
     if (this.enteringYinXu) return;
     const avatarId = this.callbacks?.getProfile().avatarId;
-    if (avatarId !== 'oracle-boy-v1' && avatarId !== 'oracle-girl-v1') {
+    if (avatarId !== 'oracle-boy-pixel' && avatarId !== 'oracle-girl-pixel') {
       this.render('characterSelect');
       return;
     }
@@ -444,8 +443,8 @@ export class LearningHall extends Component {
     this.panel(root, 'HallCharacterSelectPanel', 0, 0, 840, 510, t.card, false);
     this.titleLabel(root, 'HallCharacterSelectTitle', '选择你的卜官', 0, 188, 560, 42, 30, t.goldInk, 6);
     this.label(root, 'HallCharacterSelectHint', '选择后即可进入殷墟探索；在设置中也可以随时更换。', 0, 150, 600, 28, 16, t.goldSub, 'center', 6);
-    this.drawCharacterSelectCard(root, 'Boy', -190, 0, 'oracle-boy-v1', '少年卜官', '黑袍佩剑 · 发丝与衣摆随步伐摆动', true, t);
-    this.drawCharacterSelectCard(root, 'Girl', 190, 0, 'oracle-girl-v1', '少女卜官', '青黛长衣 · 发簪与衣袖随步伐摆动', false, t);
+    this.drawCharacterSelectCard(root, 'Boy', -190, 0, 'oracle-boy-pixel', '玄衣卜官', '黑袍负剑 · 发掘古迹', true, t);
+    this.drawCharacterSelectCard(root, 'Girl', 190, 0, 'oracle-girl-pixel', '青衣卜官', '青衫发冠 · 聆听甲骨', false, t);
     this.button(root, 'HallCharacterSelectBack', '返回', 0, -205, 150, 46, false);
   }
 
@@ -1832,9 +1831,9 @@ export class LearningHall extends Component {
     if (this.hit(x, y, 480, 286, 150, 48)) { this.playSfx('back'); this.render('home'); return; }
     if (this.mode === 'characterSelect') {
       if (this.hit(x, y, -190, 0, 320, 278)) {
-        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-boy-v1'); this.beginYinXuTransition();
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-boy-pixel'); this.beginYinXuTransition();
       } else if (this.hit(x, y, 190, 0, 320, 278)) {
-        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-girl-v1'); this.beginYinXuTransition();
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-girl-pixel'); this.beginYinXuTransition();
       } else if (this.hit(x, y, 0, -205, 150, 46)) {
         this.playSfx('back'); this.render('home');
       }
