@@ -94,6 +94,27 @@ export class RegionTransitionManager {
   get isInputLocked() { return this.stateValue !== RegionTransitionState.IDLE && this.stateValue !== RegionTransitionState.COOLDOWN; }
   getEntry(entryId: string): RegionEntry | null { return this.entries.get(entryId) ?? null; }
   getRegisteredEntries(): ReadonlyArray<RegionEntry> { return Array.from(this.entries.values()); }
+
+  /** Returns the first natural boundary exit on a route to another map. */
+  getExitToward(targetRegionId: RegionId): RegionExit | null {
+    const source = this.currentRegionValue;
+    if (source === targetRegionId) return null;
+    const canReach = (start: RegionId) => {
+      const queue: RegionId[] = [start];
+      const visited = new Set<RegionId>([start]);
+      while (queue.length) {
+        const current = queue.shift()!;
+        if (current === targetRegionId) return true;
+        for (const exit of this.exits) {
+          if (exit.sourceRegionId !== current || visited.has(exit.targetRegionId)) continue;
+          visited.add(exit.targetRegionId);
+          queue.push(exit.targetRegionId);
+        }
+      }
+      return false;
+    };
+    return this.exits.find(exit => exit.sourceRegionId === source && canReach(exit.targetRegionId)) ?? null;
+  }
   get cameraBounds() {
     const definition = this.definitions.get(this.currentRegionValue);
     if (!definition || !pointInWorldBounds(this.callbacks.getPlayerFootPosition(), definition.currentWorldBounds)) return undefined;
