@@ -331,11 +331,12 @@ export class YinXuCity extends Component {
   private excavationFrames: Record<ExcavationVisualState, SpriteFrame | null> = { idle: null, dug: null };
   private excavationFramesRequested = false;
   private playerFrames: Record<Facing, Array<SpriteFrame | null>> = {
-    down: [null, null, null, null],
-    left: [null, null, null, null],
-    right: [null, null, null, null],
-    up: [null, null, null, null],
+    down: [null, null, null, null, null, null],
+    left: [null, null, null, null, null, null],
+    right: [null, null, null, null, null, null],
+    up: [null, null, null, null, null, null],
   };
+  private readonly playerFrameCount = 6;
   private facing: Facing = 'down';
   private displayedPlayerFrame = -1;
   private elapsed = 0;
@@ -354,9 +355,10 @@ export class YinXuCity extends Component {
   private readonly unlockAllCatalogForPreview = true;
   private readonly oracleCards: OracleCardData[] = [
     {
-      id: 'rain', glyph: '⋮', modern: '雨', pinyin: 'yǔ', quality: 'blue',
+      id: 'rain', glyph: '雨', modern: '雨', pinyin: 'yǔ', quality: 'blue',
+      asset: 'catalog/ob-u96e8', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表示从天空降下的雨水，是观察自然天气的重要文字。',
-      evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。',
+      evolution: '图鉴所用甲骨字形以密集短画表现自天而降的雨势；后世逐步收束为“雨”的外框与内部点画。',
       history: '商代卜辞常记录求雨、止雨和未来天气，帮助安排耕作与祭祀。',
     },
     {
@@ -388,16 +390,18 @@ export class YinXuCity extends Component {
       history: '商代对日月星辰的观察服务于历法、农时、祭祀和方向判断，体现了早期天象知识的积累。',
     },
     {
-      id: 'field', glyph: '⊞', modern: '田', pinyin: 'tián', quality: 'red',
+      id: 'field', glyph: '田', modern: '田', pinyin: 'tián', quality: 'red',
+      asset: 'catalog/ob-u7530', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表示划分整齐的耕地，与播种、收获和田猎活动有关。',
-      evolution: '正式版本将替换为对应甲骨拓片和田块象形结构。',
+      evolution: '图鉴字形以阡陌分割的方格象征田界；经金文、篆书的线条规整，发展为今天的“田”字。',
       history: '甲骨卜辞中常见对收成、田猎和土地事务的占问。',
     },
     {
-      id: 'water-temp', glyph: '◇', modern: '水（临）', pinyin: 'shuǐ', quality: 'blue',
-      meaning: '临时收藏位：表示水流与水边生活，正式甲骨字形将后续替换。',
-      evolution: '当前使用统一符号验证发掘、收藏与学习流程。',
-      history: '洹水河畔出土的普通蓝光卜骨，与渔猎、水事记录相关。',
+      id: 'water-temp', glyph: '水', modern: '水', pinyin: 'shuǐ', quality: 'blue',
+      asset: 'catalog/ob-u6c34', imageBounds: [0, 0, 199, 199], excavatable: true,
+      meaning: '字形以中间主流和两侧分支表现流水，表示江河、水源及与水有关的行动。',
+      evolution: '甲骨文把水流的分叉和回旋写成可见线条；后世逐渐把它规范为“水”的竖画、撇捺结构。',
+      history: '商代卜辞常把水与降雨、渡涉、渔猎和农事相连；河畔聚落的用水与水势都可能成为占问事项。',
     },
     {
       id: 'millet-temp', glyph: '♮', modern: '禾（临）', pinyin: 'hé', quality: 'blue',
@@ -546,9 +550,10 @@ export class YinXuCity extends Component {
       history: '成对学习上下位置字，有助于区分相近结构并理解指事字的造字逻辑。',
     },
     {
-      id: 'earth-temp', glyph: '⊙', modern: '土（临）', pinyin: 'tǔ', quality: 'blue',
+      id: 'earth-temp', glyph: '土', modern: '土', pinyin: 'tǔ', quality: 'blue',
+      asset: 'catalog/ob-u571f', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表现地面上隆起的土块或土堆，用于表示土地。',
-      evolution: '临时符号强调地面与土堆；正式字库将展示字形逐渐规整的过程。',
+      evolution: '图鉴字形以地面横线和隆起的土块为核心；此后线条逐渐规整，形成“土”的上下结构。',
       history: '土地与城邑、农耕、方域和祭祀密切相关，是殷墟生活的重要主题。',
     },
     {
@@ -788,6 +793,7 @@ export class YinXuCity extends Component {
           delete this.save.avatarUrl;
         }
         this.persistCitySave();
+        if (avatarId === 'oracle-boy-v1' || avatarId === 'oracle-girl-v1') this.loadPlayerFrames();
       },
       toggleMusic: () => {
         this.save.musicOn = !this.save.musicOn;
@@ -4488,13 +4494,15 @@ this.drawCityWallsAndGate();
     // normalized to the same raw canvas and foot baseline before import.
     const shadow = this.graphics('PlayerShadow', root, -3);
     shadow.fillColor = new Color(30, 37, 33, 88);
-    shadow.ellipse(0, 1, 12, 4);
+    shadow.ellipse(0, 1, 15, 5);
     shadow.fill();
 
     this.playerVisual = new Node('OracleApprenticeWalkFrames');
     this.playerVisual.parent = root;
-    this.playerVisual.setPosition(0, 30, 4);
-    this.playerVisual.addComponent(UITransform).setContentSize(64, 64);
+    // Keep the foot baseline fixed while making the selected protagonist more
+    // legible than the background villagers.
+    this.playerVisual.setPosition(0, 40, 4);
+    this.playerVisual.addComponent(UITransform).setContentSize(84, 84);
     this.playerSprite = this.playerVisual.addComponent(Sprite);
     this.playerSprite.sizeMode = Sprite.SizeMode.CUSTOM;
 
@@ -4505,19 +4513,35 @@ this.drawCityWallsAndGate();
     this.heldToolGraphics = this.heldToolNode.addComponent(Graphics);
     this.heldToolNode.active = false;
 
+    this.loadPlayerFrames();
+    return root;
+  }
+
+  private playerCharacterAsset() {
+    return this.save.avatarId === 'oracle-girl-v1' ? 'oracle-girl-v1' : 'oracle-boy-v1';
+  }
+
+  private loadPlayerFrames() {
+    const asset = this.playerCharacterAsset();
+    this.playerFrames = {
+      down: Array(this.playerFrameCount).fill(null),
+      left: Array(this.playerFrameCount).fill(null),
+      right: Array(this.playerFrameCount).fill(null),
+      up: Array(this.playerFrameCount).fill(null),
+    };
+    this.displayedPlayerFrame = -1;
     const directions: Facing[] = ['down', 'left', 'right', 'up'];
     directions.forEach(direction => {
-      for (let frameIndex = 0; frameIndex < 4; frameIndex++) {
-        const key = `characters/oracle-apprentice/${direction}-${frameIndex}/spriteFrame`;
+      for (let frameIndex = 0; frameIndex < this.playerFrameCount; frameIndex++) {
+        const key = `characters/${asset}/${direction}-${frameIndex}/spriteFrame`;
         this.requestSpriteFrame(key, frame => {
           this.playerFrames[direction][frameIndex] = frame;
-          if (direction === this.facing && frameIndex === 0 && this.playerSprite.isValid) {
+          if (direction === this.facing && frameIndex === 0 && this.playerSprite?.isValid) {
             this.playerSprite.spriteFrame = frame;
           }
         });
       }
     });
-    return root;
   }
 
   private animatePlayer(moving: boolean, direction: Vec2, movedDistance: number) {
@@ -4527,7 +4551,7 @@ this.drawCityWallsAndGate();
       // screen-down is the room entrance direction.
       this.facing = 'down';
       this.showPlayerFrame(0);
-      this.playerVisual.setPosition(0, 17, 4);
+      this.playerVisual.setPosition(0, 24, 4);
       this.playerVisual.setScale(.9, .78, 1);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
       return;
@@ -4539,24 +4563,26 @@ this.drawCityWallsAndGate();
     }
 
     if (moving) {
-      this.walkPhase += movedDistance / 11.5;
-      const walkSequence = [0, 1, 0, 3];
+      // A full six-frame stride now covers more ground, so the character does
+      // not look like it is hurriedly stepping in place.
+      this.walkPhase += movedDistance / 23;
+      const walkSequence = [0, 1, 2, 3, 4, 5];
       const frameIndex = walkSequence[Math.floor(this.walkPhase) % walkSequence.length];
       this.showPlayerFrame(frameIndex);
       const stride = Math.sin(this.walkPhase * Math.PI);
-      this.playerVisual.setPosition(0, 30 + Math.abs(stride) * .55, 4);
-      const lean = this.facing === 'left' ? .45 : (this.facing === 'right' ? -.45 : 0);
+      this.playerVisual.setPosition(0, 40 + Math.abs(stride) * 2.2, 4);
+      const lean = this.facing === 'left' ? 1.15 : (this.facing === 'right' ? -1.15 : 0);
       this.playerVisual.setRotationFromEuler(0, 0, lean * stride);
     } else {
       this.walkPhase = 0;
       this.showPlayerFrame(0);
-      this.playerVisual.setPosition(0, 30, 4);
+      this.playerVisual.setPosition(0, 40, 4);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
     }
   }
 
   private showPlayerFrame(frameIndex: number) {
-    const displayKey = (['down', 'left', 'right', 'up'].indexOf(this.facing) * 4) + frameIndex;
+    const displayKey = (['down', 'left', 'right', 'up'].indexOf(this.facing) * this.playerFrameCount) + frameIndex;
     if (displayKey === this.displayedPlayerFrame) return;
     const frame = this.playerFrames[this.facing][frameIndex];
     if (!frame || !this.playerSprite?.isValid) return;
@@ -6047,7 +6073,8 @@ this.drawCityWallsAndGate();
       equippedShellId: 'shell-clay',
       placedDecorationIds: [],
       playerName: '少年卜官',
-      avatarId: 'oracle-apprentice',
+      // Entering the world prompts a first-time player to choose the boy or girl protagonist.
+      avatarId: 'unselected',
       musicOn: true,
       sfxOn: true,
       nightMode: false,
