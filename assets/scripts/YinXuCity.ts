@@ -372,6 +372,17 @@ const ORACLE_GLYPH_ASSET_OVERRIDES: Record<string, OracleGlyphOverride> = {
   'hand-temp': { glyph: '', modern: '手' },
   'foot-temp': { glyph: '', modern: '足' },
 };
+
+// These legacy ids remain in the runtime for story compatibility and existing
+// save files, but their oracle image is already represented by a dedicated
+// catalog card. Hiding twenty such visual duplicates gives the public catalog
+// its intended 300-card presentation without deleting playable data.
+const CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS = new Set([
+  'above-temp', 'below-temp', 'person-temp', 'mouth-temp', 'earth-temp',
+  'large-temp', 'woman-temp', 'child-temp', 'small-temp', 'mountain-temp',
+  'river-temp', 'fire-temp', 'cow-temp', 'dog-temp', 'king-temp',
+  'eye-temp', 'ancestor-temp', 'ritual-temp', 'ear-temp', 'boat-temp',
+]);
 type DivinationQuestion = { villager: string; prompt: string; answerId: string; portrait: 'farmer' | 'woman' };
 
 // 第六章的三轮问卜不是随机村民题。它们分别推进「灯阵分层 →
@@ -400,8 +411,8 @@ type WrongBookEntry = { wrongCount: number; lastWrongAt: number };
 type CitySave = {
   version: number; ink: number; coins: number; experience: number;
   unlockedOracleIds: string[]; excavatedStoryIds: string[]; excavatedCardIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
-  ownedProductIds: string[]; equippedShellId: string;
-  playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
+  ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
+  playerName: string; avatarId: string; avatarUrl?: string; characterChoiceCompleted: boolean; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   story: StorySaveState;
   currentRegionId?: RegionId;
   storyLocationId?: string;
@@ -427,7 +438,7 @@ export class YinXuCity extends Component {
   // painted shadow require a wider, shallow footprint than the old 9px circle.
   private readonly templeFootHalfWidth = 20;
   private readonly templeFootHalfHeight = 9;
-  private readonly moveSpeed = 158;
+  private readonly moveSpeed = 138;
   private readonly templeWalkBounds = { left: -548, right: 548, bottom: -282, top: 214 };
   private readonly templeSeatPoint = new Vec2(0, -24);
   private readonly templeRiseSafePoint = new Vec2(0, -185);
@@ -479,14 +490,23 @@ export class YinXuCity extends Component {
     spawnY: 690,
   };
   private readonly riverbankPhaseOneRiverPoints: Array<[number, number]> = [
-    [-6000, -1050], [-5680, -1120], [-5350, -1320], [-5000, -1470],
-    [-4650, -1510], [-4270, -1760], [-4430, -2110], [-4200, -2480],
-    [-4400, -3000],
+    // Sampled directly from the visible blue channel in
+    // huan-river-continuous-v1. This replaces the old procedural-river route
+    // entirely, so no invisible legacy water remains on the grass.
+    [-6025, -1195], [-5780, -1286], [-5517, -1368], [-5236, -1357],
+    [-5008, -1410], [-4762, -1524], [-4534, -1691], [-4385, -1883],
+    [-4359, -2146], [-4377, -2392], [-4394, -2655], [-4377, -2883],
+    [-4333, -3076],
   ];
   private readonly riverbankPhaseOneRoadPoints: Array<[number, number]> = [
     [-4900, 790], [-4900, -250], [-4900, -700], [-4920, -1040], [-4900, -1335],
   ];
-  private readonly riverbankPhaseOneBridge = { x: -4900, y: -1470, w: 82, h: 269 };
+  // The bridge is centred on the widened river at the end of the north road,
+  // rather than leaving half of its deck on the south bank.
+  // The continuous river artwork sits higher than the old placeholder channel.
+  // Keep the deck centred between its two banks, while retaining a small
+  // overlap with the north road so there is no walkable seam at the landing.
+  private readonly riverbankPhaseOneBridge = { x: -4900, y: -1190, w: 82, h: 560 };
   private readonly riverbankPhaseOneReturnTrigger = {
     left: -4956, right: -4844, bottom: 770, top: 820,
   };
@@ -614,6 +634,7 @@ export class YinXuCity extends Component {
   private readonly playerFrameCount = 6;
   private facing: Facing = 'down';
   private displayedPlayerFrame = -1;
+  private playerSpriteLoadToken = 0;
   private elapsed = 0;
   private walkPhase = 0;
   private blocked = false;
@@ -1020,6 +1041,7 @@ export class YinXuCity extends Component {
     this.audioManager.setSfxEnabled(this.save.sfxOn);
     this.restoreSavedRegionPosition();
     this.buildWorld();
+    this.relocatePlayerOutOfRiverWater();
     this.createRegionTransitionManager();
     this.updateOutskirtsVisibility();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
@@ -1038,6 +1060,7 @@ export class YinXuCity extends Component {
           : this.save.unlockedOracleIds;
         return this.oracleCards
           .filter(card => this.hasRealOracleGlyph(card)
+            && !CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS.has(card.id)
             && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
           .map(card => ({
             id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
@@ -1085,6 +1108,7 @@ export class YinXuCity extends Component {
         playerName: this.save.playerName,
         avatarId: this.save.avatarId,
         avatarUrl: this.save.avatarUrl,
+        characterChoiceCompleted: this.save.characterChoiceCompleted,
         musicOn: this.save.musicOn,
         sfxOn: this.save.sfxOn,
         nightMode: this.save.nightMode,
@@ -1102,7 +1126,16 @@ export class YinXuCity extends Component {
           delete this.save.avatarUrl;
         }
         this.persistCitySave();
-        if (avatarId === 'oracle-boy-v1' || avatarId === 'oracle-girl-v1') this.loadPlayerFrames();
+        if (avatarId === 'oracle-boy-pixel' || avatarId === 'oracle-girl-pixel') {
+          this.loadPlayerCharacterFrames();
+        }
+      },
+      choosePlayerCharacter: (avatarId) => {
+        this.save.avatarId = avatarId;
+        delete this.save.avatarUrl;
+        this.save.characterChoiceCompleted = true;
+        this.loadPlayerCharacterFrames();
+        this.persistCitySave();
       },
       toggleMusic: () => {
         this.save.musicOn = !this.save.musicOn;
@@ -1213,13 +1246,10 @@ export class YinXuCity extends Component {
     if (direction.lengthSqr() > .001) {
       const dx = direction.x * this.moveSpeed * dt;
       const dy = direction.y * this.moveSpeed * dt;
-      if (this.worldMode === 'templeInterior') this.moveTemplePlayerWithCollision(dx, dy);
-      else {
-        if (this.canPlayerStand(this.playerPos.x + dx, this.playerPos.y)) this.playerPos.x += dx;
-        else if (Math.abs(dx) > .01) this.blocked = true;
-        if (this.canPlayerStand(this.playerPos.x, this.playerPos.y + dy)) this.playerPos.y += dy;
-        else if (Math.abs(dy) > .01) this.blocked = true;
-      }
+      // Sweep movement in every map, not only the temple.  A slow browser
+      // frame used to test only the final outside position, so a player could
+      // jump through a house wall or other thin collider in one update.
+      this.movePlayerWithCollision(dx, dy);
     }
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
@@ -1667,6 +1697,21 @@ export class YinXuCity extends Component {
     }
     console.warn('[YinXuCity] no safe spawn found; using requested story coordinate', x, y);
     return new Vec2(x, y);
+  }
+
+  /**
+   * A save made while an older river layout was active can point into the new
+   * water artwork. Move it to the nearest legal bank before input starts,
+   * rather than leaving the player stranded in (or able to explore) water.
+   */
+  private relocatePlayerOutOfRiverWater() {
+    if (this.worldMode !== 'outside' || !this.pointInWater(this.playerPos.x, this.playerPos.y, this.playerRadius)) return;
+    const safe = this.resolveSafePlayerSpawn(this.playerPos.x, this.playerPos.y);
+    this.playerPos.set(safe.x, safe.y);
+    this.cameraPos.set(safe.x, safe.y);
+    if (this.player?.isValid) this.player.setPosition(safe.x, safe.y, 80);
+    this.save.playerWorldPosition = { x: safe.x, y: safe.y };
+    console.info('[YinXuCity] relocated saved player from river water', { x: safe.x, y: safe.y });
   }
 
   private presentStoryStep(step: StoryStepDefinition | null) {
@@ -3142,6 +3187,7 @@ export class YinXuCity extends Component {
     this.drawPixelGroundOverlay();
     this.drawRoads();
     this.drawRiver();
+    this.drawHuanLake();
     // Retired continuous-world transition art overlapped the new OUTSKIRTS
     // southwest bounds and registered small legacy tree collisions. Region
     // transitions now own this travel space, so do not instantiate the old map.
@@ -3494,38 +3540,24 @@ this.drawCityWallsAndGate();
   private drawRiver() {
     const riverPoints = this.riverbankPhaseOneRiverPoints;
 
-    // Phase-one RIVERBANK is a clean replacement, not an overlay over the old
-    // east approach. Its narrow, winding channel leaves both banks walkable.
-    const bankShadow = this.graphics('RiverbankPhaseOneOuterBankShadow', this.world, 3);
-    bankShadow.strokeColor = new Color(72, 77, 62, 220); bankShadow.lineWidth = 360;
-    this.strokeSmoothPath(bankShadow, riverPoints); bankShadow.stroke();
-    const raisedGrass = this.graphics('RiverbankPhaseOneRaisedGrassBank', this.world, 4);
-    raisedGrass.strokeColor = new Color(105, 137, 70); raisedGrass.lineWidth = 334;
-    this.strokeSmoothPath(raisedGrass, riverPoints); raisedGrass.stroke();
-    const bank = this.graphics('RiverbankPhaseOneSoilBank', this.world, 5);
-    bank.strokeColor = new Color(176, 132, 70); bank.lineWidth = 292;
-    this.strokeSmoothPath(bank, riverPoints); bank.stroke();
-    const wetBank = this.graphics('RiverbankPhaseOneWetBank', this.world, 6);
-    wetBank.strokeColor = new Color(207, 163, 89); wetBank.lineWidth = 250;
-    this.strokeSmoothPath(wetBank, riverPoints); wetBank.stroke();
-    const deepWater = this.graphics('RiverbankPhaseOneDeepWater', this.world, 7);
-    deepWater.strokeColor = new Color(35, 82, 105); deepWater.lineWidth = 220;
-    this.strokeSmoothPath(deepWater, riverPoints); deepWater.stroke();
-    const flowingWater = this.graphics('RiverbankPhaseOneFlowingWater', this.world, 8);
-    flowingWater.strokeColor = new Color(58, 132, 165); flowingWater.lineWidth = 194;
-    this.strokeSmoothPath(flowingWater, riverPoints); flowingWater.stroke();
-    const riverDepth = this.graphics('RiverbankPhaseOneDeepCurrent', this.world, 9);
-    riverDepth.strokeColor = new Color(17, 65, 99, 92); riverDepth.lineWidth = 92;
-    this.strokeSmoothPath(riverDepth, riverPoints); riverDepth.stroke();
-    const current = this.graphics('RiverbankPhaseOneCurrent', this.world, 10);
-    current.strokeColor = new Color(122, 184, 194, 95); current.lineWidth = 4;
-    this.strokeSmoothPath(current, riverPoints); current.stroke();
+    // This is a single authored river illustration: water, shallows, stone
+    // mud lip and grass banks belong to the same continuous image.  Keeping
+    // it as one sprite avoids the former concentric colour-band look and any
+    // visible seam from separately repeated riverbank props.
+    this.pixelSprite(
+      'HuanRiverContinuousArt', 'huan-river-continuous-v1',
+      // Keep river art beneath existing roads, bridges and map props.  It is
+      // an environment layer, not an overlay over the rest of the map.
+      this.world, -5100, -2000, 2200, 2200, 3,
+    );
 
     for (let i = 0; i < riverPoints.length - 1; i++) {
       const a = riverPoints[i]; const b = riverPoints[i + 1];
       this.waterSegments.push({
         ax: a[0], ay: a[1], bx: b[0], by: b[1],
-        radius: 110,
+        // Only the blue channel is blocked.  Its banks are walkable and the
+        // bridge crossing below carves out the sole pass through the water.
+        radius: 150,
         name: 'RiverbankPhaseOneDeepWater',
       });
     }
@@ -3554,10 +3586,14 @@ this.drawCityWallsAndGate();
       x: bridgeX, y: bridgeY, w: bridgeWalkWidth, h: bridgeHeight,
       name: 'RiverbankNorthPureWoodBridgeDeck',
     });
+    // The art has longer timber tails so it reaches both grassy banks.  The
+    // physical rails stop at the actual water span; otherwise their invisible
+    // collision extended onto the landing and trapped the player beside it.
     // Player-center corridor = rail inner edge - player radius - 3 px safety.
+    const railCollisionHeight = Math.min(bridgeHeight - 24, 390);
     const railOffset = 51 - 3;
-    this.addObstacle(bridgeX - railOffset, bridgeY, 18, 250, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
-    this.addObstacle(bridgeX + railOffset, bridgeY, 18, 250, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
+    this.addObstacle(bridgeX - railOffset, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
+    this.addObstacle(bridgeX + railOffset, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
   }
 
   private drawRiverbankPhaseOneBoundary() {
@@ -3798,8 +3834,8 @@ this.drawCityWallsAndGate();
     if (roadDistance <= 56 + clearance) return 'ROAD';
 
     const waterDistance = this.distanceToPath(x, y, this.riverbankPhaseOneRiverPoints);
-    if (waterDistance <= 110 + clearance) return 'WATER';
-    if (waterDistance <= 180 + clearance) return 'SHORE';
+    if (waterDistance <= 150 + clearance) return 'WATER';
+    if (waterDistance <= 220 + clearance) return 'SHORE';
 
     const boundaryBand = 150 + clearance;
     if (x <= this.riverRegion.left + boundaryBand || x >= this.riverRegion.right - boundaryBand
@@ -4775,17 +4811,13 @@ this.drawCityWallsAndGate();
     // Layered irrigation water replaces the former flat blue rectangles. The
     // dry bank, wet soil lip, deep channel and moving highlights are separate
     // draw layers, which gives every branch an actual cut-earth profile.
-    // The main canal now exits beneath the west boundary instead of terminating
-    // at the removed well feeder. Its existing east end remains at x=2940.
-    this.drawLayeredIrrigationCanal('FieldMainCanal', 1520, -1270, 2840, 88, true, 8);
-    [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
-      this.drawLayeredIrrigationCanal(`FieldBranchCanal${branchIndex}`, x, -1725, 750, 30, false, 8);
-      this.drawIrrigationJunction(x, -1270, branchIndex);
-      this.drawIrrigationCanalEndCap(`FieldBranchCanal${branchIndex}SouthCap`, x, -2100, 30, 8, 'south');
-      this.addObstacle(x, -1510, 28, 290, `FieldBranchCanal${branchIndex}NorthWater`, RegionId.FIELDS);
-      this.addObstacle(x, -1925, 28, 350, `FieldBranchCanal${branchIndex}SouthWater`, RegionId.FIELDS);
-      this.addObstacle(x, -1668, 28, 26, `FieldBranchCanal${branchIndex}RoadNorthWaterLip`, RegionId.FIELDS);
-      this.addObstacle(x, -1739, 28, 22, `FieldBranchCanal${branchIndex}RoadSouthWaterLip`, RegionId.FIELDS);
+    this.pixelSprite(
+      'FieldContinuousRiverNetwork', 'field-huan-canal-network-v1',
+      this.world, 1630, -1567, 2620, 1060, 8,
+    );
+    [727, 1290, 1867, 2440].forEach(x => {
+      this.addObstacle(x, -1510, 28, 290, '田间支渠');
+      this.addObstacle(x, -1925, 28, 350, '田间支渠');
     });
     let canalStart = 100;
     [1100, 1700, 2300].forEach(gap => {
@@ -4871,18 +4903,36 @@ this.drawCityWallsAndGate();
     horizontal: boolean,
     z: number,
   ) {
+    // Field channels use an authored river texture rather than procedural
+    // colour strips.  The same water, stone, wet-earth and grass treatment is
+    // now shared with the Huan River, while the dimensions stay narrow enough
+    // to remain believable as irrigation channels between the crop plots.
+    const bankToBank = horizontal
+      ? Math.max(148, waterWidth + 60)
+      : Math.max(96, waterWidth + 62);
+    const canal = this.pixelSprite(
+      name, 'field-huan-canal-v1', this.world,
+      centerX, centerY, length, bankToBank, z,
+    );
+    if (!horizontal) canal.setRotationFromEuler(0, 0, 90);
+    return;
+
     const outerWidth = waterWidth + 58;
     const g = this.localGraphics(name, this.world, centerX, centerY, length + 34, outerWidth + 26, z);
     const segments = Math.max(4, Math.ceil(length / 92));
-    const drawBand = (width: number, color: Color, offsetY = 0) => {
+    const visualSeed = [...name].reduce((value, character) => value + character.charCodeAt(0), 0) * .071;
+    const drawBand = (width: number, color: Color, offsetY = 0, edgeVariation = 0) => {
       const top: Array<[number, number]> = [];
       const bottom: Array<[number, number]> = [];
       for (let index = 0; index <= segments; index++) {
         const px = -length / 2 + length * index / segments;
-        // Straight parallel bank bands prevent the old independently-jittered
-        // polygons from forming diamond-shaped seams at canal joins.
-        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY) / 3) * 3]);
-        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY) / 3) * 3]);
+        // Both shores share a gentle organic pulse. This gives the field
+        // stream the same natural bank language as 洹水河畔 without making the
+        // narrow irrigation path look ragged or mechanically tiled.
+        const pulse = Math.sin(index * 1.73 + visualSeed) * edgeVariation
+          + Math.sin(index * .61 + visualSeed * 2.3) * edgeVariation * .45;
+        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY + pulse) / 3) * 3]);
+        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY - pulse * .72) / 3) * 3]);
       }
       g.fillColor = color;
       g.moveTo(top[0][0], top[0][1]);
@@ -4890,32 +4940,37 @@ this.drawCityWallsAndGate();
       bottom.slice().reverse().forEach(point => g.lineTo(point[0], point[1]));
       g.close(); g.fill();
     };
-    drawBand(waterWidth + 58, new Color(82, 83, 69, 215), -2);
-    drawBand(waterWidth + 48, new Color(111, 119, 67), 0);
-    drawBand(waterWidth + 36, new Color(163, 112, 55), -1);
-    drawBand(waterWidth + 23, new Color(211, 163, 84), 0);
-    drawBand(waterWidth + 12, new Color(53, 72, 65), 0);
-    drawBand(waterWidth, new Color(55, 128, 159), 1);
-    drawBand(Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105), 1);
+    // The same material order as the Huan River: grass, wet soil, embedded
+    // stones, a thin shallow-water rim, then moving deep water.
+    drawBand(waterWidth + 58, new Color(55, 75, 49, 215), -2, 5);
+    drawBand(waterWidth + 49, new Color(86, 128, 61), 0, 4);
+    drawBand(waterWidth + 37, new Color(91, 74, 43), -1, 4);
+    drawBand(waterWidth + 25, new Color(119, 102, 62), 0, 3);
+    drawBand(waterWidth + 13, new Color(95, 151, 153), 0, 2);
+    drawBand(waterWidth, new Color(37, 109, 149), 1, 2);
+    drawBand(Math.max(12, waterWidth - 16), new Color(20, 74, 111, 118), 1, 1);
 
     // Pixel-sized soil clods, damp bank shadows and staggered chevrons keep
     // the long water surface from reading as a single coloured strip.
     for (let i = 0; i < Math.max(4, Math.floor(length / 30)); i++) {
       const x = -length / 2 + 14 + i * 30;
       const side = i % 2 === 0 ? 1 : -1;
-      g.fillColor = i % 3 === 0 ? new Color(192, 137, 67, 190) : new Color(93, 67, 43, 210);
-      g.rect(x, side * (waterWidth / 2 + 9), 8 + i % 4 * 2, 4 + i % 3); g.fill();
-      g.fillColor = i % 4 === 0 ? new Color(43, 68, 58, 210) : new Color(60, 78, 59, 175);
-      g.rect(x - 5, side * (waterWidth / 2 + 2), 12 + i % 3 * 2, 3); g.fill();
+      const bankY = side * (waterWidth / 2 + 12 + Math.sin(i * 1.7 + visualSeed) * 3);
+      // Rounded pebble clusters sit in the wet edge instead of forming the
+      // old repeated square soil dashes.
+      g.fillColor = i % 3 === 0 ? new Color(173, 156, 111, 205) : new Color(87, 78, 60, 220);
+      g.ellipse(x, bankY, 3 + i % 3, 2 + (i + 1) % 2); g.fill();
+      g.fillColor = i % 4 === 0 ? new Color(64, 104, 57, 220) : new Color(45, 80, 51, 185);
+      g.rect(x - 4, bankY + side * 7, 9 + i % 3 * 2, 3); g.fill();
       if (i % 3 === 0) {
         const waterY = -waterWidth * .2 + (i % 4) * Math.max(4, waterWidth * .12);
-        g.strokeColor = i % 2 === 0 ? new Color(128, 194, 198, 160) : new Color(12, 69, 105, 175);
+        g.strokeColor = i % 2 === 0 ? new Color(153, 211, 211, 180) : new Color(22, 79, 117, 175);
         g.lineWidth = 2;
         g.moveTo(x - 9, waterY + 3); g.lineTo(x, waterY); g.lineTo(x + 10, waterY + 3); g.stroke();
       }
       if (i % 7 === 2) {
         const grassY = side * (waterWidth / 2 + 15);
-        g.strokeColor = new Color(74, 104, 55, 190); g.lineWidth = 2;
+        g.strokeColor = new Color(109, 151, 63, 210); g.lineWidth = 2;
         g.moveTo(x, grassY); g.lineTo(x - 3, grassY + side * 9);
         g.moveTo(x + 4, grassY); g.lineTo(x + 8, grassY + side * 8); g.stroke();
       }
@@ -4966,6 +5021,14 @@ this.drawCityWallsAndGate();
   }
 
   private drawIrrigationJunction(x: number, y: number, variant: number) {
+    // A cropped authored cross-channel keeps the join naturally continuous;
+    // no flat blue cover plate is left at field-canal intersections.
+    this.pixelSprite(
+      `IrrigationWaterJunction${variant}`, 'field-huan-canal-cross-v1',
+      this.world, x, y, 260, 260, 11,
+    );
+    return;
+
     const g = this.localGraphics(`IrrigationWaterJunction${variant}`, this.world, x, y, 112, 128, 11);
     // Blend the two water runs with a compact pool instead of the old stepped
     // cross-shaped cover.
@@ -5457,9 +5520,10 @@ this.drawCityWallsAndGate();
         [3300,-2000],[3700,-2000],[4100,-2000],[4500,-2000],[4900,-2000],[5300,-2000],
       ],
     };
-    // RIVERBANK phase one intentionally contains no migrated gameplay sites.
-    // Keep its saved layout data in place for the later migration phase.
-    (Object.keys(layouts) as ExcavationRegion[]).forEach(region => {
+    // The river artwork owns this whole channel. Do not place the old
+    // riverbank excavation mounds there: they overlap water/shore pixels and
+    // make the new river read as a pile of unrelated props.
+    (Object.keys(layouts) as ExcavationRegion[]).filter(region => region !== 'river').forEach(region => {
       layouts[region].forEach((seedPoint, index) => {
         const point = this.resolveExcavationPosition(seedPoint[0], seedPoint[1], region);
         const { root, sprite, glow } = this.spawnExcavationSiteNode(`${region}-${index}`, point.x, point.y);
@@ -6749,10 +6813,10 @@ this.drawCityWallsAndGate();
 
     this.playerVisual = new Node('OracleApprenticeWalkFrames');
     this.playerVisual.parent = root;
-    // Keep the foot baseline fixed while making the selected protagonist more
-    // legible than the background villagers.
-    this.playerVisual.setPosition(0, 40, 4);
-    this.playerVisual.addComponent(UITransform).setContentSize(84, 84);
+    this.playerVisual.setPosition(0, 30, 4);
+    // Keep the player distinct from villagers without visually overpowering
+    // the map's buildings and authored NPCs.
+    this.playerVisual.addComponent(UITransform).setContentSize(64, 64);
     this.playerSprite = this.playerVisual.addComponent(Sprite);
     this.playerSprite.sizeMode = Sprite.SizeMode.CUSTOM;
 
@@ -6763,31 +6827,30 @@ this.drawCityWallsAndGate();
     this.heldToolGraphics = this.heldToolNode.addComponent(Graphics);
     this.heldToolNode.active = false;
 
-    this.loadPlayerFrames();
+    this.loadPlayerCharacterFrames();
     return root;
   }
 
-  private playerCharacterAsset() {
-    return this.save.avatarId === 'oracle-girl-v1' ? 'oracle-girl-v1' : 'oracle-boy-v1';
+  private playerCharacterFolder() {
+    return this.save.avatarId === 'oracle-girl-pixel' ? 'oracle-girl-pixel' : 'oracle-boy-pixel';
   }
 
-  private loadPlayerFrames() {
-    const asset = this.playerCharacterAsset();
-    this.playerFrames = {
-      down: Array(this.playerFrameCount).fill(null),
-      left: Array(this.playerFrameCount).fill(null),
-      right: Array(this.playerFrameCount).fill(null),
-      up: Array(this.playerFrameCount).fill(null),
-    };
+  private loadPlayerCharacterFrames() {
+    if (!this.playerSprite?.isValid) return;
+    const loadToken = ++this.playerSpriteLoadToken;
     this.displayedPlayerFrame = -1;
-    const directions: Facing[] = ['down', 'left', 'right', 'up'];
-    directions.forEach(direction => {
+    this.playerFrames = {
+      down: [null, null, null, null, null, null], left: [null, null, null, null, null, null],
+      right: [null, null, null, null, null, null], up: [null, null, null, null, null, null],
+    };
+    const folder = this.playerCharacterFolder();
+    (['down', 'left', 'right', 'up'] as Facing[]).forEach(direction => {
       for (let frameIndex = 0; frameIndex < this.playerFrameCount; frameIndex++) {
-        const key = `characters/${asset}/${direction}-${frameIndex}/spriteFrame`;
-        this.requestSpriteFrame(key, frame => {
+        this.requestSpriteFrame(`characters/${folder}/${direction}-${frameIndex}/spriteFrame`, frame => {
+          if (loadToken !== this.playerSpriteLoadToken) return;
           this.playerFrames[direction][frameIndex] = frame;
-          if (direction === this.facing && frameIndex === 0 && this.playerSprite?.isValid) {
-            this.playerSprite.spriteFrame = frame;
+          if (direction === this.facing && frameIndex === 0 && this.playerSprite.isValid) {
+            this.showPlayerFrame(0);
           }
         });
       }
@@ -6813,20 +6876,21 @@ this.drawCityWallsAndGate();
     }
 
     if (moving) {
-      // A full six-frame stride now covers more ground, so the character does
-      // not look like it is hurriedly stepping in place.
-      this.walkPhase += movedDistance / 23;
+      // Advance each pose every ~13.5 world pixels. At the player's travel
+      // speed this gives each foot a fresh contact/passing pose before the
+      // body has travelled a full stride, preventing a floating glide.
+      this.walkPhase += movedDistance / 13.5;
       const walkSequence = [0, 1, 2, 3, 4, 5];
       const frameIndex = walkSequence[Math.floor(this.walkPhase) % walkSequence.length];
       this.showPlayerFrame(frameIndex);
-      const stride = Math.sin(this.walkPhase * Math.PI);
-      this.playerVisual.setPosition(0, 40 + Math.abs(stride) * 2.2, 4);
-      const lean = this.facing === 'left' ? 1.15 : (this.facing === 'right' ? -1.15 : 0);
-      this.playerVisual.setRotationFromEuler(0, 0, lean * stride);
+      // The authored frames carry all gait motion.  Do not add a global bob or
+      // torso lean here: it makes a planted walk read as hopping.
+      this.playerVisual.setPosition(0, 30, 4);
+      this.playerVisual.setRotationFromEuler(0, 0, 0);
     } else {
       this.walkPhase = 0;
       this.showPlayerFrame(0);
-      this.playerVisual.setPosition(0, 40, 4);
+      this.playerVisual.setPosition(0, 30, 4);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
     }
   }
@@ -6874,7 +6938,9 @@ this.drawCityWallsAndGate();
     }
     const asset = 'tool-shovel-v1';
     this.drawHeldTool(tool);
-    if (this.heldToolNode?.isValid) this.heldToolNode.active = !this.seated;
+    // Equipping selects the action only.  The shovel should not be glued to
+    // the character while walking; it appears solely for the brief dig swing.
+    if (this.heldToolNode?.isValid) this.heldToolNode.active = false;
     this.requestFrame(asset, frame => {
       if (this.actionToolIconNode?.isValid) {
         const actionSprite = this.actionToolIconNode.getComponent(Sprite);
@@ -6923,12 +6989,12 @@ this.drawCityWallsAndGate();
 
   private updateHeldToolVisual() {
     if (!this.heldToolNode?.isValid) return;
-    if (this.equippedTool === 'none' || this.seated) {
+    const active = this.toolActionTimer > 0;
+    if (this.equippedTool === 'none' || this.seated || !active) {
       this.heldToolNode.active = false;
       return;
     }
     this.heldToolNode.active = true;
-    const active = this.toolActionTimer > 0;
     const progress = active ? 1 - this.clamp(this.toolActionTimer / Math.max(.01, this.toolActionDuration), 0, 1) : 0;
     const swing = active ? Math.sin(progress * Math.PI) : 0;
     let x = 8; let y = -3; let z = 8; let rotation = -20;
@@ -8099,10 +8165,10 @@ this.drawCityWallsAndGate();
     else console.info(`[YinXuCity] temple collision edge checks passed: ${checks.length}`);
   }
 
-  private moveTemplePlayerWithCollision(dx: number, dy: number) {
-    // Fixed-size sweep steps prevent a long frame from jumping across a thin
-    // brazier base or table edge. Axis separation retains the existing smooth
-    // wall-sliding behaviour and does not change movement speed or input.
+  private movePlayerWithCollision(dx: number, dy: number) {
+    // Fixed-size sweep steps keep every authored wall, house footprint and
+    // prop solid even during a long browser frame. Axis separation preserves
+    // natural wall-sliding instead of making the player stick on corners.
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 4));
     const stepX = dx / steps;
     const stepY = dy / steps;
@@ -8469,8 +8535,9 @@ this.drawCityWallsAndGate();
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
       playerName: '少年卜官',
-      // Entering the world prompts a first-time player to choose the boy or girl protagonist.
+      // Entering the world prompts a first-time player to choose a protagonist.
       avatarId: 'unselected',
+      characterChoiceCompleted: false,
       musicOn: true,
       sfxOn: true,
       nightMode: false,
@@ -8571,6 +8638,7 @@ this.drawCityWallsAndGate();
       playerName,
       avatarId: typeof source.avatarId === 'string' && source.avatarId.length > 0 ? source.avatarId : defaults.avatarId,
       avatarUrl: typeof source.avatarUrl === 'string' && source.avatarUrl.length > 0 ? source.avatarUrl : undefined,
+      characterChoiceCompleted: typeof source.characterChoiceCompleted === 'boolean' ? source.characterChoiceCompleted : false,
       musicOn: typeof source.musicOn === 'boolean' ? source.musicOn : defaults.musicOn,
       sfxOn: typeof source.sfxOn === 'boolean' ? source.sfxOn : defaults.sfxOn,
       nightMode: typeof source.nightMode === 'boolean' ? source.nightMode : defaults.nightMode,
@@ -11262,6 +11330,18 @@ this.drawCityWallsAndGate();
       layer.fill();
     });
 
+    // Distinct prop silhouettes make the lake read as a cultivated living
+    // shore at close range, while the contour layers retain the broad terrain
+    // shape at a distance. These are intentionally scattered, never tiled.
+    [
+      [-430, 170, 'riverbank-mud-edge-v1', 156], [392, 155, 'riverbank-mud-edge-v1', 150],
+      [-325, -250, 'river-reed-clump-v1', 112], [308, -188, 'river-reed-clump-v1', 102],
+      [-175, 330, 'river-reed-clump-v1', 92], [235, 322, 'paddy-stepping-embankment-v1', 136],
+    ].forEach(([offsetX, offsetY, asset, size], index) => this.pixelSprite(
+      `HuanLakeLivingShore-${index}`, asset as string, this.world,
+      centerX + Number(offsetX), centerY + Number(offsetY), Number(size), Number(size), 12,
+    ));
+
     this.drawHuanLakeTerraceEnvironment(centerX, centerY, outline);
 
     // A translucent deep-water basin sits over the lighter main surface. Its
@@ -11597,6 +11677,38 @@ this.drawCityWallsAndGate();
         }
       });
     }
+  }
+
+  /** Draws a single asymmetric river ribbon from its centre line. */
+  private drawOrganicRiverBand(
+    name: string,
+    points: Array<[number, number]>,
+    halfWidth: number,
+    color: Color,
+    z: number,
+    variation: number,
+  ) {
+    const samples = this.sampleDetailedPath(points, 34);
+    const left: Array<[number, number]> = [];
+    const right: Array<[number, number]> = [];
+    samples.forEach((point, index) => {
+      const before = samples[Math.max(0, index - 1)];
+      const after = samples[Math.min(samples.length - 1, index + 1)];
+      const dx = after[0] - before[0]; const dy = after[1] - before[1];
+      const length = Math.max(1, Math.hypot(dx, dy));
+      const nx = -dy / length; const ny = dx / length;
+      const pulse = Math.sin(index * .33) * variation + Math.sin(index * .11 + .7) * variation * .55;
+      const leftWidth = halfWidth + pulse;
+      const rightWidth = halfWidth - pulse * .72;
+      left.push([point[0] + nx * leftWidth, point[1] + ny * leftWidth]);
+      right.push([point[0] - nx * rightWidth, point[1] - ny * rightWidth]);
+    });
+    const band = this.graphics(name, this.world, z);
+    band.fillColor = color;
+    band.moveTo(left[0][0], left[0][1]);
+    left.slice(1).forEach(([x, y]) => band.lineTo(x, y));
+    right.slice().reverse().forEach(([x, y]) => band.lineTo(x, y));
+    band.close(); band.fill();
   }
 
   private sampleDetailedPath(points: Array<[number, number]>, spacing: number) {

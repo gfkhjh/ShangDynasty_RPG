@@ -56,8 +56,8 @@ const RANKS = [
 ] as const;
 
 const AVATARS = [
-  { id: 'oracle-boy-v1', name: '小卜官', emoji: '👦', path: 'characters/oracle-boy-v1/down-0/spriteFrame' },
-  { id: 'oracle-girl-v1', name: '小卜女', emoji: '👧', path: 'characters/oracle-girl-v1/down-0/spriteFrame' },
+  { id: 'oracle-boy-pixel', name: '玄衣卜官', emoji: '⚔', path: 'characters/oracle-boy-pixel/down-0/spriteFrame' },
+  { id: 'oracle-girl-pixel', name: '青衣卜官', emoji: '✦', path: 'characters/oracle-girl-pixel/down-0/spriteFrame' },
 ] as const;
 
 export type HallCard = {
@@ -74,7 +74,7 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'enteringYinXu' | 'characterSelect' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'story' | 'parent' | 'settings' | 'ranks' | 'avatarCrop';
+type HallMode = 'home' | 'enteringYinXu' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'story' | 'parent' | 'settings' | 'ranks' | 'avatarCrop' | 'characterSelect';
 type HallWrongBookEntry = { cardId: string; wrongCount: number; lastWrongAt: number };
 type HallStoryProgress = {
   currentChapterId: string | null;
@@ -98,9 +98,10 @@ type HallCallbacks = {
   getWrongBook: () => HallWrongBookEntry[];
   clearWrongBook: (cardId: string) => void;
   enterYinXu: () => void;
-  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
+  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; characterChoiceCompleted: boolean; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
   setName: (name: string) => void;
   setAvatar: (avatarId: string, avatarUrl?: string) => void;
+  choosePlayerCharacter: (avatarId: 'oracle-boy-pixel' | 'oracle-girl-pixel') => void;
   toggleMusic: () => void;
   toggleSfx: () => void;
   toggleNight: () => void;
@@ -198,7 +199,7 @@ export class LearningHall extends Component {
   }
 
   open() {
-    this.render('home');
+    this.render(this.callbacks?.getProfile().characterChoiceCompleted ? 'home' : 'characterSelect');
   }
 
   openStoryLesson() {
@@ -393,7 +394,7 @@ export class LearningHall extends Component {
     if (!this.callbacks) return;
     if (mode === 'home') this.renderHome();
     else if (mode === 'enteringYinXu') this.renderEnteringYinXu();
-    else if (mode === 'characterSelect') this.renderCharacterSelect();
+    else if (mode === 'characterSelect') this.drawCharacterSelect();
     else if (mode === 'codex') this.renderCodex(selectedId);
     else if (mode === 'review') this.renderReview();
     else if (mode === 'reviewResult') this.renderReviewResult();
@@ -423,7 +424,7 @@ export class LearningHall extends Component {
   private beginYinXuTransition() {
     if (this.enteringYinXu) return;
     const avatarId = this.callbacks?.getProfile().avatarId;
-    if (avatarId !== 'oracle-boy-v1' && avatarId !== 'oracle-girl-v1') {
+    if (avatarId !== 'oracle-boy-pixel' && avatarId !== 'oracle-girl-pixel') {
       this.render('characterSelect');
       return;
     }
@@ -442,8 +443,8 @@ export class LearningHall extends Component {
     this.panel(root, 'HallCharacterSelectPanel', 0, 0, 840, 510, t.card, false);
     this.titleLabel(root, 'HallCharacterSelectTitle', '选择你的卜官', 0, 188, 560, 42, 30, t.goldInk, 6);
     this.label(root, 'HallCharacterSelectHint', '选择后即可进入殷墟探索；在设置中也可以随时更换。', 0, 150, 600, 28, 16, t.goldSub, 'center', 6);
-    this.drawCharacterSelectCard(root, 'Boy', -190, 0, 'oracle-boy-v1', '少年卜官', '黑袍佩剑 · 发丝与衣摆随步伐摆动', true, t);
-    this.drawCharacterSelectCard(root, 'Girl', 190, 0, 'oracle-girl-v1', '少女卜官', '青黛长衣 · 发簪与衣袖随步伐摆动', false, t);
+    this.drawCharacterSelectCard(root, 'Boy', -190, 0, 'oracle-boy-pixel', '玄衣卜官', '黑袍负剑 · 发掘古迹', true, t);
+    this.drawCharacterSelectCard(root, 'Girl', 190, 0, 'oracle-girl-pixel', '青衣卜官', '青衫发冠 · 聆听甲骨', false, t);
     this.button(root, 'HallCharacterSelectBack', '返回', 0, -205, 150, 46, false);
   }
 
@@ -1312,6 +1313,34 @@ export class LearningHall extends Component {
     this.renderWrongBook();
   }
 
+  private drawCharacterSelect() {
+    const root = this.createRoot('HallCharacterSelect', 'characterSelect');
+    const t = this.theme();
+    const mask = this.graphics(root, 'CharacterSelectMask', 0, 0, 1280, 720, 1);
+    mask.fillColor = new Color(12, 16, 28, 220); mask.rect(-640, -360, 1280, 720); mask.fill();
+    this.drawModal(root, { w: 900, h: 520, fill: new Color(49, 42, 61, 252), stroke: new Color(224, 179, 95), strokeW: 4, panelZ: 3 });
+    this.label(root, 'CharacterSelectTitle', '选择你的卜官', 0, 210, 600, 48, 32, new Color(255, 226, 164), 'center', 7);
+    this.label(root, 'CharacterSelectSubtitle', '踏入殷墟前，选择与你同行的角色', 0, 170, 620, 30, 17, t.sub, 'center', 7);
+    const choices: Array<{ id: 'oracle-boy-pixel' | 'oracle-girl-pixel'; name: string; note: string; x: number }> = [
+      { id: 'oracle-boy-pixel', name: '玄衣卜官', note: '黑袍负剑 · 发掘古迹', x: -210 },
+      { id: 'oracle-girl-pixel', name: '青衣卜官', note: '青衫发冠 · 聆听甲骨', x: 210 },
+    ];
+    choices.forEach(choice => {
+      const panel = this.graphics(root, `CharacterChoice-${choice.id}`, choice.x, -14, 332, 314, 4);
+      panel.fillColor = new Color(37, 34, 49, 246); panel.roundRect(-166, -157, 332, 314, 18); panel.fill();
+      panel.strokeColor = new Color(200, 158, 84); panel.lineWidth = 2.5; panel.roundRect(-164, -155, 328, 310, 16); panel.stroke();
+      const sprite = new Node(`CharacterChoiceSprite-${choice.id}`);
+      sprite.parent = root; sprite.setPosition(choice.x, 38, 6); sprite.addComponent(UITransform).setContentSize(136, 136);
+      const image = sprite.addComponent(Sprite); image.sizeMode = Sprite.SizeMode.CUSTOM;
+      resources.load(`characters/${choice.id}/down-0/spriteFrame`, SpriteFrame, (error, frame) => {
+        if (!error && frame && image.isValid) image.spriteFrame = frame;
+      });
+      this.label(root, `CharacterChoiceName-${choice.id}`, choice.name, choice.x, -83, 260, 34, 24, new Color(255, 224, 158), 'center', 7);
+      this.label(root, `CharacterChoiceNote-${choice.id}`, choice.note, choice.x, -114, 270, 24, 14, t.sub, 'center', 7);
+      this.button(root, `CharacterChoiceButton-${choice.id}`, '选择此角色', choice.x, -164, 190, 48, true);
+    });
+  }
+
   /** 通用弹窗骨架：遮罩 + 居中圆角面板。所有弹窗共用，颜色/尺寸/圆角由调用处
    *  原样传入，确保视觉与之前完全一致，仅消除重复的样板绘制代码。 */
   private drawModal(root: Node, o: {
@@ -1368,6 +1397,8 @@ export class LearningHall extends Component {
     this.label(root, 'HallSetAvatarUploadPlus', '+', uploadX, 214, uploadR * 2 - 6, uploadR * 2 - 6, 22, new Color(150, 120, 90), 'center', 6);
     this.label(root, 'HallSetNameLabel', '昵称', -158, 162, 120, 24, 13, t.ink, 'left', 7);
     this.drawNicknameRow(root, profile.playerName, 70, 162, t);
+    this.label(root, 'HallSwitchCharacterLabel', '地图角色', -158, 124, 120, 24, 13, t.ink, 'left', 7);
+    this.button(root, 'HallSwitchCharacter', '切换角色', 118, 124, 154, 32, true);
     // sec2 声音设置
     this.drawSettingsSection(root, 'HallSetSec2', 0, 32, 460, 130, t);
     this.drawSectionTitle(root, 'HallSetSec2Title', '声音设置', 79, t);
@@ -1756,6 +1787,15 @@ export class LearningHall extends Component {
       }
       return;
     }
+    if (this.mode === 'characterSelect') {
+      if (this.hit(x, y, -210, -164, 190, 48)) {
+        this.playSfx('confirm'); this.callbacks?.choosePlayerCharacter('oracle-boy-pixel'); this.render('home'); return;
+      }
+      if (this.hit(x, y, 210, -164, 190, 48)) {
+        this.playSfx('confirm'); this.callbacks?.choosePlayerCharacter('oracle-girl-pixel'); this.render('home'); return;
+      }
+      return;
+    }
     if (this.mode === 'settings') {
       if (this.nameDialogOpen) {
         // 点击弹窗面板外区域或取消 → 关闭
@@ -1769,6 +1809,9 @@ export class LearningHall extends Component {
           this.playSfx('confirm'); this.removeNameInput(); this.nameDialogOpen = false; this.render('settings'); return;
         }
         return;
+      }
+      if (this.hit(x, y, 118, 124, 154, 32)) {
+        this.playSfx('tap'); this.render('characterSelect'); return;
       }
       AVATARS.forEach((av, i) => { if (this.hit(x, y, 18 + i * 44, 214, 36, 36)) { this.playSfx('tap'); this.callbacks?.setAvatar(av.id); this.render('settings'); } });
       if (this.hit(x, y, 18 + AVATARS.length * 44, 214, 36, 36)) { this.playSfx('tap'); this.uploadAvatar(); }
@@ -1788,9 +1831,9 @@ export class LearningHall extends Component {
     if (this.hit(x, y, 480, 286, 150, 48)) { this.playSfx('back'); this.render('home'); return; }
     if (this.mode === 'characterSelect') {
       if (this.hit(x, y, -190, 0, 320, 278)) {
-        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-boy-v1'); this.beginYinXuTransition();
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-boy-pixel'); this.beginYinXuTransition();
       } else if (this.hit(x, y, 190, 0, 320, 278)) {
-        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-girl-v1'); this.beginYinXuTransition();
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-girl-pixel'); this.beginYinXuTransition();
       } else if (this.hit(x, y, 0, -205, 150, 46)) {
         this.playSfx('back'); this.render('home');
       }
