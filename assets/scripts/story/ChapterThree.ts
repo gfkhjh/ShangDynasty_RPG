@@ -91,7 +91,7 @@ export const chapterThreeDefinition: StoryChapterDefinition = {
       objective: {
         title: '逆流寻踪 · 峡口',
         detail: '逆水而行，峡谷口的风里夹着湿冷的石腥。走到守峡人阿沚守着的地方，向她打听那枚失踪的镇水卜骨。',
-        storyLocationId: 'chapter-3-royal-tomb-entry',
+        storyLocationId: 'chapter-3-royal-tomb-npc',
         targetRadius: 200,
       },
       completeOn: 'npc-reached',

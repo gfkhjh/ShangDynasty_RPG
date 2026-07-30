@@ -35,7 +35,7 @@ export type DialogueLine = {
 export type StoryObjective = {
   title: string;
   detail?: string;
-  /** Resolves through StoryLocations; coordinates are supplied by the map layer. */
+  /** Resolved by StoryLocations; chapters never own world coordinates. */
   storyLocationId?: string;
   targetX?: number;
   targetY?: number;
@@ -57,6 +57,8 @@ export type StoryChapterDefinition = {
   title: string;
   firstStepId: StoryStepId;
   steps: StoryStepDefinition[];
+  /** Guided cards are the only collection requirement for chapter completion. */
+  requiredCardIds?: readonly string[];
 };
 
 export type StoryEventHistoryEntry = {

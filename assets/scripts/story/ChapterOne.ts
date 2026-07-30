@@ -6,7 +6,7 @@ export const CHAPTER_ONE_ID = 'chapter-1-silent-oracle-v8';
 export const CHAPTER_ONE_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-1-seek-first-fragment', lessonStepId: 'chapter-1-first-lesson', cardId: 'rain', character: '雨' },
   { seekStepId: 'chapter-1-seek-field-fragment', lessonStepId: 'chapter-1-field-lesson', cardId: 'field', character: '田' },
-  { seekStepId: 'chapter-1-seek-water-fragment', lessonStepId: 'chapter-1-water-lesson', cardId: 'water-temp', character: '水' },
+  { seekStepId: 'chapter-1-seek-water-fragment', lessonStepId: 'chapter-1-water-lesson', cardId: 'catalog-u6c34', character: '水' },
   { seekStepId: 'chapter-1-seek-earth-fragment', lessonStepId: 'chapter-1-earth-lesson', cardId: 'catalog-u571f', character: '土' },
   { seekStepId: 'chapter-1-seek-cloud-fragment', lessonStepId: 'chapter-1-cloud-lesson', cardId: 'cloud-official', character: '云' },
 ] as const;

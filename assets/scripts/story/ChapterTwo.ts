@@ -34,7 +34,7 @@ export const CHAPTER_TWO_FRAGMENT_CARDS = [
   { seekStepId: 'chapter-2-seek-002', lessonStepId: 'chapter-2-lesson-002', cardId: 'catalog-u6cc9', character: '泉' },
   { seekStepId: 'chapter-2-seek-003', lessonStepId: 'chapter-2-lesson-003', cardId: 'catalog-u6c99', character: '沙' },
   { seekStepId: 'chapter-2-seek-004', lessonStepId: 'chapter-2-lesson-004', cardId: 'catalog-u77f3', character: '石' },
-  { seekStepId: 'chapter-2-seek-005', lessonStepId: 'chapter-2-lesson-005', cardId: 'tree-temp', character: '木' },
+  { seekStepId: 'chapter-2-seek-005', lessonStepId: 'chapter-2-lesson-005', cardId: 'catalog-u6728', character: '木' },
   { seekStepId: 'chapter-2-seek-006', lessonStepId: 'chapter-2-lesson-006', cardId: 'catalog-u98ce', character: '风' },
   { seekStepId: 'chapter-2-seek-007', lessonStepId: 'chapter-2-lesson-007', cardId: 'catalog-u5c71', character: '山' },
   { seekStepId: 'chapter-2-seek-008', lessonStepId: 'chapter-2-lesson-008', cardId: 'catalog-u4e0a', character: '上' },
@@ -86,7 +86,7 @@ export const chapterTwoDefinition: StoryChapterDefinition = {
       objective: {
         title: '河畔初兆 · 水声之地',
         detail: '沿水声西行，河风里夹着苇叶与鱼腥。走到河滩边，向守在那里的渔娘阿潍打听失语的水文卜骨。',
-        storyLocationId: 'chapter-2-riverbank-investigation',
+        storyLocationId: 'chapter-2-riverbank-npc',
         targetRadius: 82,
       },
       completeOn: 'npc-reached',

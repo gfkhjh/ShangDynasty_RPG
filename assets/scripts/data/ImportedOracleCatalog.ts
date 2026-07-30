@@ -157,9 +157,175 @@ const RAW_CATALOG = `安|an|U60B5A|合5373
 字|zi|U61972|合2495正
 走|zou|U60154|合27939(甲2810）,合17993
 左|zuo|U60492|合386
+前|qian|U524D|教学大纲
+后|hou|U540E|教学大纲
+里|li|U91CC|教学大纲
+江|jiang|U6C5F|教学大纲
+湖|hu|U6E56|教学大纲
+海|hai|U6D77|教学大纲
+爸|ba|U7238|教学大纲
+妈|ma|U5988|教学大纲
+爷|ye|U7237|教学大纲
+奶|nai|U5976|教学大纲
+哥|ge|U54E5|教学大纲
+姐|jie|U59D0|教学大纲
+孩|hai|U5B69|教学大纲
+你|ni|U4F60|教学大纲
+他|ta|U4ED6|教学大纲
+她|ta|U5979|教学大纲
+咱|zan|U54B1|教学大纲
+们|men|U4EEC|教学大纲
+谁|shei|U8C01|教学大纲
+这|zhe|U8FD9|教学大纲
+那|na|U90A3|教学大纲
+哪|na|U54EA|教学大纲
+昨|zuo|U6628|教学大纲
+冬|dong|U51AC|教学大纲
+晚|wan|U665A|教学大纲
+时|shi|U65F6|教学大纲
+昼|zhou|U663C|教学大纲
+眼|yan|U773C|教学大纲
+手|shou|U624B|教学大纲
+足|zu|U8DB3|教学大纲
+毛|mao|U6BDB|教学大纲
+齿|chi|U9F7F|教学大纲
+胸|xiong|U80F8|教学大纲
+腰|yao|U8170|教学大纲
+腿|tui|U817F|教学大纲
+脚|jiao|U811A|教学大纲
+指|zhi|U6307|教学大纲
+掌|zhang|U638C|教学大纲
+汗|han|U6C57|教学大纲
+泪|lei|U6CEA|教学大纲
+音|yin|U97F3|教学大纲
+饭|fan|U996D|教学大纲
+菜|cai|U83DC|教学大纲
+瓜|gua|U74DC|教学大纲
+果|guo|U679C|教学大纲
+茶|cha|U8336|教学大纲
+蛋|dan|U86CB|教学大纲
+油|you|U6CB9|教学大纲
+盐|yan|U76D0|教学大纲
+糖|tang|U7CD6|教学大纲
+粥|zhou|U7CA5|教学大纲
+饼|bing|U997C|教学大纲
+汤|tang|U6C64|教学大纲
+麦|mai|U9EA6|教学大纲
+蔬|shu|U852C|教学大纲
+房|fang|U623F|教学大纲
+屋|wu|U5C4B|教学大纲
+窗|chuang|U7A97|教学大纲
+桌|zhuo|U684C|教学大纲
+椅|yi|U6905|教学大纲
+床|chuang|U5E8A|教学大纲
+灯|deng|U706F|教学大纲
+楼|lou|U697C|教学大纲
+契|qi|U5951|教学大纲
+院|yuan|U9662|教学大纲
+巷|xiang|U5DF7|教学大纲
+路|lu|U8DEF|教学大纲
+车|che|U8F66|教学大纲
+船|chuan|U8239|教学大纲
+桥|qiao|U6865|教学大纲
+坡|po|U5761|教学大纲
+缸|gang|U7F38|教学大纲
+杯|bei|U676F|教学大纲
+碗|wan|U7897|教学大纲
+勺|shao|U52FA|教学大纲
+筷|kuai|U7B77|教学大纲
+尺|chi|U5C3A|教学大纲
+笔|bi|U7B14|教学大纲
+纸|zhi|U7EB8|教学大纲
+书|shu|U4E66|教学大纲
+本|ben|U672C|教学大纲
+烬|jin|U70EC|教学大纲
+图|tu|U56FE|教学大纲
+册|ce|U518C|教学大纲
+校|xiao|U6821|教学大纲
+师|shi|U5E08|教学大纲
+班|ban|U73ED|教学大纲
+课|ke|U8BFE|教学大纲
+数|shu|U6570|教学大纲
+语|yu|U8BED|教学大纲
+英|ying|U82F1|教学大纲
+跑|pao|U8DD1|教学大纲
+跳|tiao|U8DF3|教学大纲
+站|zhan|U7AD9|教学大纲
+卧|wo|U5367|教学大纲
+飞|fei|U98DE|教学大纲
+游|you|U6E38|教学大纲
+爬|pa|U722C|教学大纲
+看|kan|U770B|教学大纲
+听|ting|U542C|教学大纲
+说|shuo|U8BF4|教学大纲
+读|du|U8BFB|教学大纲
+写|xie|U5199|教学大纲
+喊|han|U558A|教学大纲
+叫|jiao|U53EB|教学大纲
+笑|xiao|U7B11|教学大纲
+吃|chi|U5403|教学大纲
+喝|he|U559D|教学大纲
+睡|shui|U7761|教学大纲
+扫|sao|U626B|教学大纲
+擦|ca|U64E6|教学大纲
+开|kai|U5F00|教学大纲
+关|guan|U5173|教学大纲
+拿|na|U62FF|教学大纲
+放|fang|U653E|教学大纲
+回|hui|U56DE|教学大纲
+到|dao|U5230|教学大纲
+攀|pan|U6500|教学大纲
+爱|ai|U7231|教学大纲
+怒|nu|U6012|教学大纲
+悲|bei|U60B2|教学大纲
+愁|chou|U6101|教学大纲
+思|si|U601D|教学大纲
+想|xiang|U60F3|教学大纲
+懂|dong|U61C2|教学大纲
+记|ji|U8BB0|教学大纲
+坏|huai|U574F|教学大纲
+假|jia|U5047|教学大纲
+低|di|U4F4E|教学大纲
+短|duan|U77ED|教学大纲
+宽|kuan|U5BBD|教学大纲
+窄|zhai|U7A84|教学大纲
+薄|bao|U8584|教学大纲
+轻|qing|U8F7B|教学大纲
+快|kuai|U5FEB|教学大纲
+慢|man|U6162|教学大纲
+远|yuan|U8FDC|教学大纲
+近|jin|U8FD1|教学大纲
+红|hong|U7EA2|教学大纲
+蓝|lan|U84DD|教学大纲
+绿|lv|U7EFF|教学大纲
+灰|hui|U7070|教学大纲
+粉|fen|U7C89|教学大纲
+亮|liang|U4EAE|教学大纲
+暗|an|U6697|教学大纲
+无|wu|U65E0|教学大纲
+会|hui|U4F1A|教学大纲
+要|yao|U8981|教学大纲
+应|ying|U5E94|教学大纲
+该|gai|U8BE5|教学大纲
+功|gong|U529F|教学大纲
+平|ping|U5E73|教学大纲
+福|fu|U798F|教学大纲
+忙|mang|U5FD9|教学大纲
+禾|he|U79BE|教学大纲
+兵|bing|U5175|教学大纲
+祀|si|U7940|教学大纲
+婚|hun|U5A5A|教学大纲
 坐|zuo|U60BBA|合5357`;
 
 const EXISTING_CATALOG_CHARACTERS = new Set(['雨', '日', '河', '云', '星', '木', '月', '水']);
+
+// A card may only be published when its matching, user-supplied oracle image
+// is actually bundled in assets/resources/oracle/catalog. RAW_CATALOG also
+// contains a larger teaching-word list; those rows are not picture assets and
+// must never fall back to modern Hanzi in the learner-facing codex.
+const IMAGE_BACKED_CATALOG_CHARACTERS = new Set(Array.from(
+  '安八白百鼻朝晨出春大刀道得地登弟豆多儿耳二发分风父敢高骨光好河黑厚画黄昏火基家肩街今金进井九酒旧可刻口哭来劳老力利六马每妹门米面民明母木男能年念女盆皮七气千墙秋去泉人日肉三沙山上少舌身生声十石水顺四岁它天田头土外万往危文我五午夕洗喜下夏小心新星行学血夜一用有右雨月云早长真知中重字走左坐',
+));
 
 const MODERN_MEANING_HINTS: Record<string, string> = {
   '小': '表示细小、数量少或程度轻', '少': '表示数量不多，也可表示年少', '大': '表示大小中的大，也可表示重要',
@@ -185,7 +351,7 @@ function makeLesson(modern: string) {
 
 export const importedOracleCards: ImportedOracleCard[] = RAW_CATALOG.split('\n')
   .map(row => row.split('|'))
-  .filter(([modern]) => !EXISTING_CATALOG_CHARACTERS.has(modern))
+  .filter(([modern]) => !EXISTING_CATALOG_CHARACTERS.has(modern) && IMAGE_BACKED_CATALOG_CHARACTERS.has(modern))
   .map(([modern, pinyin]) => {
     const unicode = modern.codePointAt(0)?.toString(16).padStart(4, '0') ?? '0000';
     const lesson = makeLesson(modern);

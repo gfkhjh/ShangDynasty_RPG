@@ -4,11 +4,14 @@ import {
   Graphics,
   Label,
   Node,
+  screen,
   tween,
   Tween,
   UIOpacity,
   UITransform,
   Vec3,
+  view,
+  Widget,
 } from 'cc';
 
 export class ChapterBanner {
@@ -20,14 +23,44 @@ export class ChapterBanner {
   private readonly titleGlow: Node;
   private readonly crackFlash: Node;
   private readonly fallingFragments: Node[] = [];
+  private readonly background: Graphics;
+  private readonly refreshLayout = () => {
+    if (!this.root?.isValid) return;
+    const transform = this.root.getComponent(UITransform)!;
+    const parentTransform = this.root.parent?.getComponent(UITransform);
+    const visible = view.getVisibleSize();
+    // Canvas may retain the design resolution while the browser render target
+    // grows on one axis. Use the largest real dimension and an overscan edge.
+    const width = Math.max(screen.windowSize.width, visible.width, parentTransform?.width ?? 0) + 12;
+    const height = Math.max(screen.windowSize.height, visible.height, parentTransform?.height ?? 0) + 12;
+    const widget = this.root.getComponent(Widget)!;
+    widget.updateAlignment();
+    transform.setContentSize(width, height);
+    this.root.setPosition(0, 0, 520);
+    this.drawBackdrop(width, height);
+  };
 
   constructor(parent: Node) {
     this.root = new Node('StoryChapterBanner');
     this.root.parent = parent;
     this.root.setPosition(0, 0, 520);
-    this.root.addComponent(UITransform).setContentSize(1280, 720);
+    const transform = this.root.addComponent(UITransform);
+    transform.setAnchorPoint(.5, .5);
+    const widget = this.root.addComponent(Widget);
+    widget.isAlignLeft = widget.isAlignRight = widget.isAlignTop = widget.isAlignBottom = true;
+    widget.left = widget.right = widget.top = widget.bottom = 0;
+    widget.alignMode = Widget.AlignMode.ALWAYS;
     this.root.addComponent(BlockInputEvents);
     this.opacity = this.root.addComponent(UIOpacity);
+    this.background = this.root.addComponent(Graphics);
+    this.refreshLayout();
+    view.on('canvas-resize', this.refreshLayout, this);
+    view.on('design-resolution-changed', this.refreshLayout, this);
+    /*
+     * Foreground labels and ornaments are created after the background so they
+     * retain their existing local art direction above the full-screen fill.
+     */
+    /*
     const background = this.root.addComponent(Graphics);
     background.fillColor = new Color(22, 16, 13, 248);
     background.rect(-640, -360, 1280, 720);
@@ -52,6 +85,7 @@ export class ChapterBanner {
     background.lineTo(318, 85);
     background.lineTo(402, -65);
     background.stroke();
+    */
 
     this.titleGlow = new Node('StoryTitleGlow');
     this.titleGlow.parent = this.root;
@@ -126,6 +160,7 @@ export class ChapterBanner {
     this.titleLabel.node.setScale(.82, .82, 1);
     this.subtitleLabel.node.setScale(.92, .92, 1);
     this.root.active = true;
+    this.root.setSiblingIndex((this.root.parent?.children.length ?? 1) - 1);
     tween(this.opacity).to(.42, { opacity: 255 }).start();
     tween(this.numberLabel.node).delay(.12).to(.52, { scale: new Vec3(1, 1, 1) }, { easing: 'quadOut' }).start();
     tween(this.titleLabel.node).delay(.25).to(.68, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
@@ -176,9 +211,46 @@ export class ChapterBanner {
       .start();
   }
 
+  forceClose() {
+    Tween.stopAllByTarget(this.opacity);
+    this.stopEffects();
+    this.opacity.opacity = 0;
+    this.root.active = false;
+  }
+
   destroy() {
     this.stopEffects();
+    view.off('canvas-resize', this.refreshLayout, this);
+    view.off('design-resolution-changed', this.refreshLayout, this);
     this.root.destroy();
+  }
+
+  private drawBackdrop(width: number, height: number) {
+    const background = this.background;
+    background.clear();
+    background.fillColor = new Color(22, 16, 13, 248);
+    background.rect(-width / 2, -height / 2, width, height);
+    background.fill();
+    background.fillColor = new Color(79, 49, 32, 110);
+    background.circle(-width * .32, height * .24, Math.min(width, height) * .25);
+    background.circle(width * .34, -height * .29, Math.min(width, height) * .32);
+    background.fill();
+    background.strokeColor = new Color(208, 160, 77, 210);
+    background.lineWidth = 3;
+    background.moveTo(-Math.min(width * .28, 360), 56);
+    background.lineTo(-105, 56);
+    background.moveTo(105, 56);
+    background.lineTo(Math.min(width * .28, 360), 56);
+    background.stroke();
+    background.strokeColor = new Color(143, 101, 57, 150);
+    background.lineWidth = 2;
+    background.moveTo(-width * .37, -height * .33);
+    background.lineTo(-width * .24, -height * .11);
+    background.lineTo(-width * .3, height * .09);
+    background.moveTo(width * .37, height * .32);
+    background.lineTo(width * .25, height * .12);
+    background.lineTo(width * .31, -height * .09);
+    background.stroke();
   }
 
   private createFallingFragments() {

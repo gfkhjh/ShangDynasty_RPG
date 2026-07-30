@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57@6c48a",
+      "displayName": "royal_tomb_ritual_altar",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57@f9941",
+      "displayName": "royal_tomb_ritual_altar",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 4,
+        "trimX": 63,
+        "trimY": 21,
+        "width": 386,
+        "height": 292,
+        "rawWidth": 512,
+        "rawHeight": 342,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -193,
+            -146,
+            0,
+            193,
+            -146,
+            0,
+            -193,
+            146,
+            0,
+            193,
+            146,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            63,
+            321,
+            449,
+            321,
+            63,
+            29,
+            449,
+            29
+          ],
+          "nuv": [
+            0.123046875,
+            0.0847953216374269,
+            0.876953125,
+            0.0847953216374269,
+            0.123046875,
+            0.9385964912280702,
+            0.876953125,
+            0.9385964912280702
+          ],
+          "minPos": [
+            -193,
+            -146,
+            0
+          ],
+          "maxPos": [
+            193,
+            146,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "e490f4a9-8fd5-42f3-841f-bf3aad3e7f57@6c48a"
+  }
+}

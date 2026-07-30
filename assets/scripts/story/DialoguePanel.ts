@@ -4,11 +4,14 @@ import {
   Graphics,
   Label,
   Node,
+  screen,
   tween,
   Tween,
   UIOpacity,
   UITransform,
   Vec3,
+  view,
+  Widget,
 } from 'cc';
 import { DialogueLine } from './StoryTypes';
 
@@ -27,6 +30,7 @@ export class DialoguePanel {
   private completed: (() => void) | null = null;
   private cinematicSequence = false;
   private closing = false;
+  private readonly resizeCinematicBackdrop = () => this.refreshCinematicBackdrop();
 
   constructor(parent: Node) {
     this.root = new Node('StoryDialoguePanel');
@@ -36,28 +40,29 @@ export class DialoguePanel {
     this.root.addComponent(BlockInputEvents);
 
     this.cinematicBackdrop = new Node('StoryCinematicBackdrop');
-    this.cinematicBackdrop.parent = this.root;
-    this.cinematicBackdrop.setPosition(0, 245, -10);
-    this.cinematicBackdrop.addComponent(UITransform).setContentSize(1280, 720);
+    // The narration atmosphere is a screen-space Canvas child, rather than a
+    // child of the fixed-size dialogue card.  This keeps it full-bleed on
+    // every aspect ratio while the dialogue card stays at its authored size.
+    this.cinematicBackdrop.parent = parent;
+    this.cinematicBackdrop.setPosition(0, 0, 290);
+    const cinematicTransform = this.cinematicBackdrop.addComponent(UITransform);
+    cinematicTransform.setAnchorPoint(.5, .5);
+    const cinematicWidget = this.cinematicBackdrop.addComponent(Widget);
+    cinematicWidget.isAlignTop = true;
+    cinematicWidget.isAlignBottom = true;
+    cinematicWidget.isAlignLeft = true;
+    cinematicWidget.isAlignRight = true;
+    cinematicWidget.top = 0;
+    cinematicWidget.bottom = 0;
+    cinematicWidget.left = 0;
+    cinematicWidget.right = 0;
+    cinematicWidget.alignMode = Widget.AlignMode.ALWAYS;
     this.cinematicOpacity = this.cinematicBackdrop.addComponent(UIOpacity);
     this.cinematicOpacity.opacity = 0;
-    const cinematic = this.cinematicBackdrop.addComponent(Graphics);
-    cinematic.fillColor = new Color(18, 13, 11, 218);
-    cinematic.rect(-640, -360, 1280, 720);
-    cinematic.fill();
-    cinematic.fillColor = new Color(74, 49, 31, 52);
-    cinematic.ellipse(-360, 115, 330, 165);
-    cinematic.ellipse(390, -85, 410, 190);
-    cinematic.fill();
-    cinematic.strokeColor = new Color(195, 140, 62, 75);
-    cinematic.lineWidth = 2;
-    cinematic.moveTo(-640, 92);
-    cinematic.bezierCurveTo(-360, 165, -210, 12, 25, 92);
-    cinematic.bezierCurveTo(265, 168, 430, 25, 640, 118);
-    cinematic.moveTo(-640, -118);
-    cinematic.bezierCurveTo(-410, -42, -205, -205, 40, -105);
-    cinematic.bezierCurveTo(280, -15, 455, -188, 640, -96);
-    cinematic.stroke();
+    this.cinematicBackdrop.addComponent(Graphics);
+    this.refreshCinematicBackdrop();
+    view.on('canvas-resize', this.resizeCinematicBackdrop, this);
+    view.on('design-resolution-changed', this.resizeCinematicBackdrop, this);
     this.createCinematicAtmosphere();
 
     const background = this.root.addComponent(Graphics);
@@ -93,6 +98,9 @@ export class DialoguePanel {
     this.closing = false;
     this.root.active = this.lines.length > 0;
     if (this.root.active) {
+      // The card must remain above the direct Canvas backdrop in traversal
+      // order as well as in its authored Z layer.
+      this.root.setSiblingIndex((this.root.parent?.children.length ?? 1) - 1);
       this.startAtmosphere();
       this.renderCurrent();
     }
@@ -121,7 +129,46 @@ export class DialoguePanel {
 
   destroy() {
     this.root.off(Node.EventType.TOUCH_END, this.advance, this);
+    view.off('canvas-resize', this.resizeCinematicBackdrop, this);
+    view.off('design-resolution-changed', this.resizeCinematicBackdrop, this);
+    this.cinematicBackdrop.destroy();
     this.root.destroy();
+  }
+
+  private refreshCinematicBackdrop() {
+    if (!this.cinematicBackdrop.isValid) return;
+    const transform = this.cinematicBackdrop.getComponent(UITransform)!;
+    const parentTransform = this.cinematicBackdrop.parent?.getComponent(UITransform);
+    const windowSize = screen.windowSize;
+    const visibleSize = view.getVisibleSize();
+    // Slight overscan prevents a one-pixel seam from floating point Canvas
+    // conversion during browser resize/fullscreen transitions.
+    const width = Math.max(windowSize.width, visibleSize.width, parentTransform?.width ?? 0) + 12;
+    const height = Math.max(windowSize.height, visibleSize.height, parentTransform?.height ?? 0) + 12;
+    this.cinematicBackdrop.setPosition(0, 0, 290);
+    this.cinematicBackdrop.getComponent(Widget)?.updateAlignment();
+    // Widget supplies true four-side Canvas alignment; overscan is applied
+    // afterwards so browser rounding cannot expose a map-coloured edge.
+    transform.setContentSize(width, height);
+
+    const cinematic = this.cinematicBackdrop.getComponent(Graphics)!;
+    cinematic.clear();
+    cinematic.fillColor = new Color(18, 13, 11, 218);
+    cinematic.rect(-width / 2, -height / 2, width, height);
+    cinematic.fill();
+    cinematic.fillColor = new Color(74, 49, 31, 52);
+    cinematic.ellipse(-width * .28125, height * .16, width * .258, height * .229);
+    cinematic.ellipse(width * .305, -height * .118, width * .32, height * .264);
+    cinematic.fill();
+    cinematic.strokeColor = new Color(195, 140, 62, 75);
+    cinematic.lineWidth = 2;
+    cinematic.moveTo(-width / 2, height * .128);
+    cinematic.bezierCurveTo(-width * .281, height * .229, -width * .164, height * .017, width * .02, height * .128);
+    cinematic.bezierCurveTo(width * .207, height * .233, width * .336, height * .035, width / 2, height * .164);
+    cinematic.moveTo(-width / 2, -height * .164);
+    cinematic.bezierCurveTo(-width * .32, -height * .058, -width * .16, -height * .285, width * .031, -height * .146);
+    cinematic.bezierCurveTo(width * .219, -height * .021, width * .355, -height * .261, width / 2, -height * .133);
+    cinematic.stroke();
   }
 
   private finish() {

@@ -35,7 +35,9 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: RegionId.FIELDS,
       displayName: '郊外田野',
-      currentWorldBounds: { minX: 200, maxX: 3000, minY: -2200, maxY: -400 },
+      // The west road trigger sits just outside the collision edge, so keep
+      // that narrow approach inside the FIELDS camera and collision domain.
+      currentWorldBounds: { minX: 140, maxX: 3000, minY: -2200, maxY: -400 },
       cameraBounds: { minX: 140, maxX: 3060, minY: -2260, maxY: -340 },
     },
     {
@@ -52,14 +54,22 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     },
   ],
   entries: [
-    // Scripted story entries. These are deliberately named after StoryLocation
-    // ids so narrative code can only request a registered, validated spawn.
+    // Scripted story entries. StoryLocation.entryId resolves only through this
+    // registry, so narrative code can request a validated new-region spawn.
     { id: 'new-game-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
-    { id: 'chapter-1-city-guide', regionId: RegionId.CITY, worldPosition: new Vec2(260, 20), facingDirection: 'left', safeOffset: 72 },
+    { id: 'city-divination-temple', regionId: RegionId.CITY, worldPosition: new Vec2(0, 1010), facingDirection: 'up', safeOffset: 72 },
+    { id: 'chapter-1-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(188, 20), facingDirection: 'right', safeOffset: 72 },
     { id: 'chapter-1-field-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(430, -452), facingDirection: 'right', safeOffset: 72 },
     { id: 'chapter-1-first-fragment', regionId: RegionId.FIELDS, worldPosition: new Vec2(390, -920), facingDirection: 'down', safeOffset: 72 },
-    { id: 'chapter-2-riverbank-investigation', regionId: RegionId.RIVERBANK, worldPosition: new Vec2(-4900, -700), facingDirection: 'down', safeOffset: 72 },
-    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2450, -3910), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-2-riverbank-entry', regionId: RegionId.RIVERBANK, worldPosition: new Vec2(-5060, -700), facingDirection: 'right', safeOffset: 72 },
+    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2530, -3910), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-4-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(3460, -800), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-5-fields-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(1560, -1500), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1900, -3180), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-7-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(4710, -1100), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2300, -3200), facingDirection: 'left', safeOffset: 72 },
+    // Matches StoryLocations: clear east apron beside the temple, outside its footprint.
+    { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(300, 870), facingDirection: 'left', safeOffset: 72 },
     { id: 'story-return-city', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
     {
       id: 'outskirts-south-road-entry',
@@ -116,7 +126,7 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'fields-west-road-entry',
       regionId: RegionId.FIELDS,
-      worldPosition: new Vec2(280, -760),
+      worldPosition: new Vec2(240, -760),
       facingDirection: 'right',
       safeOffset: 80,
     },
@@ -186,7 +196,8 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     {
       id: 'fields-west-road-to-outskirts',
       sourceRegionId: RegionId.FIELDS,
-      triggerBounds: { minX: 210, maxX: 290, minY: -800, maxY: -720 },
+      // Exact 96px road gap only; it cannot include the arrival spawn.
+      triggerBounds: { minX: 140, maxX: 168, minY: -808, maxY: -712 },
       travelDirection: 'left',
       targetRegionId: RegionId.OUTSKIRTS,
       targetEntryId: 'outskirts-east-road-entry',

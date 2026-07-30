@@ -23,9 +23,29 @@ import {
 } from 'cc';
 import { poemChallengeBank, type PoemChallengeDefinition } from './data/PoemChallengeBank';
 import { chapterOneDefinition, CHAPTER_ONE_FRAGMENT_CARDS, CHAPTER_ONE_ID } from './story/ChapterOne';
+import { chapterTwoDefinition, CHAPTER_TWO_FRAGMENT_CARDS, CHAPTER_TWO_ID } from './story/ChapterTwo';
+import { chapterThreeDefinition, CHAPTER_THREE_FRAGMENT_CARDS, CHAPTER_THREE_ID } from './story/ChapterThree';
+import { chapterFourDefinition, CHAPTER_FOUR_FRAGMENT_CARDS, CHAPTER_FOUR_ID } from './story/ChapterFour';
+import { chapterFiveDefinition, CHAPTER_FIVE_FRAGMENT_CARDS, CHAPTER_FIVE_ID } from './story/ChapterFive';
+import { chapterSixDefinition, CHAPTER_SIX_FRAGMENT_CARDS, CHAPTER_SIX_ID } from './story/ChapterSix';
+import { chapterSevenDefinition, CHAPTER_SEVEN_FRAGMENT_CARDS, CHAPTER_SEVEN_ID } from './story/ChapterSeven';
+import { chapterEightDefinition, CHAPTER_EIGHT_FRAGMENT_CARDS, CHAPTER_EIGHT_ID } from './story/ChapterEight';
+import { chapterNineDefinition, CHAPTER_NINE_FRAGMENT_CARDS, CHAPTER_NINE_ID } from './story/ChapterNine';
 import { CHAPTER_ROADMAP } from './story/ChapterRoadmap';
 
 const { ccclass } = _decorator;
+
+const STORY_CHAPTERS = {
+  [CHAPTER_ONE_ID]: { definition: chapterOneDefinition, fragments: CHAPTER_ONE_FRAGMENT_CARDS },
+  [CHAPTER_TWO_ID]: { definition: chapterTwoDefinition, fragments: CHAPTER_TWO_FRAGMENT_CARDS },
+  [CHAPTER_THREE_ID]: { definition: chapterThreeDefinition, fragments: CHAPTER_THREE_FRAGMENT_CARDS },
+  [CHAPTER_FOUR_ID]: { definition: chapterFourDefinition, fragments: CHAPTER_FOUR_FRAGMENT_CARDS },
+  [CHAPTER_FIVE_ID]: { definition: chapterFiveDefinition, fragments: CHAPTER_FIVE_FRAGMENT_CARDS },
+  [CHAPTER_SIX_ID]: { definition: chapterSixDefinition, fragments: CHAPTER_SIX_FRAGMENT_CARDS },
+  [CHAPTER_SEVEN_ID]: { definition: chapterSevenDefinition, fragments: CHAPTER_SEVEN_FRAGMENT_CARDS },
+  [CHAPTER_EIGHT_ID]: { definition: chapterEightDefinition, fragments: CHAPTER_EIGHT_FRAGMENT_CARDS },
+  [CHAPTER_NINE_ID]: { definition: chapterNineDefinition, fragments: CHAPTER_NINE_FRAGMENT_CARDS },
+};
 
 const RANKS = [
   { name: '见习卜童', threshold: 0, icon: '🪶', c1: '#b8a368', c2: '#8a7038', bd: '#ffe4a5' },
@@ -66,7 +86,12 @@ type HallStoryProgress = {
 type HallCallbacks = {
   getCards: () => HallCard[];
   /** All catalog entries count toward progress, while getCards may hide undiscovered entries. */
-  getCatalogProgress?: () => { collected: number; total: number };
+  getCatalogProgress?: () => {
+    collected: number;
+    total: number;
+    story: { collected: number; total: number };
+    supplement: { collected: number; total: number };
+  };
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
   getStoryProgress?: () => HallStoryProgress;
   recordReview: (cardId: string, correct: boolean) => void;
@@ -110,6 +135,10 @@ export class LearningHall extends Component {
   private poemIndex = 0;
   private poemCorrect = 0;
   private poemLastCorrect = false;
+  // Every answer in the poem bank is backed by a real oracle image. Restrict
+  // distractors to the same audited set so catalog placeholders can never
+  // fall back to a modern Han character in this mode.
+  private readonly poemGlyphCharacters = new Set(poemChallengeBank.map(item => item.answer));
   private enteringYinXu = false;
   private yinXuTransitionTimer: ReturnType<typeof setTimeout> | null = null;
   private nameDialogOpen = false;
@@ -189,6 +218,8 @@ export class LearningHall extends Component {
     return this.callbacks?.getCatalogProgress?.() ?? {
       collected: cards.filter(card => card.unlocked).length,
       total: cards.length,
+      story: { collected: cards.filter(card => card.unlocked).length, total: cards.length },
+      supplement: { collected: 0, total: 0 },
     };
   }
 
@@ -313,18 +344,18 @@ export class LearningHall extends Component {
       graphics.stroke();
       this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(244, 205, 132, 115));
     } else {
-      // 白天：暖灰底 + 暖色光带 + 沿用夜间斜线网格纹理（线条与夜间完全一致）
-      graphics.fillColor = new Color(232, 225, 208, 255); graphics.rect(-width / 2, -height / 2, width, height); graphics.fill();
+      // 白天：羊皮纸暖金底 + 柔和光带 + 古铜网格纹理，与夜间同结构但色调更暖
+      graphics.fillColor = new Color(244, 236, 216, 255); graphics.rect(-width / 2, -height / 2, width, height); graphics.fill();
       const dayBands: Array<[number, Color]> = [
-        [272, new Color(250, 245, 235, 110)], [82, new Color(236, 225, 200, 90)], [-116, new Color(220, 205, 175, 96)],
+        [272, new Color(252, 243, 225, 145)], [82, new Color(238, 222, 188, 125)], [-116, new Color(224, 202, 162, 130)],
       ];
       dayBands.forEach(([y, color]) => { graphics.fillColor = color; graphics.rect(-width / 2, y - 94, width, 188); graphics.fill(); });
-      // 斜线 + 水平线：与夜间模式完全一致（古铜金描边，线宽2）
-      graphics.strokeColor = new Color(226, 190, 110, 46); graphics.lineWidth = 2;
+      // 古铜金斜线/水平网格：降低透明度让白天更通透
+      graphics.strokeColor = new Color(186, 150, 88, 38); graphics.lineWidth = 2;
       for (let x = -width / 2; x < width / 2; x += 110) { graphics.moveTo(x, -height / 2); graphics.lineTo(x + 190, -height / 2 + 210); }
       for (let y = -height / 2 + 40; y < height / 2; y += 105) { graphics.moveTo(-width / 2, y); graphics.lineTo(width / 2, y); }
       graphics.stroke();
-      this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(90, 70, 50, 150));
+      this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(130, 100, 66, 150));
     }
   }
 
@@ -377,13 +408,13 @@ export class LearningHall extends Component {
 
   private renderHome() {
     const root = this.createRoot('LearningHall', 'home');
-    const { total, collected } = this.catalogProgress();
+    const prog = this.catalogProgress();
     const t = this.theme();
     this.drawTopBar(root, t);
     this.drawCharacterCard(root, -442, 14, t);
     this.drawEnterYinXu(root, -16, -6, t);
     this.drawReviewSuggestion(root, 424, 55, t);
-    this.drawCodexEntry(root, total, collected, 424, -140, t);
+    this.drawCodexEntry(root, prog, 424, -140, t);
     this.drawPoemEntry(root, -442, -164, t);
     this.drawBottomNav(root, 'home', t);
   }
@@ -505,8 +536,8 @@ export class LearningHall extends Component {
     let idx = 0;
     for (let i = 0; i < RANKS.length; i++) if (exp >= RANKS[i].threshold) idx = i;
     if (idx === RANKS.length - 1) {
-      const { total, collected } = this.catalogProgress();
-      if (collected < total) idx = RANKS.length - 2;
+      const { story } = this.catalogProgress();
+      if (story.collected < story.total) idx = RANKS.length - 2;
     }
     return idx;
   }
@@ -674,17 +705,17 @@ export class LearningHall extends Component {
     this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 80, y - h / 2 + 18, 120, 18, 12, t.goldSub, 'left', 6);
   }
 
-  private drawCodexEntry(root: Node, total: number, collected: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
+  private drawCodexEntry(root: Node, prog: ReturnType<LearningHall['catalogProgress']>, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const w = 340, h = 112;
     const node = this.graphics(root, 'HallCodexEntry', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
-    // 顶部：标题（左上角）+ 计数
+    // 顶部：标题（左上角）+ 主线计数
     const topY = y + h / 2 - 18;
     this.titleLabel(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 8, topY, 120, 20, 14, t.goldInk, 6);
-    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 12, topY, 120, 22, 16, t.goldInk, 'right', 6);
-    // 进度条
-    const barW = 300, barH = 6; const pct = total > 0 ? collected / total : 0;
+    this.label(root, 'HallCodexEntryCount', `主线 ${prog.story.collected} / ${prog.story.total}`, x + w / 2 - 12, topY, 180, 22, 16, t.goldInk, 'right', 6);
+    // 进度条（主线进度）
+    const barW = 300, barH = 6; const pct = prog.story.total > 0 ? prog.story.collected / prog.story.total : 0;
     const barY = y + 4;
     const barBg = this.graphics(root, 'HallCodexBarBg', x, barY, barW, barH, 5);
     barBg.fillColor = new Color(70, 55, 40, 128); barBg.roundRect(-barW / 2, -barH / 2, barW, barH, 3); barBg.fill();
@@ -692,9 +723,9 @@ export class LearningHall extends Component {
       const barFill = this.graphics(root, 'HallCodexBarFill', x - barW / 2 + (barW * pct) / 2, barY, barW * pct, barH, 6);
       barFill.fillColor = new Color(217, 168, 90, 255); barFill.roundRect(-(barW * pct) / 2, -barH / 2, barW * pct, barH, 3); barFill.fill();
     }
-    // 底部：左说明 + 右百分比，避免重叠
+    // 底部：拾遗进度说明（不移动位置，仅替换文案）
     const bottomY = y - h / 2 + 20;
-    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 93, bottomY, 150, 18, 12, t.goldSub, 'left', 6);
+    this.label(root, 'HallCodexEntrySub', `甲骨拾遗 ${prog.supplement.collected} / ${prog.supplement.total}`, x - w / 2 + 110, bottomY, 220, 18, 12, t.goldSub, 'left', 6);
     this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 12, bottomY, 50, 18, 12, t.goldSub, 'right', 6);
   }
 
@@ -715,7 +746,7 @@ export class LearningHall extends Component {
       ['codex', '🏺', '图鉴', mode === 'codex'],
       ['parent', '⭐', '错题本', mode === 'parent'],
       ['progress', '📈', '进度', mode === 'progress'],
-      ['story', '📜', '剧情', mode === 'story'],
+      ['story', '📜', '命途', mode === 'story'],
     ];
     // 项数变化自动居中（去掉设置后剩 5 项）
     const y = -this.vh(0.390); const gap = this.vh(0.120); const startX = -((items.length - 1) * gap) / 2;
@@ -776,7 +807,7 @@ export class LearningHall extends Component {
       // 名字 + 经验需求（对齐 HTML .rinfo，图标右侧垂直居中）
       const nameColor = isCur ? new Color(200, 62, 44) : (t.night ? new Color(255, 240, 214) : new Color(58, 36, 16));
       this.label(root, `HallRankRowName-${i}`, rank.name, -40, y + 3, 220, 24, 15, nameColor, 'left', 6);
-      const req = (i === RANKS.length - 1) ? `收集全部 ${this.catalogProgress().total} 个甲骨文字 + 经验12000` : `累计经验 ${rank.threshold}`;
+      const req = (i === RANKS.length - 1) ? `收集全部 ${this.catalogProgress().story.total} 个主线甲骨文字 + 经验12000` : `累计经验 ${rank.threshold}`;
       this.label(root, `HallRankRowReq-${i}`, req, -30, y - 15, 240, 20, 10, t.night ? new Color(216, 200, 168) : new Color(106, 74, 42), 'left', 6);
       // 状态（对齐 HTML .rstate：当前红 / 已达成绿 / 未解锁灰）
       const state = isCur ? '当前' : (reached ? '已达成' : '未解锁');
@@ -795,7 +826,7 @@ export class LearningHall extends Component {
     const pageCards = this.codexPageCards();
     const pageUnlocked = pageCards.filter(card => card.unlocked);
     this.selectedCardId = selectedId && pageCards.some(card => card.id === selectedId && card.unlocked) ? selectedId : pageUnlocked[0]?.id ?? null;
-    this.drawHeader(root, '甲骨图鉴', `已收集 ${this.catalogProgress().collected} / ${this.catalogProgress().total} 个真实甲骨文字`, true);
+    this.drawHeader(root, '甲骨图鉴', `主线甲骨 ${this.catalogProgress().story.collected} / ${this.catalogProgress().story.total} · 甲骨拾遗 ${this.catalogProgress().supplement.collected} / ${this.catalogProgress().supplement.total}`, true);
     this.panel(root, 'HallCodexGrid', -190, -30, 760, 480, t.card, false);
     pageCards.forEach((card, index) => {
       const x = -430 + (index % 4) * 160; const y = 105 - Math.floor(index / 4) * 200;
@@ -871,9 +902,11 @@ export class LearningHall extends Component {
       const item = this.graphics(root, `HallReviewCard-${index}`, x, y, 300, 128, 4);
       item.fillColor = t.card; item.roundRect(-150, -64, 300, 128, 14); item.fill();
       item.strokeColor = t.cardStroke; item.lineWidth = 2; item.roundRect(-148, -62, 296, 124, 12); item.stroke();
-      // 去掉甲骨文字 glyph，只保留现代汉字与释义，色调统一为大厅主题
-      this.label(root, `HallReviewCardModern-${index}`, card.modern, x, y + 22, 260, 34, 28, t.goldInk, 'center', 6);
-      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x, y - 26, 260, 56, 14, t.goldSub, 'center', 6);
+      // Review cards retain the real oracle glyph; modern Hanzi remains only
+      // as the teaching label beneath it.
+      this.oracleGlyph(root, `HallReviewCardGlyph-${index}`, card, x - 105, y, 52, 64, 6, false);
+      this.label(root, `HallReviewCardModern-${index}`, `${card.modern} · ${card.pinyin}`, x + 30, y + 25, 150, 30, 23, t.goldInk, 'left', 6);
+      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x + 30, y - 22, 166, 56, 13, t.goldSub, 'left', 6);
     });
     this.button(root, 'HallReviewStart', '开始随机 5 题', 0, -226, 230, 58, true);
   }
@@ -928,13 +961,13 @@ export class LearningHall extends Component {
 
   private renderProgress() {
     const root = this.createRoot('HallProgress', 'progress');
-    const { total, collected } = this.catalogProgress();
+    const prog = this.catalogProgress();
     const progress = this.progress();
     const t = this.theme();
     this.drawHeader(root, '学习进度', '你的甲骨文字收集与复习记录', true);
     this.panel(root, 'HallProgressPanel', 0, -10, 980, 440, t.card, false);
     const items: Array<[string, string, string, number]> = [
-      ['收集图鉴', `${collected} / ${total}`, '已发现真实甲骨文字', -310],
+      ['主线图鉴', `${prog.story.collected} / ${prog.story.total}`, `甲骨拾遗 ${prog.supplement.collected} / ${prog.supplement.total}`, -310],
       ['复习答题', `${progress.correct} / ${progress.attempts}`, '累计答对 / 累计作答', 0],
       ['探索资源', `${progress.ink}`, '当前持有墨料', 310],
     ];
@@ -950,7 +983,6 @@ export class LearningHall extends Component {
 
   private renderStoryRoadmap() {
     const root = this.createRoot('HallStoryRoadmap', 'story');
-    const { collected } = this.catalogProgress();
     const story = this.callbacks?.getStoryProgress?.() ?? {
       currentChapterId: null,
       currentStepId: null,
@@ -965,10 +997,16 @@ export class LearningHall extends Component {
     summary.fillColor = t.card; summary.roundRect(-500, -36, 1000, 72, 14); summary.fill();
     summary.strokeColor = t.cardStroke; summary.lineWidth = 2; summary.roundRect(-498, -34, 996, 68, 12); summary.stroke();
     const chapterDone = story.completedChapterIds.length;
+    const activeChapterId = story.currentChapterId
+      ?? story.completedChapterIds[story.completedChapterIds.length - 1]
+      ?? CHAPTER_ONE_ID;
+    const activeChapter = STORY_CHAPTERS[activeChapterId] ?? STORY_CHAPTERS[CHAPTER_ONE_ID];
+    const activeChapterChars = activeChapter.fragments.filter(fragment =>
+      story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
     const summaryItems = [
       ['故事', `${chapterDone} 章完成`],
-      ['识字', `${collected} / 300`],
-      ['本章骨纹', `${CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment => story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length} / 5`],
+      ['识字', `${this.catalogProgress().story.collected} / ${this.catalogProgress().story.total}`],
+      ['本章骨纹', `${activeChapterChars} / ${activeChapter.fragments.length}`],
       ['命途卜力', `${story.destinyPower}`],
     ];
     summaryItems.forEach(([name, value], index) => {
@@ -992,13 +1030,6 @@ export class LearningHall extends Component {
     content.addComponent(UITransform).setContentSize(3000, 360);
     this.chapterRoadmapContent = content;
 
-    const firstChapterIndex = Math.max(0, chapterOneDefinition.steps.findIndex(step => step.id === story.currentStepId));
-    const chapterOneCompleted = story.completedChapterIds.indexOf(CHAPTER_ONE_ID) >= 0;
-    const chapterOnePercent = chapterOneCompleted
-      ? 100
-      : Math.round(firstChapterIndex / Math.max(1, chapterOneDefinition.steps.length - 1) * 100);
-    const chapterOneChars = CHAPTER_ONE_FRAGMENT_CARDS.filter(fragment =>
-      story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
     const prologueCurrent = story.currentStepId === 'prologue-silent-heaven';
     type RoadmapEntry = { eyebrow: string; title: string; detail: string; percent: number; state: 'complete' | 'current' | 'locked' };
     const roadmap: RoadmapEntry[] = CHAPTER_ROADMAP.map((node): RoadmapEntry => {
@@ -1007,19 +1038,23 @@ export class LearningHall extends Component {
       if (node.id === 'prologue') {
         state = prologueCurrent ? 'current' : 'complete';
         percent = prologueCurrent ? 50 : 100;
-      } else if (node.chapterId === CHAPTER_ONE_ID) {
-        state = chapterOneCompleted ? 'complete' : prologueCurrent ? 'locked' : 'current';
-        percent = chapterOnePercent;
       } else if (node.chapterId) {
-        if (story.completedChapterIds.indexOf(node.chapterId) >= 0) { state = 'complete'; percent = 100; }
-        else if (story.currentChapterId === node.chapterId) { state = 'current'; percent = 0; }
+        const chapter = STORY_CHAPTERS[node.chapterId];
+        const completed = story.completedChapterIds.indexOf(node.chapterId) >= 0;
+        const current = story.currentChapterId === node.chapterId;
+        if (completed) { state = 'complete'; percent = 100; }
+        else if (current && chapter) {
+          state = 'current';
+          const stepIndex = Math.max(0, chapter.definition.steps.findIndex(step => step.id === story.currentStepId));
+          percent = Math.round(stepIndex / Math.max(1, chapter.definition.steps.length - 1) * 100);
+        }
         else { state = 'locked'; percent = 0; }
       } else {
         state = 'locked'; percent = 0;
       }
-      const detail = node.chapterId === CHAPTER_ONE_ID
-        ? `剧情骨纹 ${chapterOneChars} / ${node.charCount}`
-        : node.detail;
+      const chapter = node.chapterId ? STORY_CHAPTERS[node.chapterId] : undefined;
+      const collected = chapter?.fragments.filter(fragment => story.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
+      const detail = chapter ? `剧情骨纹 ${collected} / ${chapter.fragments.length}` : node.detail;
       return { eyebrow: node.eyebrow, title: node.title, detail, percent, state };
     });
 
@@ -1027,12 +1062,13 @@ export class LearningHall extends Component {
     const startX = -650;
     const routeY = [44, -20, 50, -28, 44, -18, 52, -26, 40, -14];
     const currentRoadIndex = Math.max(0, roadmap.findIndex(chapter => chapter.state === 'current'));
+    const night = this.callbacks?.getProfile().nightMode ?? false;
     this.chapterRoadmapMinOffset = -(startX + (roadmap.length - 1) * gap);
     const mist = this.graphics(viewport, 'HallChapterRoadmapMist', 0, 0, 1060, 300, 0);
-    mist.fillColor = new Color(38, 31, 28, 88);
+    mist.fillColor = night ? new Color(38, 31, 28, 88) : new Color(238, 222, 188, 118);
     mist.roundRect(-530, -145, 1060, 290, 80); mist.fill();
     const line = this.graphics(content, 'HallChapterRoadmapLine', 0, 0, 2300, 300, 3);
-    line.strokeColor = new Color(90, 78, 68, 230); line.lineWidth = 7;
+    line.strokeColor = night ? new Color(90, 78, 68, 230) : new Color(142, 121, 92, 225); line.lineWidth = 7;
     line.moveTo(startX - 80, routeY[0]);
     for (let index = 1; index < roadmap.length; index++) {
       const previousX = startX + (index - 1) * gap;
@@ -1069,47 +1105,62 @@ export class LearningHall extends Component {
           .start();
       }
       if (current) {
-        const glow = this.graphics(content, `HallChapterGlow-${index}`, x, y, 104, 104, 4);
-        glow.fillColor = new Color(231, 104, 44, 54); glow.circle(0, 0, 50); glow.fill();
-        glow.strokeColor = new Color(255, 199, 91, 150); glow.lineWidth = 3; glow.circle(0, 0, 46); glow.stroke();
+        const outer = this.graphics(content, `HallChapterOuterGlow-${index}`, x, y, 170, 170, 3);
+        outer.fillColor = new Color(255, 200, 90, 52); outer.circle(0, 0, 78); outer.fill();
+        tween(outer.node)
+          .repeatForever(tween().to(1.6, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'sineInOut' })
+            .to(1.6, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }))
+          .start();
+        const glow = this.graphics(content, `HallChapterGlow-${index}`, x, y, 130, 130, 4);
+        glow.fillColor = new Color(255, 225, 140, 135); glow.circle(0, 0, 62); glow.fill();
+        glow.strokeColor = new Color(255, 245, 170, 245); glow.lineWidth = 5; glow.circle(0, 0, 57); glow.stroke();
         tween(glow.node)
-          .repeatForever(tween().to(1.1, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+          .repeatForever(tween().to(1.1, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'sineInOut' })
             .to(1.1, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }))
           .start();
-        const ring = this.graphics(content, `HallChapterRing-${index}`, x, y, 134, 134, 4);
-        ring.strokeColor = new Color(255, 220, 140, 140);
-        ring.lineWidth = 2;
-        ring.arc(0, 0, 64, 0, Math.PI * 1.65, false);
+        const ring = this.graphics(content, `HallChapterRing-${index}`, x, y, 160, 160, 4);
+        ring.strokeColor = new Color(255, 245, 185, 245);
+        ring.lineWidth = 4;
+        ring.arc(0, 0, 75, 0, Math.PI * 1.9, false);
         ring.stroke();
         tween(ring.node)
-          .repeatForever(tween().to(2.4, { angle: -360 }, { easing: 'linear' }))
+          .repeatForever(tween().to(2.0, { angle: -360 }, { easing: 'linear' }))
+          .start();
+        const inner = this.graphics(content, `HallChapterInnerGlow-${index}`, x, y, 96, 96, 5);
+        inner.fillColor = new Color(255, 248, 210, 100); inner.circle(0, 0, 46); inner.fill();
+        tween(inner.node)
+          .repeatForever(tween().to(1.4, { scale: new Vec3(1.1, 1.1, 1) }, { easing: 'sineInOut' })
+            .to(1.4, { scale: new Vec3(0.96, 0.96, 1) }, { easing: 'sineInOut' }))
           .start();
       }
       const shard = this.graphics(content, `HallChapterShard-${index}`, x, y, 82, 92, 5);
-      shard.fillColor = current ? new Color(188, 76, 45, 255)
+      shard.fillColor = current ? new Color(245, 190, 95, 255)
         : complete ? new Color(164, 125, 67, 255) : new Color(66, 62, 61, 248);
       shard.moveTo(-33, 29); shard.lineTo(-21, 43); shard.lineTo(25, 38); shard.lineTo(38, 8);
       shard.lineTo(29, -37); shard.lineTo(-12, -44); shard.lineTo(-39, -18); shard.close(); shard.fill();
-      shard.strokeColor = current ? new Color(255, 213, 122) : complete ? new Color(222, 188, 115) : new Color(119, 111, 102);
+      shard.strokeColor = current ? new Color(255, 250, 200) : complete ? new Color(222, 188, 115) : new Color(119, 111, 102);
       shard.lineWidth = current ? 4 : 2; shard.stroke();
       const seal = this.graphics(content, `HallChapterSeal-${index}`, x, y, 58, 58, 6);
-      seal.fillColor = current ? new Color(199, 62, 42) : complete ? new Color(155, 111, 48) : new Color(68, 64, 64);
+      seal.fillColor = current ? new Color(255, 215, 115, 255) : complete ? new Color(155, 111, 48) : new Color(68, 64, 64);
       seal.circle(0, 0, 27); seal.fill();
-      seal.strokeColor = current || complete ? new Color(255, 220, 145) : new Color(130, 122, 110);
+      seal.strokeColor = current ? new Color(255, 255, 220) : complete ? new Color(255, 230, 160) : new Color(130, 122, 110);
       seal.lineWidth = 2; seal.circle(0, 0, 25); seal.stroke();
       this.label(content, `HallChapterSealText-${index}`, complete ? '✓' : current ? '行' : '锁',
-        x, y, 44, 44, 22, complete || current ? new Color(255, 238, 193) : new Color(154, 146, 135), 'center', 7);
+        x, y, 44, 44, current ? 28 : 22, current ? new Color(255, 252, 235) : complete ? new Color(255, 238, 193) : new Color(154, 146, 135), 'center', 7);
 
-      const labelY = y > 0 ? y - 82 : y + 88;
-      this.label(content, `HallChapterEyebrow-${index}`, chapter.eyebrow, x, labelY + 20, 150, 22, 13,
-        current ? new Color(255, 211, 119) : t.goldSub, 'center', 6);
-      this.label(content, `HallChapterTitle-${index}`, chapter.title, x, labelY - 4, 176, 30, current ? 20 : 17,
-        chapter.state === 'locked' ? new Color(147, 139, 128) : t.goldInk, 'center', 6);
-      this.label(content, `HallChapterDetail-${index}`, chapter.detail, x, labelY - 30, 180, 24, 12,
-        chapter.state === 'locked' ? new Color(120, 115, 108) : t.goldSub, 'center', 6);
+      // 每个节点只保留“章节名、骨纹进度、状态”三层信息，避免曲线路线上的文字互相压住。
+      const labelDirection = y > 0 ? -1 : 1;
+      const titleY = y + labelDirection * 86;
+      const detailY = titleY + labelDirection * 25;
+      const stateY = titleY + labelDirection * 47;
+      const locked = chapter.state === 'locked';
+      this.label(content, `HallChapterTitle-${index}`, chapter.title, x, titleY, 190, 30, current ? 22 : 19,
+        locked ? new Color(116, 103, 88) : (current ? new Color(255, 245, 165) : new Color(92, 63, 35)), 'center', 6);
+      this.label(content, `HallChapterDetail-${index}`, chapter.detail, x, detailY, 190, 24, 13,
+        locked ? new Color(132, 120, 104) : (current ? new Color(156, 103, 42) : new Color(115, 82, 49)), 'center', 6);
       this.label(content, `HallChapterPercent-${index}`,
-        chapter.state === 'locked' ? '尚未解锁' : `${chapter.percent}%`,
-        x, labelY - 51, 140, 18, 11, chapter.state === 'locked' ? new Color(130, 124, 116) : t.goldSub, 'center', 7);
+        locked ? '尚未解锁' : (current ? `探索中 · ${chapter.percent}%` : `已完成 · ${chapter.percent}%`),
+        x, stateY, 170, 20, 12, locked ? new Color(125, 113, 98) : (current ? new Color(192, 120, 36) : new Color(121, 90, 54)), 'center', 7);
     });
 
     // Open with the current first chapter near the center. Dragging is clamped in onTouchMove.
@@ -1117,7 +1168,7 @@ export class LearningHall extends Component {
     content.setPosition(this.chapterRoadmapOffset, 0, 1);
     this.label(root, 'HallStorySwipeHint', '‹  按住残卷左右拖动  ›', 0, -220, 260, 24, 13, t.goldSub, 'center', 6);
     this.label(root, 'HallChapterRoadmapFootnote',
-      '循神甲裂纹，九段命途已铺就；未解锁章节将在剧本落地后依次开启。',
+      '完成本章学习与命途挑战，即可点亮下一段旅程。',
       0, -248, 900, 24, 12, t.goldSub, 'center', 6);
   }
 
@@ -1157,8 +1208,20 @@ export class LearningHall extends Component {
     }
   }
 
+  private poemGlyphCards() {
+    const byModern = new Map<string, HallCard>();
+    this.cards().forEach(card => {
+      if (card.unlocked && this.hasOracleGlyphAsset(card) && !byModern.has(card.modern)) {
+        byModern.set(card.modern, card);
+      }
+    });
+    // Cocos' current Babel target does not expand Map iterators correctly here
+    // (`[].concat(byModern.values())`), so convert it explicitly.
+    return Array.from(byModern.values());
+  }
+
   private beginPoemChallenge() {
-    const unlocked = this.cards().filter(card => card.unlocked);
+    const unlocked = this.poemGlyphCards();
     const available = poemChallengeBank.map(definition => ({ definition, card: unlocked.find(card => card.modern === definition.answer) }))
       .filter((item): item is { definition: PoemChallengeDefinition; card: HallCard } => !!item.card);
     this.poemQuestions = this.shuffle(available).slice(0, Math.min(5, available.length));
@@ -1171,12 +1234,13 @@ export class LearningHall extends Component {
     const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
     this.drawHeader(root, '诗词闯关', question ? `第 ${this.poemIndex + 1} / ${this.poemQuestions.length} 关 · 选择甲骨字填空` : '先收集甲骨文字，再开始诗词闯关', true);
     this.panel(root, 'HallPoemPanel', 0, -5, 1020, 450, t.card, false);
-    if (!question || this.cards().filter(card => card.unlocked).length < 4) {
+    const glyphCards = this.poemGlyphCards();
+    if (!question || glyphCards.length < 4) {
       this.label(root, 'HallPoemLocked', '需要至少收集 4 个甲骨文字，\n才能组成一题四张不同的候选字卡。', 0, 25, 700, 90, 26, t.goldInk, 'center', 6);
       this.button(root, 'HallPoemGoCity', '进入殷墟探索', 0, -110, 220, 56, true);
       return;
     }
-    const wrong = this.cards().filter(card => card.unlocked && card.id !== question.card.id);
+    const wrong = glyphCards.filter(card => card.modern !== question.card.modern);
     this.poemOptions = this.shuffle([question.card, ...this.shuffle(wrong).slice(0, 3)]);
     this.label(root, 'HallPoemLine', question.definition.poem, 0, 132, 880, 70, 31, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemHint', '请选择一张甲骨字卡填入【】', 0, 82, 600, 28, 17, t.goldSub, 'center', 6);
@@ -1186,7 +1250,7 @@ export class LearningHall extends Component {
       const option = this.graphics(root, `HallPoemOption-${index}`, x, y, 190, 208, 4);
       option.fillColor = new Color(231, 209, 157, 248); option.roundRect(-95, -104, 190, 208, 14); option.fill();
       option.strokeColor = this.qualityColor(card.quality); option.lineWidth = 3; option.roundRect(-93, -102, 186, 204, 12); option.stroke();
-      this.oracleGlyph(root, `HallPoemGlyph-${index}`, card, x, y + 27, 92, 112, 6);
+      this.oracleGlyph(root, `HallPoemGlyph-${index}`, card, x, y + 27, 92, 112, 6, false);
       this.label(root, `HallPoemSelect-${index}`, `${String.fromCharCode(65 + index)} · 选此甲骨`, x, y - 76, 150, 24, 14, new Color(93, 56, 34), 'center', 6);
     });
   }
@@ -1204,11 +1268,10 @@ export class LearningHall extends Component {
     const root = this.createRoot('HallPoemResult', 'poemResult');
     const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
     if (!question) { this.render('home'); return; }
-    const filled = question.definition.poem.replace('【】', `【${question.card.modern}】`);
     this.drawHeader(root, this.poemLastCorrect ? '闯关成功' : '本关待巩固', this.poemLastCorrect ? '甲骨字与诗句语义相符' : '已记录到错题本，请记住正确甲骨字', true);
     this.panel(root, 'HallPoemResultPanel', 0, -8, 1010, 455, t.card, false);
-    this.label(root, 'HallPoemResultLine', filled, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
-    this.oracleGlyph(root, 'HallPoemResultGlyph', question.card, -355, 12, 110, 135, 6);
+    this.drawPoemResultLine(root, question, t);
+    this.oracleGlyph(root, 'HallPoemResultGlyph', question.card, -355, 12, 110, 135, 6, false);
     this.label(root, 'HallPoemResultChar', `${question.card.modern} · ${question.card.pinyin}`, -355, -100, 210, 28, 21, t.goldInk, 'center', 6);
     this.label(root, 'HallPoemResultMeaning', `甲骨字义：${question.card.meaning}`, -355, -166, 230, 95, 14, t.goldSub, 'left', 6);
     this.panel(root, 'HallPoemResultInfo', 180, -12, 540, 280, new Color(223, 184, 113), true);
@@ -1218,6 +1281,25 @@ export class LearningHall extends Component {
     const last = this.poemIndex >= this.poemQuestions.length - 1;
     this.button(root, 'HallPoemNext', last ? '完成闯关' : '下一关', 310, -202, 180, 50, true);
     this.label(root, 'HallPoemScore', `本轮答对 ${this.poemCorrect} / ${this.poemIndex + 1}`, -150, -202, 260, 28, 17, t.goldInk, 'center', 6);
+  }
+
+  private drawPoemResultLine(root: Node, question: { definition: PoemChallengeDefinition; card: HallCard }, t: ReturnType<LearningHall['theme']>) {
+    const marker = '【】';
+    const markerIndex = question.definition.poem.indexOf(marker);
+    if (markerIndex < 0) {
+      this.label(root, 'HallPoemResultLine', question.definition.poem, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
+      return;
+    }
+    const poemWithGlyphSlot = question.definition.poem.replace(marker, '【　】');
+    this.label(root, 'HallPoemResultLine', poemWithGlyphSlot, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
+    // Classical-poetry lines here use full-width Chinese characters. Match the
+    // label's centered character grid and place the real oracle image inside
+    // the brackets instead of writing the modern answer back into the poem.
+    const glyphSlotIndex = Array.from(question.definition.poem.slice(0, markerIndex) + '【').length;
+    const characterCount = Array.from(poemWithGlyphSlot).length;
+    const characterAdvance = 29;
+    const glyphX = (glyphSlotIndex + .5 - characterCount / 2) * characterAdvance;
+    this.oracleGlyph(root, 'HallPoemResultInlineGlyph', question.card, glyphX, 150, 30, 42, 7, false);
   }
 
   private nextPoemChallenge() {
@@ -1236,7 +1318,7 @@ export class LearningHall extends Component {
     mask?: Color; maskZ?: number; maskW?: number; maskH?: number;
     w: number; h: number; fill: Color;
     corner?: number; stroke?: Color; strokeW?: number; innerCorner?: number; innerInset?: number; panelZ?: number;
-  }): Node {
+  }): Graphics {
     if (o.mask) {
       const mw = o.maskW ?? 1280, mh = o.maskH ?? 720;
       const mask = this.graphics(root, 'HallModalMask', 0, 0, mw, mh, o.maskZ ?? 1);
@@ -1832,8 +1914,12 @@ export class LearningHall extends Component {
     return items;
   }
 
-  private oracleGlyph(parent: Node, name: string, card: HallCard, x: number, y: number, maxWidth: number, maxHeight: number, z: number) {
-    const fallback = this.label(parent, `${name}Fallback`, card.glyph, x, y, maxWidth, maxHeight, Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), new Color(75, 43, 28), 'center', z);
+  private hasOracleGlyphAsset(card: HallCard) {
+    return !!card.asset && !!card.imageBounds && this.poemGlyphCharacters.has(card.modern);
+  }
+
+  private oracleGlyph(parent: Node, name: string, card: HallCard, x: number, y: number, maxWidth: number, maxHeight: number, z: number, allowTextFallback = true) {
+    const fallback = this.label(parent, `${name}Fallback`, '', x, y, maxWidth, maxHeight, Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), new Color(75, 43, 28), 'center', z);
     if (!card.asset || !card.imageBounds) return;
     const [left, top, right, bottom] = card.imageBounds;
     const scale = Math.min(maxWidth / Math.max(1, right - left + 1), maxHeight / Math.max(1, bottom - top + 1));
@@ -1883,7 +1969,7 @@ export class LearningHall extends Component {
    * 因此传 left 时 x 会被当成文字框中心，文字框会向左延伸，容易导致标题出框。
    * 若需要「x 即文字真实左边缘」的贴左标题，请用 titleLabel()。
    */
-  private label(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' | 'right' = 'center', z = 2) {
+  private label(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' | 'right' = 'center', z = 2, outlineWidth = 0, outlineColor?: Color) {
     const node = new Node(name); node.parent = parent; node.setPosition(x, y, z);
     const transform = node.addComponent(UITransform); transform.setContentSize(width, height);
     if (align === 'right') transform.setAnchorPoint(1, 0.5);
@@ -1891,6 +1977,11 @@ export class LearningHall extends Component {
     label.enableWrapText = true; label.overflow = Label.Overflow.SHRINK;
     label.horizontalAlign = align === 'left' ? Label.HorizontalAlign.LEFT : (align === 'right' ? Label.HorizontalAlign.RIGHT : Label.HorizontalAlign.CENTER);
     label.verticalAlign = Label.VerticalAlign.CENTER;
+    if (outlineWidth > 0 && outlineColor) {
+      label.enableOutline = true;
+      label.outlineWidth = outlineWidth;
+      label.outlineColor = outlineColor;
+    }
     return label;
   }
 
@@ -1979,4 +2070,3 @@ export class LearningHall extends Component {
     return quality === 'red' ? new Color(202, 74, 61) : quality === 'gold' ? new Color(236, 184, 73) : new Color(75, 161, 205);
   }
 }
-
