@@ -58,10 +58,8 @@ const RANKS = [
 const AVATARS = [
   { id: 'oracle-boy-pixel', name: '玄衣卜官', emoji: '⚔', path: 'characters/oracle-boy-pixel/down-0/spriteFrame' },
   { id: 'oracle-girl-pixel', name: '青衣卜官', emoji: '✦', path: 'characters/oracle-girl-pixel/down-0/spriteFrame' },
-  { id: 'oracle-apprentice', name: '小卜官', emoji: '🧑', path: 'characters/oracle-apprentice/down-0/spriteFrame' },
-  { id: 'villager-farmer-v2', name: '乡民', emoji: '🧒', path: 'characters/villager-farmer-v2/down-0/spriteFrame' },
-  { id: 'villager-woman-v2', name: '织女', emoji: '👧', path: 'characters/villager-woman-v2/down-0/spriteFrame' },
-  { id: 'resting-douli-v3', name: '行者', emoji: '👦', path: 'characters/resting-douli-v3/idle-0/spriteFrame' },
+  { id: 'oracle-boy-v1', name: '小卜官', emoji: '👦', path: 'characters/oracle-boy-v1/down-0/spriteFrame' },
+  { id: 'oracle-girl-v1', name: '小卜女', emoji: '👧', path: 'characters/oracle-girl-v1/down-0/spriteFrame' },
 ] as const;
 
 export type HallCard = {
@@ -398,6 +396,7 @@ export class LearningHall extends Component {
     if (!this.callbacks) return;
     if (mode === 'home') this.renderHome();
     else if (mode === 'enteringYinXu') this.renderEnteringYinXu();
+    else if (mode === 'characterSelect') this.renderCharacterSelect();
     else if (mode === 'codex') this.renderCodex(selectedId);
     else if (mode === 'review') this.renderReview();
     else if (mode === 'reviewResult') this.renderReviewResult();
@@ -427,6 +426,11 @@ export class LearningHall extends Component {
   /** A short, single transition is more reliable than repeatedly rebuilding the UI during loading. */
   private beginYinXuTransition() {
     if (this.enteringYinXu) return;
+    const avatarId = this.callbacks?.getProfile().avatarId;
+    if (avatarId !== 'oracle-boy-v1' && avatarId !== 'oracle-girl-v1') {
+      this.render('characterSelect');
+      return;
+    }
     this.enteringYinXu = true;
     this.render('enteringYinXu');
     this.yinXuTransitionTimer = setTimeout(() => {
@@ -434,6 +438,31 @@ export class LearningHall extends Component {
       this.callbacks?.enterYinXu();
       this.close();
     }, 3500);
+  }
+
+  private renderCharacterSelect() {
+    const root = this.createRoot('HallCharacterSelect', 'characterSelect');
+    const t = this.theme();
+    this.panel(root, 'HallCharacterSelectPanel', 0, 0, 840, 510, t.card, false);
+    this.titleLabel(root, 'HallCharacterSelectTitle', '选择你的卜官', 0, 188, 560, 42, 30, t.goldInk, 6);
+    this.label(root, 'HallCharacterSelectHint', '选择后即可进入殷墟探索；在设置中也可以随时更换。', 0, 150, 600, 28, 16, t.goldSub, 'center', 6);
+    this.drawCharacterSelectCard(root, 'Boy', -190, 0, 'oracle-boy-v1', '少年卜官', '黑袍佩剑 · 发丝与衣摆随步伐摆动', true, t);
+    this.drawCharacterSelectCard(root, 'Girl', 190, 0, 'oracle-girl-v1', '少女卜官', '青黛长衣 · 发簪与衣袖随步伐摆动', false, t);
+    this.button(root, 'HallCharacterSelectBack', '返回', 0, -205, 150, 46, false);
+  }
+
+  private drawCharacterSelectCard(root: Node, key: string, x: number, y: number, asset: string, title: string, detail: string, accent: boolean, t: ReturnType<LearningHall['theme']>) {
+    const card = this.graphics(root, `HallCharacter${key}Card`, x, y, 320, 278, 4);
+    card.fillColor = accent ? new Color(255, 246, 222, 245) : new Color(244, 240, 232, 245);
+    card.roundRect(-160, -139, 320, 278, 18); card.fill();
+    card.strokeColor = accent ? new Color(193, 130, 62) : t.cardStroke;
+    card.lineWidth = accent ? 4 : 3; card.roundRect(-158, -137, 316, 274, 16); card.stroke();
+    const spriteNode = new Node(`HallCharacter${key}Sprite`); spriteNode.parent = root; spriteNode.setPosition(x, y + 37, 6);
+    spriteNode.addComponent(UITransform).setContentSize(150, 150);
+    const sprite = spriteNode.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    this.loadSprite(`characters/${asset}/down-0/spriteFrame`, spriteNode, sprite, false);
+    this.label(root, `HallCharacter${key}Title`, title, x, y - 77, 250, 28, 21, t.goldInk, 'center', 6);
+    this.label(root, `HallCharacter${key}Detail`, detail, x, y - 110, 276, 36, 13, t.goldSub, 'center', 6);
   }
 
   private stopYinXuTransition() {
@@ -592,11 +621,13 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallCharacterCard', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 14); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 13); node.stroke();
-    // 小人头像：固定显示殷墟小卜官（任务形象），不受玩家上传头像影响
+    // Use the selected protagonist so the hall and the map always show the same player character.
     const avR = this.vh(0.070);
     const avY = y + this.vh(0.060);
+    const avatarId = this.callbacks?.getProfile().avatarId;
+    const avatar = AVATARS.find(item => item.id === avatarId) ?? AVATARS[0];
     this.drawAvatar(root, 'HallCharAvatar', x, avY, avR, {
-      spritePath: 'characters/oracle-apprentice/down-0/spriteFrame',
+      spritePath: avatar.path,
       frameColor: new Color(231, 187, 97),
       bgColor: new Color(255, 248, 236),
       z: 5,
@@ -1801,6 +1832,16 @@ export class LearningHall extends Component {
       return;
     }
     if (this.hit(x, y, 480, 286, 150, 48)) { this.playSfx('back'); this.render('home'); return; }
+    if (this.mode === 'characterSelect') {
+      if (this.hit(x, y, -190, 0, 320, 278)) {
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-boy-v1'); this.beginYinXuTransition();
+      } else if (this.hit(x, y, 190, 0, 320, 278)) {
+        this.playSfx('confirm'); this.callbacks?.setAvatar('oracle-girl-v1'); this.beginYinXuTransition();
+      } else if (this.hit(x, y, 0, -205, 150, 46)) {
+        this.playSfx('back'); this.render('home');
+      }
+      return;
+    }
     if (this.mode === 'codex') {
       if (this.codexPage > 0 && this.hit(x, y, -330, -232, 112, 38)) { this.playSfx('tap'); this.codexPage--; this.render('codex', null); return; }
       if (this.codexPage < this.codexPageCount() - 1 && this.hit(x, y, -50, -232, 112, 38)) { this.playSfx('tap'); this.codexPage++; this.render('codex', null); return; }

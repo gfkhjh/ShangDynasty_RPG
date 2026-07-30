@@ -62,13 +62,16 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     { id: 'chapter-1-field-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(430, -452), facingDirection: 'right', safeOffset: 72 },
     { id: 'chapter-1-first-fragment', regionId: RegionId.FIELDS, worldPosition: new Vec2(390, -920), facingDirection: 'down', safeOffset: 72 },
     { id: 'chapter-2-riverbank-entry', regionId: RegionId.RIVERBANK, worldPosition: new Vec2(-5060, -700), facingDirection: 'right', safeOffset: 72 },
-    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2290, -3910), facingDirection: 'right', safeOffset: 72 },
+    // Reuse the authored south-road landing. The former point beside the
+    // burial mound became blocked after the tomb-map refresh.
+    { id: 'chapter-3-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2290, -3980), facingDirection: 'up', safeOffset: 80 },
     { id: 'chapter-4-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(3460, -800), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-5-fields-entry', regionId: RegionId.FIELDS, worldPosition: new Vec2(1560, -1500), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1660, -3180), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1900, -3180), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-7-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(4710, -1100), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(3160, -3200), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(0, 1010), facingDirection: 'left', safeOffset: 72 },
+    { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2300, -3200), facingDirection: 'left', safeOffset: 72 },
+    // Matches StoryLocations: clear east apron beside the temple, outside its footprint.
+    { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(300, 870), facingDirection: 'left', safeOffset: 72 },
     { id: 'story-return-city', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
     {
       id: 'outskirts-south-road-entry',

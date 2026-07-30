@@ -37,21 +37,25 @@ export const STORY_LOCATIONS = {
   'chapter-2-riverbank-entry': location('chapter-2-riverbank-entry', RegionId.RIVERBANK, 'chapter-2-riverbank-entry', -5060, -700, 'right'),
   'chapter-2-riverbank-npc': location('chapter-2-riverbank-npc', RegionId.RIVERBANK, 'chapter-2-riverbank-entry', -4900, -700, 'left', 'fisher'),
 
-  'chapter-3-royal-tomb-entry': location('chapter-3-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2290, -3910, 'right'),
+  // The south road is clear after the tomb-map refresh and remains within the
+  // gorge keeper's opening trigger range.
+  'chapter-3-royal-tomb-entry': location('chapter-3-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2290, -3980, 'up'),
   'chapter-3-royal-tomb-npc': location('chapter-3-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-3-royal-tomb-entry', 2450, -3910, 'left', 'gorge-keeper'),
 
   'chapter-4-highland-entry': location('chapter-4-highland-entry', RegionId.HIGHLAND, 'chapter-4-highland-entry', 3460, -800, 'left'),
   'chapter-4-highland-npc': location('chapter-4-highland-npc', RegionId.HIGHLAND, 'chapter-4-highland-entry', 3300, -800, 'right', 'forest-keeper'),
   'chapter-5-fields-entry': location('chapter-5-fields-entry', RegionId.FIELDS, 'chapter-5-fields-entry', 1560, -1500, 'left'),
-  'chapter-5-fields-npc': location('chapter-5-fields-npc', RegionId.FIELDS, 'chapter-5-fields-entry', 1400, -1500, 'right', 'escort-guide'),
-  'chapter-6-royal-tomb-entry': location('chapter-6-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-6-royal-tomb-entry', 1660, -3180, 'left'),
-  'chapter-6-royal-tomb-npc': location('chapter-6-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-6-royal-tomb-entry', 1500, -3180, 'right', 'lamp-keeper'),
+  // East of the branch canal, on the clear cross-road rather than in water or a crop plot.
+  'chapter-5-fields-npc': location('chapter-5-fields-npc', RegionId.FIELDS, 'chapter-5-fields-entry', 1660, -1729, 'right', 'escort-guide'),
+  'chapter-6-royal-tomb-entry': location('chapter-6-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-6-royal-tomb-entry', 1900, -3180, 'left'),
+  'chapter-6-royal-tomb-npc': location('chapter-6-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-6-royal-tomb-entry', 1840, -3180, 'right', 'lamp-keeper'),
   'chapter-7-highland-entry': location('chapter-7-highland-entry', RegionId.HIGHLAND, 'chapter-7-highland-entry', 4710, -1100, 'left'),
   'chapter-7-highland-npc': location('chapter-7-highland-npc', RegionId.HIGHLAND, 'chapter-7-highland-entry', 4550, -1100, 'right', 'scroll-keeper'),
-  'chapter-8-royal-tomb-entry': location('chapter-8-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-8-royal-tomb-entry', 3160, -3200, 'left'),
-  'chapter-8-royal-tomb-npc': location('chapter-8-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-8-royal-tomb-entry', 3000, -3200, 'right', 'tomb-keeper'),
-  'chapter-9-city-entry': location('chapter-9-city-entry', RegionId.CITY, 'chapter-9-city-entry', 0, 1010, 'left'),
-  'chapter-9-city-npc': location('chapter-9-city-npc', RegionId.CITY, 'chapter-9-city-entry', 0, 1010, 'up', 'grand-diviner'),
+  'chapter-8-royal-tomb-entry': location('chapter-8-royal-tomb-entry', RegionId.ROYAL_TOMB, 'chapter-8-royal-tomb-entry', 2300, -3200, 'left'),
+  'chapter-8-royal-tomb-npc': location('chapter-8-royal-tomb-npc', RegionId.ROYAL_TOMB, 'chapter-8-royal-tomb-entry', 2220, -3200, 'right', 'tomb-keeper'),
+  // The temple footprint ends near x=170; these two positions are on its clear east apron.
+  'chapter-9-city-entry': location('chapter-9-city-entry', RegionId.CITY, 'chapter-9-city-entry', 300, 870, 'left'),
+  'chapter-9-city-npc': location('chapter-9-city-npc', RegionId.CITY, 'chapter-9-city-entry', 420, 870, 'up', 'grand-diviner'),
 } as const satisfies Record<string, StoryLocation>;
 
 export type StoryLocationId = keyof typeof STORY_LOCATIONS;

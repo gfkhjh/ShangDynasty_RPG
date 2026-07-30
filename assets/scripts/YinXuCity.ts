@@ -1,6 +1,7 @@
 import {
   _decorator,
   BlockInputEvents,
+  Canvas,
   Color,
   Component,
   DebugMode,
@@ -24,12 +25,14 @@ import {
   UITransform,
   Vec2,
   view,
+  Widget,
 } from 'cc';
 import { HallCard, LearningHall } from './LearningHall';
 import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
 import { RegionTransitionManager } from './regions/RegionTransitionManager';
-import { RegionEntry, RegionId } from './regions/RegionTypes';
+import { RegionEntry, RegionExit, RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
+import { GameAudioManager } from './GameAudioManager';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
 import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
@@ -84,9 +87,9 @@ import {
   CHAPTER_NINE_ID,
 } from './story/ChapterNine';
 import { migrateStorySave } from './story/StoryState';
-import { DialogueLine, StorySaveState, StoryStepDefinition } from './story/StoryTypes';
+import { DialogueLine, StoryObjective, StorySaveState, StoryStepDefinition } from './story/StoryTypes';
 import { CHAPTER_CHAR_PLANS } from './story/ChapterCharMap';
-import { fixedGuidedCardIds, MAIN_STORY_CARD_IDS, RELIC_CARD_IDS } from './story/CollectionPlan';
+import { collectionPlanFor, fixedGuidedCardIds, MAIN_STORY_CARD_IDS, RELIC_CARD_IDS } from './story/CollectionPlan';
 
 // 主线/拾遗字 id 集合（基于 ChapterCharMap：主线 250 = 9 章 PLANS，拾遗 50 = SUPPLEMENT_CHARS）
 function planCardId(entry: { char: string; existingCardId: string | null }): string {
@@ -95,6 +98,12 @@ function planCardId(entry: { char: string; existingCardId: string | null }): str
 }
 const STORY_CARD_IDS = new Set<string>(MAIN_STORY_CARD_IDS);
 const SUPPLEMENT_CARD_IDS = new Set<string>(RELIC_CARD_IDS);
+// Keep chapter-jump controls available while the current local build is under
+// test. Switch this back to false before packaging the player build.
+const SHOW_STORY_TEST_BUTTONS = true;
+// Collision outlines are useful while authoring maps, but must never leak
+// into the player build merely because Creator itself is running in debug.
+const SHOW_COLLISION_DEBUG = false;
 const STORY_CHAPTER_DEFINITIONS = [
   chapterOneDefinition,
   chapterTwoDefinition,
@@ -168,7 +177,7 @@ type CanalFlowMark = {
 };
 type DepthTree = { node: Node; trunkY: number; halfWidth: number; canopyHeight: number; baseZ: number };
 type DepthOccluder = {
-  node: Node; footY: number; halfWidth: number; coverHeight: number; baseZ: number; foregroundZ: number;
+  node: Node; footY: number; halfWidth: number; coverHeight: number; baseZ: number; foregroundZ: number; regionId?: string;
 };
 type StaticStructureSprite = { node: Node; asset: string };
 type WildlifeMotion = 'swim' | 'wade' | 'hop';
@@ -205,7 +214,7 @@ type FishingCastEffect = {
   playerOrigin: Vec2; castDuration: number; waitDuration: number;
 };
 type CutPlantRegrowth = { node: Node; timer: number };
-type BackpackTab = 'tools' | 'clothing' | 'codex';
+type BackpackTab = 'tools' | 'codex';
 type DugHole = { node: Node; timer: number; x: number; y: number };
 type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement';
 type ExcavationReward = {
@@ -226,6 +235,15 @@ type DigParticle = { root: Node; vx: number; vy: number; gravity: number; life: 
 type WeatherKind = '晴' | '雨天' | '小雨' | '中雨';
 type WeatherParticle = { x: number; y: number; vx: number; vy: number; size: number; life: number; phase: number };
 type RainSplash = { x: number; y: number; life: number; maxLife: number };
+type RegionExitMarkerAnimation = {
+  aura: Node;
+  auraOpacity: UIOpacity;
+  core: Node;
+  coreOpacity: UIOpacity;
+  bloom: Node;
+  bloomOpacity: UIOpacity;
+  phase: number;
+};
 type Villager = {
   root: Node; visual: Node; sprite: Sprite; frames: Record<Facing, Array<SpriteFrame | null>>;
   route: Vec2[]; routeIndex: number; routeDirection: number; target: Vec2; facing: Facing; walkPhase: number; displayedFrame: number;
@@ -310,7 +328,6 @@ const CHAPTER_CHALLENGES: Record<string, ChapterChallenge> = {
     success: '你选择整理并传授，让识字与问卜重新服务于众人。',
   },
 };
-type ShopCategory = 'shell' | 'decoration' | 'rubbing';
 type OracleCardData = {
   id: string; glyph: string; modern: string; pinyin: string; quality: OracleQuality;
   meaning: string; evolution: string; history: string;
@@ -386,14 +403,14 @@ const CHAPTER_SIX_DIVINATION_QUESTIONS: Record<string, DivinationQuestion> = {
   },
 };
 type ShopProduct = {
-  id: string; category: ShopCategory; name: string; price: number; description: string;
-  quality: OracleQuality; slot?: number;
+  id: string; name: string; price: number; description: string;
+  quality: OracleQuality;
 };
 type LearningRecord = { attempts: number; bestStars: number; correctCount: number };
 type WrongBookEntry = { wrongCount: number; lastWrongAt: number };
 type CitySave = {
   version: number; ink: number; coins: number; experience: number;
-  unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
+  unlockedOracleIds: string[]; excavatedStoryIds: string[]; excavatedCardIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; characterChoiceCompleted: boolean; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   story: StorySaveState;
@@ -531,10 +548,21 @@ export class YinXuCity extends Component {
   private outskirtsGroundNode: Node | null = null;
   /** Container for all OutskirtsGroundTile sprites */
   private outskirtsTileContainer: Node | null = null;
-  /** OUTSKIRTS-only natural props.  Never parent these to DynamicWorld directly. */
+  /** OUTSKIRTS ground-cover layer. Solid nature entities live in DynamicWorld for depth sorting. */
   private outskirtsNatureRoot: Node | null = null;
   /** OUTSKIRTS trees and jujube bushes participate in world-depth sorting. */
   private outskirtsNatureEntityNodes: Node[] = [];
+  /** FIELDS visuals overlap OUTSKIRTS coordinates, so they are hidden outside their owning region. */
+  private fieldVisualNodes: Node[] = [];
+  /** Purely visual, region-scoped road-exit markers; they never create collision data. */
+  private readonly regionExitMarkerRoots = new Map<RegionId, Node>();
+  private regionExitMarkerAnimations: RegionExitMarkerAnimation[] = [];
+  /** Obstacles created by the rebuildable OUTSKIRTS nature pass. */
+  private readonly outskirtsNatureObstacleNames = new Set<string>();
+  /** Retired grove names are ignored by delayed SpriteFrame callbacks. */
+  private readonly retiredOutskirtsNatureTreeNames = new Set<string>();
+  /** One runtime audit per OUTSKIRTS visit for the reported south-road wall. */
+  private outskirtsSouthAirwallProbeReported = false;
   private player!: Node;
   private playerVisual!: Node;
   private playerSprite!: Sprite;
@@ -548,12 +576,15 @@ export class YinXuCity extends Component {
   private weatherIcon!: Graphics;
   private weatherParticles!: Graphics;
   private weatherParticleNode!: Node;
+  private audioManager!: GameAudioManager;
 
   private playerPos = new Vec2(0, 20);
   private cameraPos = new Vec2(0, 20);
   private keyboard = new Vec2();
   private stick = new Vec2();
   private playerMotion = new Vec2();
+  private footstepDistance = 0;
+  private wasWalkingForAudio = false;
   private touchOrigin: Vec2 | null = null;
   private obstacles: RectObstacle[] = [];
   /** Synchronous authoring scope inherited by addObstacle() when no region is supplied. */
@@ -573,6 +604,11 @@ export class YinXuCity extends Component {
   private depthTrees: DepthTree[] = [];
   private depthOccluders: DepthOccluder[] = [];
   private fixedForegroundNodes: Node[] = [];
+  /** Story NPC names stay outside actor subtrees and always render above the world. */
+  private storyNpcLabelRoot: Node | null = null;
+  private storyNpcWorldLabels: Array<{ source: Node; label: Node }> = [];
+  /** Alpha-only south-gate pixels rendered permanently above outdoor actors. */
+  private southGateForegroundVisual: Node | null = null;
   private southOutskirtsSurfaceNodes: Node[] = [];
   private staticCityBoundaryNodes: Node[] = [];
   private cityWallVisualRoot: Node | null = null;
@@ -595,6 +631,7 @@ export class YinXuCity extends Component {
     right: [null, null, null, null, null, null],
     up: [null, null, null, null, null, null],
   };
+  private readonly playerFrameCount = 6;
   private facing: Facing = 'down';
   private displayedPlayerFrame = -1;
   private playerSpriteLoadToken = 0;
@@ -614,10 +651,10 @@ export class YinXuCity extends Component {
   private readonly unlockAllCatalogForPreview = true;
   private readonly oracleCards: OracleCardData[] = [
     {
-      id: 'rain', glyph: '⋮', modern: '雨', pinyin: 'yǔ', quality: 'blue',
+      id: 'rain', glyph: '雨', modern: '雨', pinyin: 'yǔ', quality: 'blue',
       asset: 'catalog/ob-u96e8', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表示从天空降下的雨水，是观察自然天气的重要文字。',
-      evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。',
+      evolution: '图鉴所用甲骨字形以密集短画表现自天而降的雨势；后世逐步收束为“雨”的外框与内部点画。',
       history: '商代卜辞常记录求雨、止雨和未来天气，帮助安排耕作与祭祀。',
     },
     {
@@ -649,16 +686,18 @@ export class YinXuCity extends Component {
       history: '商代对日月星辰的观察服务于历法、农时、祭祀和方向判断，体现了早期天象知识的积累。',
     },
     {
-      id: 'field', glyph: '⊞', modern: '田', pinyin: 'tián', quality: 'red',
+      id: 'field', glyph: '田', modern: '田', pinyin: 'tián', quality: 'red',
+      asset: 'catalog/ob-u7530', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表示划分整齐的耕地，与播种、收获和田猎活动有关。',
-      evolution: '正式版本将替换为对应甲骨拓片和田块象形结构。',
+      evolution: '图鉴字形以阡陌分割的方格象征田界；经金文、篆书的线条规整，发展为今天的“田”字。',
       history: '甲骨卜辞中常见对收成、田猎和土地事务的占问。',
     },
     {
-      id: 'water-temp', glyph: '◇', modern: '水（临）', pinyin: 'shuǐ', quality: 'blue',
-      meaning: '临时收藏位：表示水流与水边生活，正式甲骨字形将后续替换。',
-      evolution: '当前使用统一符号验证发掘、收藏与学习流程。',
-      history: '洹水河畔出土的普通蓝光卜骨，与渔猎、水事记录相关。',
+      id: 'water-temp', glyph: '水', modern: '水', pinyin: 'shuǐ', quality: 'blue',
+      asset: 'catalog/ob-u6c34', imageBounds: [0, 0, 199, 199], excavatable: true,
+      meaning: '字形以中间主流和两侧分支表现流水，表示江河、水源及与水有关的行动。',
+      evolution: '甲骨文把水流的分叉和回旋写成可见线条；后世逐渐把它规范为“水”的竖画、撇捺结构。',
+      history: '商代卜辞常把水与降雨、渡涉、渔猎和农事相连；河畔聚落的用水与水势都可能成为占问事项。',
     },
     {
       id: 'millet-temp', glyph: '♮', modern: '禾（临）', pinyin: 'hé', quality: 'blue',
@@ -807,9 +846,10 @@ export class YinXuCity extends Component {
       history: '成对学习上下位置字，有助于区分相近结构并理解指事字的造字逻辑。',
     },
     {
-      id: 'earth-temp', glyph: '⊙', modern: '土（临）', pinyin: 'tǔ', quality: 'blue',
+      id: 'earth-temp', glyph: '土', modern: '土', pinyin: 'tǔ', quality: 'blue',
+      asset: 'catalog/ob-u571f', imageBounds: [0, 0, 199, 199], excavatable: true,
       meaning: '表现地面上隆起的土块或土堆，用于表示土地。',
-      evolution: '临时符号强调地面与土堆；正式字库将展示字形逐渐规整的过程。',
+      evolution: '图鉴字形以地面横线和隆起的土块为核心；此后线条逐渐规整，形成“土”的上下结构。',
       history: '土地与城邑、农耕、方域和祭祀密切相关，是殷墟生活的重要主题。',
     },
     {
@@ -845,28 +885,29 @@ export class YinXuCity extends Component {
     },
     ...importedOracleCards,
     ...supplementalOracleCards,
-  ].map(card => ({ ...card, ...(ORACLE_GLYPH_ASSET_OVERRIDES[card.id] ?? {}) }));
+].map(card => ({
+    ...card,
+    quality: card.quality as OracleQuality,
+    imageBounds: card.imageBounds as OracleCardData['imageBounds'],
+    ...(ORACLE_GLYPH_ASSET_OVERRIDES[card.id] ?? {}),
+}));
   private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(
     this.oracleCards.filter(card => this.hasRealOracleGlyph(card)),
   );
   private readonly shopProducts: ShopProduct[] = [
-    { id: 'shell-clay', category: 'shell', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
-    { id: 'shell-vermilion', category: 'shell', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
-    { id: 'shell-gold', category: 'shell', name: '鎏金王室龟甲', price: 420, description: '金色裂纹与祭祀光点环绕的珍贵龟甲外观。', quality: 'gold' },
-    { id: 'decor-ding', category: 'decoration', name: '青铜鼎', price: 120, description: '放置在宗庙院落的固定陈设位。', quality: 'red', slot: 0 },
-    { id: 'decor-oracle-stand', category: 'decoration', name: '甲骨展示台', price: 150, description: '放置在集市入口的固定陈设位。', quality: 'blue', slot: 1 },
-    { id: 'decor-millet', category: 'decoration', name: '禾苗陶盆', price: 90, description: '放置在水井旁的固定陈设位。', quality: 'blue', slot: 2 },
-    { id: 'decor-jars', category: 'decoration', name: '陶瓮组合', price: 110, description: '放置在民居街角的固定陈设位。', quality: 'blue', slot: 3 },
-    { id: 'decor-lamp', category: 'decoration', name: '祭祀灯架', price: 220, description: '放置在宗庙外侧的固定陈设位。', quality: 'red', slot: 4 },
-    { id: 'decor-banner', category: 'decoration', name: '卜官旗幡', price: 260, description: '放置在南北主路的固定陈设位。', quality: 'gold', slot: 5 },
-    { id: 'rubbing-water', category: 'rubbing', name: '洹水卜辞拓片', price: 80, description: '收录洹水、求雨与渔猎主题的收藏页。', quality: 'blue' },
-    { id: 'rubbing-harvest', category: 'rubbing', name: '丰收卜辞拓片', price: 140, description: '收录田猎与农耕主题的进阶收藏页。', quality: 'red' },
-    { id: 'rubbing-royal', category: 'rubbing', name: '王室祭祀拓片', price: 300, description: '收录王室祭祀主题的鎏金收藏页。', quality: 'gold' },
+    { id: 'shell-clay', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
+    { id: 'shell-vermilion', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
+    { id: 'shell-gold', name: '鎏金王室龟甲', price: 420, description: '金色裂纹与祭祀光点环绕的珍贵龟甲外观。', quality: 'gold' },
   ];
   private save!: CitySave;
   private overlay: CityOverlay = 'none';
+  // UI buttons are drawn in code, so they do not have individual Cocos Button
+  // components to host a click clip. A short WebAudio tone keeps the feedback
+  // consistent without adding a separate asset dependency.
+  private uiAudioContext: any = null;
   private divinationStage: DivinationStage = 'none';
   private overlayRoot: Node | null = null;
+  private excavationLearningMask: Node | null = null;
   private actionLabel!: Label;
   private actionButtonNode!: Node;
   private actionToolIconNode!: Node;
@@ -877,6 +918,7 @@ export class YinXuCity extends Component {
   private interiorObstacles: RectObstacle[] = [];
   private templeChairVisualRoot: Node | null = null;
   private templeTableVisual: Node | null = null;
+  private templeTableForegroundVisual: Node | null = null;
   private templeCollisionDebug: Node | null = null;
   private templeCollisionDebugGraphics: Graphics | null = null;
   private templePreSitPosition: Vec2 | null = null;
@@ -885,6 +927,10 @@ export class YinXuCity extends Component {
   private templeLastRisePosition: Vec2 | null = null;
   private seated = false;
   private currentQuestion: DivinationQuestion | null = null;
+  // A story divination is one seated ceremony of three rounds. The narrative
+  // advances only after the third result is confirmed.
+  private storyDivinationRounds = 0;
+  private storyDivinationAnswerIds: string[] = [];
   private currentQuestionIndex = -1;
   private currentAttempts = 0;
   private queueTimer = 0;
@@ -952,10 +998,8 @@ export class YinXuCity extends Component {
   private rewardFlights: RewardFlight[] = [];
   private digParticles: DigParticle[] = [];
   private backpackDetailLabel: Label | null = null;
-  private selectedShopCategory: ShopCategory = 'shell';
   private selectedShopProductIndex = 0;
   private shopFeedback: Label | null = null;
-  private decorationNodes = new Map<string, Node>();
   private previewDepthSpot = 0;
   private learningHall!: LearningHall;
   private regionTransitionManager: RegionTransitionManager | null = null;
@@ -978,6 +1022,7 @@ export class YinXuCity extends Component {
   private presentedStoryStepId: string | null = null;
   private storyArrivalLocked = false;
   private storyWorldEntered = false;
+  private lastGuidanceStepId: string | null = null;
   private storyPresentationToken = 0;
   private storyTestButtons: Node[] = [];
 
@@ -991,6 +1036,9 @@ export class YinXuCity extends Component {
 
   private async initializeGame() {
     this.save = await this.loadCitySave();
+    this.audioManager = GameAudioManager.ensure();
+    this.audioManager.setMusicEnabled(this.save.musicOn);
+    this.audioManager.setSfxEnabled(this.save.sfxOn);
     this.restoreSavedRegionPosition();
     this.buildWorld();
     this.relocatePlayerOutOfRiverWater();
@@ -1002,6 +1050,8 @@ export class YinXuCity extends Component {
     input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.on('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.on('design-resolution-changed', this.refreshExcavationLearningMask, this);
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
       getCards: () => {
@@ -1076,6 +1126,9 @@ export class YinXuCity extends Component {
           delete this.save.avatarUrl;
         }
         this.persistCitySave();
+        if (['oracle-boy-pixel', 'oracle-girl-pixel', 'oracle-boy-v1', 'oracle-girl-v1'].includes(avatarId)) {
+          this.loadPlayerCharacterFrames();
+        }
       },
       choosePlayerCharacter: (avatarId) => {
         this.save.avatarId = avatarId;
@@ -1086,10 +1139,12 @@ export class YinXuCity extends Component {
       },
       toggleMusic: () => {
         this.save.musicOn = !this.save.musicOn;
+        this.audioManager.setMusicEnabled(this.save.musicOn);
         this.persistCitySave();
       },
       toggleSfx: () => {
         this.save.sfxOn = !this.save.sfxOn;
+        this.audioManager.setSfxEnabled(this.save.sfxOn);
         this.persistCitySave();
       },
       toggleNight: () => {
@@ -1133,10 +1188,21 @@ export class YinXuCity extends Component {
             this.presentStoryStep(this.storyController.currentStep());
           }, .08);
         }
+        // Free-main cards are learned outside the linear scripted lesson
+        // sequence. Once the final one is learned, reopen the pending chapter
+        // challenge instead of leaving the player at an invisible gate.
+        if (correct) {
+          const step = this.storyController?.currentStep();
+          if (step?.id.endsWith('fragment-awakens') && CHAPTER_CHALLENGES[step.chapterId]) {
+            this.tryOpenChapterChallenge(step.chapterId);
+          }
+        }
       },
       enterYinXu: () => {
         this.storyWorldEntered = true;
-        this.goToStoryLocation('new-game-city-entry');
+        // 重新进入殷墟时恢复上次存档坐标，让玩家接着原有位置继续，而不是每次都回到城门口原点。
+        // 全新游戏尚无有效存档坐标时，restoreSavedRegionPosition 会自然落到 City 入口原点，行为不变。
+        this.restoreSavedRegionPosition();
         this.beginChapterOneIfNeeded();
       },
     });
@@ -1160,6 +1226,8 @@ export class YinXuCity extends Component {
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.off('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.off('design-resolution-changed', this.refreshExcavationLearningMask, this);
   }
 
   update(dt: number) {
@@ -1186,6 +1254,7 @@ export class YinXuCity extends Component {
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
     const moving = movedDistance > .01;
+    this.updatePlayerFootsteps(movedDistance, movementAllowed);
     this.updateTerrainElevationState();
     if (moving) this.playerMotion.set((this.playerPos.x - oldX) / movedDistance, (this.playerPos.y - oldY) / movedDistance);
     else this.playerMotion.set(0, 0);
@@ -1197,6 +1266,7 @@ export class YinXuCity extends Component {
       this.updateVillagers(dt);
       this.updateHorseCarts(dt);
     }
+    this.updateRegionExitMarkerAnimation();
     if (this.worldMode === 'outside') {
       this.updateRestingVillager();
       this.animateEnvironment();
@@ -1300,6 +1370,12 @@ export class YinXuCity extends Component {
       onRegionChanged: () => {
         this.updateOutskirtsVisibility();
         this.persistCitySave();
+        // A route calculated before a scripted transfer belongs to the old
+        // region. Re-presenting the current step refreshes its waypoints from
+        // the committed landing point without replaying its dialogue.
+        if (this.storyWorldEntered && this.storyController?.currentStep()) {
+          this.presentStoryStep(this.storyController.currentStep());
+        }
       },
     });
     this.updateTerrainElevationState(true);
@@ -1312,6 +1388,118 @@ export class YinXuCity extends Component {
     if (this.outskirtsTileContainer) this.outskirtsTileContainer.active = show;
     if (this.outskirtsNatureRoot) this.outskirtsNatureRoot.active = show;
     this.outskirtsNatureEntityNodes.forEach(node => { if (node.isValid) node.active = show; });
+    this.regionExitMarkerRoots.forEach((root, regionId) => {
+      if (root.isValid) root.active = regionId === RegionId.OUTSKIRTS ? show : r === regionId;
+    });
+    this.updateFieldVisibility();
+    if (r !== RegionId.OUTSKIRTS) this.outskirtsSouthAirwallProbeReported = false;
+    if (r === RegionId.OUTSKIRTS && !this.outskirtsSouthAirwallProbeReported) {
+      // The reported blank wall was the old temporary-strip right-bottom
+      // boundary at this point. Keep an auditable runtime record of every
+      // overlapping obstacle after the duplicate has been removed.
+      this.scanCollisionProbe('OutskirtsSouthRoadRightBlankAirwall', 627, -944, this.playerRadius);
+      this.outskirtsSouthAirwallProbeReported = true;
+    }
+  }
+
+  private updateFieldVisibility() {
+    const r = this.regionTransitionManager?.currentRegionId;
+    const show = !r || r === RegionId.FIELDS;
+    this.fieldVisualNodes.forEach(node => { if (node.isValid) node.active = show; });
+    this.excavationSites.forEach(site => {
+      if (site.region === 'field' && site.root.isValid) site.root.active = show && (site.active || site.holeTimer > 0);
+    });
+  }
+
+  /**
+   * Creates every road-exit cue directly from the registered trigger geometry.
+   * Each marker hugs the source-side trigger edge with only a 10px inset, so
+   * it reads as the actual road exit without being clipped by the map edge.
+   */
+  private createRegionExitMarkers() {
+    const { exits } = createPhaseOneRegionConfig();
+    exits.forEach((exit, index) => this.createRegionExitMarker(exit, index));
+  }
+
+  private createRegionExitMarker(exit: RegionExit, index: number) {
+    const marker = new Node(`RegionExitMarker-${exit.id}`);
+    marker.parent = this.getRegionExitMarkerRoot(exit.sourceRegionId);
+    const position = this.getRegionExitMarkerPosition(exit);
+    marker.setPosition(position.x, position.y, 0);
+    marker.addComponent(UITransform).setContentSize(64, 48);
+
+    const aura = new Node('Aura');
+    aura.parent = marker;
+    aura.addComponent(UITransform).setContentSize(64, 48);
+    const auraGraphics = aura.addComponent(Graphics);
+    auraGraphics.fillColor = new Color(123, 216, 255, 76);
+    auraGraphics.ellipse(0, 0, 32, 24);
+    auraGraphics.fill();
+    const auraOpacity = aura.addComponent(UIOpacity);
+
+    const bloom = new Node('Bloom');
+    bloom.parent = marker;
+    bloom.addComponent(UITransform).setContentSize(50, 38);
+    const bloomGraphics = bloom.addComponent(Graphics);
+    bloomGraphics.fillColor = new Color(157, 229, 255, 142);
+    bloomGraphics.ellipse(0, 0, 25, 19);
+    bloomGraphics.fill();
+    const bloomOpacity = bloom.addComponent(UIOpacity);
+
+    const core = new Node('Core');
+    core.parent = marker;
+    core.addComponent(UITransform).setContentSize(36, 27);
+    const coreGraphics = core.addComponent(Graphics);
+    coreGraphics.fillColor = new Color(224, 250, 255, 224);
+    coreGraphics.ellipse(0, 0, 18, 13.5);
+    coreGraphics.fill();
+    const coreOpacity = core.addComponent(UIOpacity);
+
+    this.regionExitMarkerAnimations.push({
+      aura,
+      auraOpacity,
+      core,
+      coreOpacity,
+      bloom,
+      bloomOpacity,
+      phase: index * 0.73,
+    });
+  }
+
+  private getRegionExitMarkerRoot(regionId: RegionId) {
+    const existing = this.regionExitMarkerRoots.get(regionId);
+    if (existing?.isValid) return existing;
+    const root = new Node(`RegionExitMarkers-${regionId}`);
+    root.parent = this.world;
+    // Ground tiles use depths up to the low sixties; actors start at 80.
+    root.setPosition(0, 0, 68);
+    root.addComponent(UITransform).setContentSize(this.mapWidth, this.mapHeight);
+    this.regionExitMarkerRoots.set(regionId, root);
+    return root;
+  }
+
+  private getRegionExitMarkerPosition(exit: RegionExit) {
+    const { minX, maxX, minY, maxY } = exit.triggerBounds;
+    const position = new Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+    const sourceSideInset = 10;
+    if (exit.travelDirection === 'up') position.y = maxY - sourceSideInset;
+    else if (exit.travelDirection === 'down') position.y = minY + sourceSideInset;
+    else if (exit.travelDirection === 'left') position.x = minX + sourceSideInset;
+    else position.x = maxX - sourceSideInset;
+    return position;
+  }
+
+  private updateRegionExitMarkerAnimation() {
+    this.regionExitMarkerAnimations.forEach(marker => {
+      if (!marker.aura.activeInHierarchy) return;
+      const pulse = (Math.sin(this.elapsed * 1.45 + marker.phase) + 1) * .5;
+      marker.aura.setScale(.98 + pulse * .08, .98 + pulse * .08, 1);
+      marker.bloom.setScale(.985 + pulse * .045, .985 + pulse * .045, 1);
+      marker.core.setScale(.99 + pulse * .025, .99 + pulse * .025, 1);
+      marker.auraOpacity.opacity = Math.round(150 + pulse * 60);
+      marker.bloomOpacity.opacity = Math.round(175 + pulse * 55);
+      marker.coreOpacity.opacity = Math.round(205 + pulse * 40);
+    });
   }
 
   private initializeStoryInfrastructure() {
@@ -1409,9 +1597,76 @@ export class YinXuCity extends Component {
       return false;
     }
     const started = this.regionTransitionManager.transitionToEntry(location.entryId);
-    if (started) this.save.storyLocationId = location.id;
+    if (started) {
+      this.save.storyLocationId = location.id;
+    }
     else console.error('[StoryLocation] entry validation failed; no coordinate fallback will be used.', { locationId, entryId: location.entryId });
     return started;
+  }
+
+  /** 玩家实际坐标是否落在指定区域边界内（不依赖可能滞后的 currentRegionId）。 */
+  private playerInRegionBounds(regionId: RegionId): boolean {
+    const boundsByRegion: Partial<Record<RegionId, { left: number; right: number; bottom: number; top: number }>> = {
+      [RegionId.HIGHLAND]: this.forestRegion,
+      [RegionId.FIELDS]: this.fieldRegion,
+      [RegionId.RIVERBANK]: this.riverRegion,
+      [RegionId.ROYAL_TOMB]: this.tombRegion,
+    };
+    const bounds = boundsByRegion[regionId];
+    if (!bounds) return false;
+    return this.inRegion(this.playerPos.x, this.playerPos.y, bounds);
+  }
+
+  /** 坑坐标离玩家极近（一眼可见、无需过图）时视为"已在目标"，直接指坑不跨区引导。 */
+  private isDigSiteNearby(objective: StoryObjective): boolean {
+    if (objective.targetX === undefined || objective.targetY === undefined) return false;
+    const dx = objective.targetX - this.playerPos.x;
+    const dy = objective.targetY - this.playerPos.y;
+    const NEAR_DIG_SITE = 1600;
+    return dx * dx + dy * dy < NEAR_DIG_SITE * NEAR_DIG_SITE;
+  }
+
+  /** Points at a natural map exit when the chapter's dig site is elsewhere; never starts a transition. */
+  private routeNarrativeExcavationToMapExit(chapterId: string, objective: StoryObjective) {
+    const targetRegions: Record<string, RegionId> = {
+      [CHAPTER_ONE_ID]: RegionId.FIELDS,
+      [CHAPTER_TWO_ID]: RegionId.RIVERBANK,
+      [CHAPTER_THREE_ID]: RegionId.ROYAL_TOMB,
+      [CHAPTER_FOUR_ID]: RegionId.HIGHLAND,
+      [CHAPTER_FIVE_ID]: RegionId.FIELDS,
+      [CHAPTER_SIX_ID]: RegionId.ROYAL_TOMB,
+      [CHAPTER_SEVEN_ID]: RegionId.HIGHLAND,
+      [CHAPTER_EIGHT_ID]: RegionId.ROYAL_TOMB,
+      [CHAPTER_NINE_ID]: RegionId.FIELDS,
+    };
+    const manager = this.regionTransitionManager;
+    const targetRegion = targetRegions[chapterId];
+    if (!manager || !targetRegion) return false;
+    // 双保险①：玩家实际坐标已在目标区域 → 坑就在脚下，保持坑箭头。
+    if (this.playerInRegionBounds(targetRegion)) return false;
+    // 双保险②：坑坐标离玩家极近（一眼可见、无需过图）→ 直接指坑，不跨区引导。
+    // 覆盖"坑在城门口下方可见、但区域判定还差一点"的情形（如第一章教学坑）。
+    const near = this.isDigSiteNearby(objective);
+    if (near) return false;
+    if (manager.currentRegionId === targetRegion) return false;
+    // CITY and OUTSKIRTS share the gate passage rather than a blackout exit.
+    // For the two field-bound chapters, first guide the player through the
+    // east city gate; once OUTSKIRTS becomes active the normal exit routing
+    // below takes over and points to the field loading boundary.
+    if (manager.currentRegionId === RegionId.CITY && targetRegion === RegionId.FIELDS) {
+      objective.targetX = this.cityBoundary.right - 44;
+      objective.targetY = this.cityEastWestRoadCenterY;
+      objective.title = '从东城门前往郊外田野';
+      objective.detail = '先沿道路穿过东城门；到达郊外后，箭头会继续指向田野入口。';
+      return true;
+    }
+    const exit = manager.getExitToward(targetRegion);
+    if (!exit) return false;
+    objective.targetX = (exit.triggerBounds.minX + exit.triggerBounds.maxX) / 2;
+    objective.targetY = (exit.triggerBounds.minY + exit.triggerBounds.maxY) / 2;
+    objective.title = '循路前往下一片调查区';
+    objective.detail = '沿箭头走到道路尽头；抵达边缘后会按原有方式加载下一张地图。';
+    return true;
   }
 
   private restoreSavedRegionPosition() {
@@ -1462,6 +1717,7 @@ export class YinXuCity extends Component {
   private presentStoryStep(step: StoryStepDefinition | null) {
     if (!this.storyWorldEntered) {
       this.questGuide.setObjective(null);
+      this.questGuide.setChapterProgress('');
       if (this.storyNpc?.isValid) this.storyNpc.active = false;
       return;
     }
@@ -1518,12 +1774,49 @@ export class YinXuCity extends Component {
         objective.targetY = site.y;
       }
     }
+    let routingToMapExit = false;
     if (step && objective && this.isNarrativeExcavationStep(step.id)) {
       const hint = this.narrativeExcavationHint(step.chapterId);
       objective.title = `${hint.title} · 寻迹`;
       objective.detail = hint.detail;
+      routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective);
+
+    }
+    // 宗庙内部 world 被隐藏，引导箭头节点已切到 templeInterior；改用内部坐标指向占卜席，覆盖外部 storyLocation 坐标。
+    if (this.worldMode === 'templeInterior' && objective) {
+      objective.targetX = 0;
+      objective.targetY = -24;
     }
     this.questGuide.setObjective(objective);
+    this.questGuide.setChapterProgress(this.chapterRequirementText(step?.chapterId));
+    if (objective?.targetX !== undefined && objective.targetY !== undefined) {
+      // Boundary exits are intentionally direct and stable.  Only a real
+      // excavation target needs the obstacle-aware waypoint route.
+      this.questGuide.setNavigationPath(routingToMapExit
+        ? []
+        : this.buildQuestNavigationPath(objective.targetX, objective.targetY));
+    }
+    // 轻量引导飘字：挖字进度提示 + 占卜提示（按 step 去重，避免跨区/重绘反复刷）。
+    if (step && step.id !== this.lastGuidanceStepId) {
+      this.lastGuidanceStepId = step.id;
+      const chId = this.storyController.snapshot().currentChapterId;
+      if (step.completeOn === 'divination-completed') {
+        this.showStatusNotice('卜力已苏醒——在占卜席上挑选合适的甲骨，为求问的旅人占卜。', 4.8);
+      } else if (step.completeOn === 'temple-entered') {
+        this.showStatusNotice('循金色箭头前往宗庙内殿，为求问的旅人占卜。', 4.8);
+      } else if (chId) {
+        const isSeek = this.allStoryFragmentCards.some(item => item.seekStepId === step.id);
+        if (isSeek) {
+          const guided = this.chapterGuidedProgress(chId);
+          const remaining = guided.total - guided.collected;
+          if (remaining > 0) {
+            this.showStatusNotice(`循金色箭头，挖掘本章下一枚碎甲（已挖 ${guided.collected}/${guided.total}，还有 ${remaining} 枚待寻）。`, 3.8);
+          } else {
+            this.showStatusNotice('这是本章最后一枚主线碎甲，挖出后甲骨卜力将重新苏醒。', 3.8);
+          }
+        }
+      }
+    }
     const xiaoShitouVisible = step?.id === 'chapter-1-meet-xiaoshitou'
       || step?.id === 'chapter-1-xiaoshitou-dialogue';
     const fisherVisible = this.storyController.snapshot().currentChapterId === CHAPTER_TWO_ID;
@@ -1546,6 +1839,7 @@ export class YinXuCity extends Component {
     this.storyArrivalLocked = false;
 
     if (!step) {
+      this.questGuide.setChapterProgress('');
       // 章节完成、当前无进行中步骤：自动衔接下一章，无需退出重进殷墟。
       if (this.storyWorldEntered && this.hasUnstartedStoryChapter()) {
         this.beginChapterOneIfNeeded();
@@ -1690,6 +1984,84 @@ export class YinXuCity extends Component {
       || stepId.includes('seek-earth-fragment') || stepId.includes('seek-cloud-fragment');
   }
 
+  /**
+   * Builds a small grid route through walkable ground for every story target.
+   * The quest arrow uses its next waypoint, so it points to a usable passage
+   * instead of directly through walls, water, or a closed map boundary.
+   */
+  private buildQuestNavigationPath(targetX: number, targetY: number): Vec2[] {
+    const start = this.playerPos.clone();
+    const goal = this.resolveSafePlayerSpawn(targetX, targetY);
+    const distance = Vec2.distance(start, goal);
+    if (distance <= 150) return [];
+
+    const cellSize = 64;
+    const toCell = (point: Vec2) => ({ x: Math.round(point.x / cellSize), y: Math.round(point.y / cellSize) });
+    const startCell = toCell(start);
+    const goalCell = toCell(goal);
+    const margin = 10;
+    const minX = Math.min(startCell.x, goalCell.x) - margin;
+    const maxX = Math.max(startCell.x, goalCell.x) + margin;
+    const minY = Math.min(startCell.y, goalCell.y) - margin;
+    const maxY = Math.max(startCell.y, goalCell.y) + margin;
+    // Safety cap: if a malformed target is extremely far away, retain the
+    // ordinary direction arrow rather than spending a frame on a huge search.
+    if ((maxX - minX + 1) * (maxY - minY + 1) > 12000) return [];
+
+    type Cell = { x: number; y: number };
+    const key = (cell: Cell) => `${cell.x},${cell.y}`;
+    const queue: Cell[] = [startCell];
+    const previous = new Map<string, Cell>();
+    const visited = new Set<string>([key(startCell)]);
+    const directions: Cell[] = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    let found: Cell | null = null;
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.x === goalCell.x && current.y === goalCell.y) {
+        found = current;
+        break;
+      }
+      for (const direction of directions) {
+        const next = { x: current.x + direction.x, y: current.y + direction.y };
+        if (next.x < minX || next.x > maxX || next.y < minY || next.y > maxY || visited.has(key(next))) continue;
+        const worldX = next.x * cellSize;
+        const worldY = next.y * cellSize;
+        // Check the destination and midpoint to avoid a 64px grid step
+        // visually jumping across a narrow wall or water edge.
+        const midpointX = (current.x + next.x) * cellSize / 2;
+        const midpointY = (current.y + next.y) * cellSize / 2;
+        if (!this.canStandRadius(worldX, worldY, this.playerRadius)
+          || !this.canStandRadius(midpointX, midpointY, this.playerRadius)) continue;
+        visited.add(key(next));
+        previous.set(key(next), current);
+        queue.push(next);
+      }
+    }
+    if (!found) return [];
+
+    const cells: Cell[] = [];
+    for (let cursor: Cell | undefined = found; cursor; cursor = previous.get(key(cursor))) cells.push(cursor);
+    cells.reverse();
+    const raw = cells.slice(1).map(cell => new Vec2(cell.x * cellSize, cell.y * cellSize));
+    if (!raw.length) return [];
+    raw[raw.length - 1] = goal;
+
+    // Keep turns and every fourth grid point: enough precision around walls,
+    // but not an overwhelming trail of tiny marker movements.
+    const route: Vec2[] = [];
+    for (let index = 0; index < raw.length; index++) {
+      const previousPoint = raw[index - 1];
+      const point = raw[index];
+      const nextPoint = raw[index + 1];
+      const isTurn = previousPoint && nextPoint
+        && ((point.x - previousPoint.x) * (nextPoint.y - point.y)
+          !== (point.y - previousPoint.y) * (nextPoint.x - point.x));
+      if (index === raw.length - 1 || index % 4 === 3 || isTurn) route.push(point);
+    }
+    return route;
+  }
+
   private narrativeExcavationHint(chapterId: string) {
     const hints: Record<string, { title: string; detail: string }> = {
       [CHAPTER_ONE_ID]: { title: '循异光查验土层', detail: '留意荒地上与雨痕、风声不相称的微光；它会在靠近时回应。' },
@@ -1722,16 +2094,97 @@ export class YinXuCity extends Component {
       [CHAPTER_NINE_ID]: { open: '天阶上云影缓慢移动，脚下每一块石板都像在等候最后一次问答。', mid: '风从高处掠过，阿圭望着裂纹沉默良久，终于将选择交还给你。', end: '散光汇入天阶尽头，通天之契是否续写，已不再只由旧人的声音决定。' },
     };
     const text = phase ? scene[step.chapterId]?.[phase] : undefined;
-    return text ? [{ speaker: '旁白', kind: 'narration', text }, ...lines] : lines;
+        return text ? [{ speaker: '旁白', kind: 'narration' as const, text }, ...lines] : lines;
   }
 
   private completeStoryDialogue(step: StoryStepDefinition) {
     if (this.storyController?.currentStep()?.id !== step.id) return;
     if (step.id.endsWith('fragment-awakens') && CHAPTER_CHALLENGES[step.chapterId]) {
-      this.openChapterChallenge(step.chapterId);
+      this.tryOpenChapterChallenge(step.chapterId);
       return;
     }
     this.storyController?.handle({ type: 'dialogue-completed' });
+  }
+
+  /** Main-story words must be both found and learned before a chapter may close. */
+  private chapterMainProgress(chapterId: string) {
+    const plan = collectionPlanFor(chapterId);
+    const cardIds = plan ? [...plan.guidedCardIds, ...plan.mainFreeCardIds] : [];
+    const excavatedCards = this.save.excavatedCardIds ?? [];
+    const collected = cardIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
+    const learned = cardIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
+    return { total: cardIds.length, collected, learned };
+  }
+
+  /** The small fixed set that advances the chapter's narrated route. */
+  private chapterGuidedProgress(chapterId: string) {
+    const cardIds = [...(collectionPlanFor(chapterId)?.guidedCardIds ?? [])];
+    const excavatedCards = this.save.excavatedCardIds ?? [];
+    const collected = cardIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
+    const learned = cardIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
+    return { total: cardIds.length, collected, learned };
+  }
+
+  private chapterRequirementText(chapterId: string | null | undefined) {
+    if (!chapterId) return '';
+    const guided = this.chapterGuidedProgress(chapterId);
+    const main = this.chapterMainProgress(chapterId);
+    if (guided.total <= 0) return '';
+    const divinationNeed = Math.min(3, main.total);
+    return `必要引导字：已挖 ${guided.collected}/${guided.total} · 已学 ${guided.learned}/${guided.total}　占卜需本章先挖 ${divinationNeed} 字`;
+  }
+
+  private tryOpenChapterChallenge(chapterId: string) {
+    const progress = this.chapterMainProgress(chapterId);
+    if (progress.total > 0 && progress.learned < progress.total) {
+      const missing = progress.total - progress.learned;
+      this.prepareChapterFreeExploration(chapterId);
+      this.showStatusNotice(
+        `本章骨纹已收集 ${progress.collected}/${progress.total}，已学会 ${progress.learned}/${progress.total}；还需学习 ${missing} 个主线字。`,
+        5,
+      );
+      return false;
+    }
+    this.openChapterChallenge(chapterId);
+    return true;
+  }
+
+  /**
+   * The linear story only guides the key words. Once it reaches the chapter
+   * turn, immediately repopulate nearby ordinary sites with this chapter's
+   * remaining main words so the player has a visible, playable collection
+   * phase instead of waiting for the normal five-minute site respawn.
+   */
+  private prepareChapterFreeExploration(chapterId: string) {
+    const regions: Record<string, ExcavationRegion[]> = {
+      [CHAPTER_ONE_ID]: ['field'],
+      [CHAPTER_TWO_ID]: ['river', 'lake'],
+      [CHAPTER_THREE_ID]: ['royal'],
+      [CHAPTER_FOUR_ID]: ['forest'],
+      [CHAPTER_FIVE_ID]: ['field'],
+      [CHAPTER_SIX_ID]: ['royal'],
+      [CHAPTER_SEVEN_ID]: ['forest'],
+      [CHAPTER_EIGHT_ID]: ['royal'],
+      [CHAPTER_NINE_ID]: ['field'],
+    };
+    const plan = collectionPlanFor(chapterId);
+    if (!plan) return;
+    const remaining = plan.mainFreeCardIds
+      .filter(id => !this.save.unlockedOracleIds.includes(id))
+      .map(id => this.oracleCards.find(card => card.id === id && this.hasRealOracleGlyph(card)))
+      .filter((card): card is OracleCardData => Boolean(card));
+    if (!remaining.length) return;
+    const sites = this.excavationSites.filter(site =>
+      regions[chapterId]?.includes(site.region) && !site.storyTarget && !site.awaitingStudy);
+    sites.forEach((site, index) => {
+      const card = remaining[index % remaining.length];
+      site.reward = { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0, experience: 0, coins: 0, tier: 'story' };
+      site.active = true;
+      site.revealed = true;
+      site.respawnTimer = 0;
+      site.holeTimer = 0;
+      this.redrawExcavationSite(site);
+    });
   }
 
   private openChapterChallenge(chapterId: string) {
@@ -1777,7 +2230,7 @@ export class YinXuCity extends Component {
 
   // 三个测试按钮：分别把存档重置到“重测第一/二/三章”的开头。
   private createStoryTestButtons() {
-    if (!sys.isBrowser || this.storyTestButtons.length > 0) return;
+    if (!SHOW_STORY_TEST_BUTTONS || !sys.isBrowser || this.storyTestButtons.length > 0) return;
     const defs: Array<{ y: number; label: string; target: StoryTestChapter }> = [
       { y: 332, label: '测·第一章', target: 1 },
       { y: 282, label: '测·第二章', target: 2 },
@@ -1817,12 +2270,13 @@ export class YinXuCity extends Component {
   // 直接进入目标章，无需重玩前置章。
   private resetStoryForTesting(target: StoryTestChapter) {
     if (this.overlay !== 'none' || this.learningHall.isOpen) return;
+    this.prepareForStoryTestTravel();
     const testStart = STORY_TEST_STARTS[target];
     const testLocation = storyLocation(testStart?.storyLocationId);
     const transitionManager = this.regionTransitionManager;
     const registeredEntries = transitionManager?.getRegisteredEntries() ?? [];
     const entry = testLocation && transitionManager ? transitionManager.getEntry(testLocation.entryId) : null;
-    if (target === 2 || target === 9) this.logStoryTestEntryDiagnostics(target, transitionManager, testLocation, entry);
+    if (target === 2 || target === 3 || target === 9) this.logStoryTestEntryDiagnostics(target, transitionManager, testLocation, entry);
     console.info('[StoryTest] launch requested.', {
       chapterNumber: target,
       chapterId: testStart?.chapterId ?? null,
@@ -1855,13 +2309,14 @@ export class YinXuCity extends Component {
     const resolvedEntry = entry;
 
     const startStoryAfterArrival = () => {
-      if (target === 2 || target === 9) {
+      if (target === 2 || target === 3 || target === 9) {
         this.logStoryTestTransitionResult('success', target, transitionManager, resolvedLocation, resolvedEntry);
       }
       this.startStoryTestAfterArrival(target, testStart.chapterId);
     };
     const transitionFailed = (reason: string) => {
-      if (target === 2 || target === 9) {
+      this.restorePlayerAfterStoryTestTravel();
+      if (target === 2 || target === 3 || target === 9) {
         this.logStoryTestTransitionResult('failed', target, transitionManager, resolvedLocation, resolvedEntry, reason);
       }
       console.error('[StoryTest] chapter test travel failed; story launch cancelled.', {
@@ -1875,16 +2330,54 @@ export class YinXuCity extends Component {
       });
       this.showStatusNotice('测试区域入口不可用，已取消传送。', 4);
     };
+    this.showStatusNotice(`正在进入第${target}章测试…`, 1.5);
     if (!transitionManager.transitionToEntry(resolvedEntry.id, { onCompleted: startStoryAfterArrival, onFailed: transitionFailed })) return;
+  }
+
+  private prepareForStoryTestTravel() {
+    this.storyPresentationToken++;
+    this.presentedStoryStepId = null;
+    this.storyArrivalLocked = false;
+    this.stopPlayerInput();
+    this.chapterBanner.forceClose();
+    this.storyDialogue.close();
+    this.destroyOverlayRoot();
+    this.overlay = 'none';
+    this.divinationStage = 'none';
+    this.currentQuestion = null;
+    this.currentDivinationCards = [];
+    this.seated = false;
+    this.templePreSitPosition = null;
+    this.templeLastRisePosition = null;
+    if (this.fishingCastEffect) this.cancelFishingCast('', false);
+    this.restorePlayerAfterStoryTestTravel();
+  }
+
+  private restorePlayerAfterStoryTestTravel() {
+    this.worldMode = 'outside';
+    if (this.templeInterior?.isValid) this.templeInterior.active = false;
+    if (this.world?.isValid) this.world.active = true;
+    if (this.player?.isValid && this.player.parent !== this.world) this.player.parent = this.world;
+    if (this.player?.isValid) {
+      this.player.active = true;
+      const opacity = this.player.getComponent(UIOpacity) ?? this.player.addComponent(UIOpacity);
+      opacity.opacity = 255;
+      this.player.setPosition(this.playerPos.x, this.playerPos.y, 80);
+      this.displayedPlayerFrame = -1;
+      this.showPlayerFrame(0);
+    }
+    if (this.weatherParticleNode?.isValid) {
+      this.weatherParticleNode.active = true;
+      this.drawWeatherParticles(this.weather !== '晴');
+    }
+    this.regionInputLocked = false;
+    this.stopPlayerInput();
+    this.syncCameraImmediately();
   }
 
   /** Called only after RegionTransitionManager has committed the requested RegionEntry. */
   private startStoryTestAfterArrival(target: StoryTestChapter, chapterId: string) {
-    this.storyPresentationToken++;
-    this.chapterBanner.close();
-    this.storyDialogue.close();
-    this.presentedStoryStepId = null;
-    this.storyArrivalLocked = false;
+    this.prepareForStoryTestTravel();
     // 章顺序表：索引 = 章序-1；用于按 target 计算前置已完成章 + 需唤醒章 + 标签，加章只改这里。
     const chapterIdsInOrder = [
       CHAPTER_ONE_ID, CHAPTER_TWO_ID, CHAPTER_THREE_ID, CHAPTER_FOUR_ID, CHAPTER_FIVE_ID,
@@ -1934,9 +2427,9 @@ export class YinXuCity extends Component {
     this.persistCitySave();
   }
 
-  /** Detailed runtime diagnostics are intentionally limited to the two repaired test entries. */
+  /** Detailed runtime diagnostics are intentionally limited to repaired test entries. */
   private logStoryTestEntryDiagnostics(
-    chapterNumber: 2 | 9,
+    chapterNumber: 2 | 3 | 9,
     transitionManager: RegionTransitionManager | undefined,
     location: ReturnType<typeof storyLocation>,
     entry: RegionEntry | null,
@@ -1985,10 +2478,10 @@ export class YinXuCity extends Component {
     });
   }
 
-  /** Emits the terminal phase for the two test travels that previously failed at runtime. */
+  /** Emits the terminal phase for repaired test travels that previously failed at runtime. */
   private logStoryTestTransitionResult(
     result: 'success' | 'failed',
-    chapterNumber: 2 | 9,
+    chapterNumber: 2 | 3 | 9,
     transitionManager: RegionTransitionManager,
     location: NonNullable<ReturnType<typeof storyLocation>>,
     entry: RegionEntry,
@@ -2067,10 +2560,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-XiaoShitou-Name', '小石头',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-XiaoShitou-Name', '小石头');
     root.active = false;
     this.storyNpc = root;
   }
@@ -2094,10 +2584,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-woman-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-Fisher-Name', '渔娘阿潍',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-Fisher-Name', '渔娘阿潍');
     // 脚下柔和金色光环 + 头顶微光：让玩家在河畔一眼定位渔娘（随 NPC 显隐而显隐）
     const guide = new Node('StoryNpc-Fisher-Guide');
     guide.parent = root;
@@ -2153,10 +2640,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-GorgeKeeper-Name', '守峡人阿沚',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-GorgeKeeper-Name', '守峡人阿沚');
     // 脚下柔和金色光环：让玩家在第三章一眼定位守峡人阿沚
     const guide = new Node('StoryNpc-GorgeKeeper-Guide');
     guide.parent = root;
@@ -2193,9 +2677,20 @@ export class YinXuCity extends Component {
     const fragment = CHAPTER_ONE_FRAGMENT_CARDS[fragmentIndex];
     const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
     const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
+    if (!site) return null;
+    // First chapter used to retain whichever generic field point happened to
+    // be first in the array.  Keep all five teaching pits inside the current
+    // field scene rather than a stale/off-map coordinate from an old layout.
     this.positionStorySiteForChapter(site, CHAPTER_ONE_ID, fragmentIndex);
+    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
+    if (!card) {
+      // 雨/田/云 有卡；水(catalog-u6c34)/土(catalog-u571f) 为待补字暂无卡牌定义。
+      // 待补字仍预留坑位并标引导箭头，挖到后走「未录入」分支连带完成，不卡死、不丢箭头。
+      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
+      this.storyController.reserveStorySite(site.id);
+      this.markStoryTarget(site);
+      return site;
+    }
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
     this.storyController.reserveStorySite(site.id);
     this.markStoryTarget(site);
@@ -2211,8 +2706,15 @@ export class YinXuCity extends Component {
     const waterSites = this.excavationSites.filter(candidate =>
       candidate.region === 'river' || candidate.region === 'lake');
     const site = waterSites[fragmentIndex] ?? waterSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
+    if (!site) return null;
+    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
+    if (!card) {
+      // 待补字（字卡尚未录入）：仍预留坑位并标引导箭头，挖到走「未录入」分支连带完成。
+      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
+      this.storyController.reserveStorySite(site.id);
+      this.markStoryTarget(site);
+      return site;
+    }
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
     this.storyController.reserveStorySite(site.id);
     this.markStoryTarget(site);
@@ -2220,18 +2722,25 @@ export class YinXuCity extends Component {
   }
 
   // 第三章复用 field 区域（与第一章同源；两章顺序激活、不会同时占用）。
-  // 前/后/里 cardId 为 null（待补字），暂时无法分配坑位，返回 null 让引导点留空而非报错。
+  // 前/后/里 cardId 为 null（待补字）：不再提前 return null，改为与
+  // reserveStoryExcavationSite 一致地给一个暂定坑位，让引导箭头正常指向；
+  // 挖到后走「未录入」分支连带完成 learning，不卡死、地图有引导点。
   private reserveChapterThreeExcavationSite() {
     const stepId = this.storyController.currentStep()?.id;
     const fragmentIndex = CHAPTER_THREE_FRAGMENT_CARDS.findIndex(item =>
       item.seekStepId === stepId || item.lessonStepId === stepId);
     if (fragmentIndex < 0) return null;
     const fragment = CHAPTER_THREE_FRAGMENT_CARDS[fragmentIndex];
-    if (!fragment.cardId) return null;
     const tombSites = this.excavationSites.filter(candidate => candidate.region === 'royal');
     const site = tombSites[fragmentIndex % tombSites.length] ?? tombSites.find(candidate => candidate.active) ?? null;
-    const card = this.oracleCards.find(item => item.id === fragment.cardId);
-    if (!site || !card) return null;
+    if (!site) return null;
+    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
+    if (!card) {
+      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
+      this.storyController.reserveStorySite(site.id);
+      this.markStoryTarget(site);
+      return site;
+    }
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
     this.storyController.reserveStorySite(site.id);
     this.markStoryTarget(site);
@@ -2311,10 +2820,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-woman-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-ForestKeeper-Name', '守林人阿岚',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-ForestKeeper-Name', '守林人阿岚');
     // 脚下柔和金色光环：让玩家在第四章一眼定位守林人阿岚
     const guide = new Node('StoryNpc-ForestKeeper-Guide');
     guide.parent = root;
@@ -2409,10 +2915,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame(spriteFrame, frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, `${nodeName}-Name`, labelText,
-      0, 72, 96, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, `${nodeName}-Name`, labelText);
     const guide = new Node(`${nodeName}-Guide`);
     guide.parent = root;
     guide.setPosition(0, 0, 6);
@@ -2437,6 +2940,33 @@ export class YinXuCity extends Component {
     }, this);
     root.active = false;
     return root;
+  }
+
+  private createStoryNpcWorldLabel(source: Node, name: string, text: string) {
+    if (!this.storyNpcLabelRoot?.isValid) {
+      const root = new Node('WorldLabelRoot');
+      root.parent = this.world;
+      root.setPosition(0, 0, 118);
+      root.addComponent(UITransform).setContentSize(this.mapWidth, this.mapHeight);
+      this.storyNpcLabelRoot = root;
+      this.fixedForegroundNodes.push(root);
+    }
+    const label = this.createUiLabel(
+      this.storyNpcLabelRoot, name, text,
+      source.position.x, source.position.y + 98, 116, 28, 16,
+      new Color(255, 235, 177), 'center', 0,
+    ).node;
+    this.storyNpcWorldLabels.push({ source, label });
+    this.updateStoryNpcWorldLabels();
+  }
+
+  private updateStoryNpcWorldLabels() {
+    this.storyNpcWorldLabels = this.storyNpcWorldLabels.filter(({ source, label }) => {
+      if (!source.isValid || !label.isValid) return false;
+      label.active = source.activeInHierarchy;
+      label.setPosition(source.position.x, source.position.y + 98, 0);
+      return true;
+    });
   }
 
   private createChapterFiveNpc() {
@@ -2507,6 +3037,7 @@ export class YinXuCity extends Component {
    */
   private positionStorySiteForChapter(site: ExcavationSite, chapterId: string, fragmentIndex: number) {
     const zones: Record<string, { left: number; right: number; bottom: number; top: number }> = {
+      [CHAPTER_ONE_ID]: { left: 420, right: 1260, bottom: -1660, top: -860 },
       [CHAPTER_THREE_ID]: { left: 260, right: 1280, bottom: -2100, top: -920 },
       [CHAPTER_FOUR_ID]: { left: 3950, right: 5480, bottom: -2050, top: -580 },
       [CHAPTER_FIVE_ID]: { left: 1550, right: 2920, bottom: -2050, top: -520 },
@@ -2604,8 +3135,15 @@ export class YinXuCity extends Component {
     this.canalFlowMarks = [];
     this.depthTrees = [];
     this.outskirtsNatureEntityNodes = [];
+    this.fieldVisualNodes = [];
+    this.regionExitMarkerRoots.clear();
+    this.regionExitMarkerAnimations = [];
+    this.outskirtsNatureObstacleNames.clear();
+    this.retiredOutskirtsNatureTreeNames.clear();
     this.depthOccluders = [];
     this.fixedForegroundNodes = [];
+    this.storyNpcLabelRoot = null;
+    this.storyNpcWorldLabels = [];
     this.southOutskirtsSurfaceNodes = [];
     this.staticCityBoundaryNodes = [];
     this.cityWallVisualRoot = null;
@@ -2638,6 +3176,8 @@ export class YinXuCity extends Component {
     this.interiorObstacles = [];
     this.templeInterior?.destroy();
     this.templeInterior = null;
+    this.templeTableForegroundVisual = null;
+    this.southGateForegroundVisual = null;
 
     this.world = new Node('DynamicWorld');
     this.world.parent = this.node;
@@ -2656,11 +3196,11 @@ this.drawCityWallsAndGate();
     this.drawVillage();
     this.drawMarket();
     this.drawTownDetails();
-    this.createDecorationSlots();
     this.withObstacleRegion(RegionId.FIELDS, () => this.drawFields());
     this.drawForest();
     this.drawOraclePit();
     this.drawOutskirtsGroundAndRoads();
+    this.createRegionExitMarkers();
     // OUTSKIRTS nature must be created after its tile surface so its parent is
     // above the grass layer while remaining independently region-toggleable.
     this.drawRegionalNatureDecorations();
@@ -2693,6 +3233,7 @@ this.drawCityWallsAndGate();
     this.addObstacle(600, -3275, 32, 1650, 'TombWestBoundary');
     this.addObstacle(5200, -3275, 32, 1650, 'TombEastBoundary');
     this.auditStaticStructureFootprints();
+    this.runSouthGateCollisionChecks();
     this.createWeatherOverlay();
     this.createTempleInterior();
     this.player = this.createAnimatedPlayer();
@@ -2702,8 +3243,8 @@ this.drawCityWallsAndGate();
     // temporary south OUTSKIRTS strip.
     this.stabilizeMainMapRenderOrder();
     this.drawOutdoorCollisionDebug();
-    // UI renderers respect sibling order; move only the gate canopy in front
-    // after creating the player so the body disappears beneath the lintel.
+    // UI renderers respect sibling order; keep fixed alpha-only foreground
+    // pieces above actors after creating the player.
     this.fixedForegroundNodes.forEach(node => {
       if (node.isValid) node.setSiblingIndex(this.world.children.length - 1);
     });
@@ -2732,7 +3273,9 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(128, 137, 74); g.rect(3000, -2200, 800, 1800); g.fill();
     g.fillColor = new Color(119, 121, 66); g.rect(3800, -2200, 900, 1800); g.fill();
     g.fillColor = new Color(145, 126, 70); g.rect(4700, -2200, 1000, 1800); g.fill();
-    g.fillColor = new Color(126, 89, 58); g.rect(this.tombRegion.left, this.tombRegion.bottom, this.tombRegion.right - this.tombRegion.left, this.tombRegion.top - this.tombRegion.bottom); g.fill();
+    // The tomb keeps the shared earth/grass base beneath its authored ground
+    // tiles.  Do not paint a region-sized brown panel here: it obscures the
+    // yellow soil texture and reads as a walkable rectangular platform.
 
     // Broad, deterministic mottling replaces tens of thousands of 48 px draw calls.
     let seed = 18471;
@@ -2796,11 +3339,11 @@ this.drawCityWallsAndGate();
       || obstacle.y + obstacle.h / 2 <= bounds.bottom);
     const roadHalfWidth = 56;
     const leftBoundaryWidth = -roadHalfWidth - bounds.left;
-    const rightBoundaryWidth = bounds.right - roadHalfWidth;
     this.addObstacle(bounds.left + leftBoundaryWidth / 2, bounds.bottom + 16, leftBoundaryWidth, 32,
       'SouthOutskirtsTrialBoundaryLeft');
-    this.addObstacle(roadHalfWidth + rightBoundaryWidth / 2, bounds.bottom + 16, rightBoundaryWidth, 32,
-      'SouthOutskirtsTrialBoundaryRight');
+    // The former SouthOutskirtsTrialBoundaryRight was an unpainted duplicate
+    // of the southern world edge.  At (627, -944) it became a standalone
+    // airwall in open grass, so it is intentionally not registered.
     this.addObstacle(bounds.left + 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialLeftBoundary');
     this.addObstacle(bounds.right - 16, (bounds.bottom - 330) / 2, 32, -330 - bounds.bottom, 'SouthOutskirtsTrialRightBoundary');
 
@@ -2810,8 +3353,6 @@ this.drawCityWallsAndGate();
       debug.lineWidth = 4;
       debug.moveTo(bounds.left, bounds.bottom + 32);
       debug.lineTo(-roadHalfWidth, bounds.bottom + 32);
-      debug.moveTo(roadHalfWidth, bounds.bottom + 32);
-      debug.lineTo(bounds.right, bounds.bottom + 32);
       debug.moveTo(bounds.left + 32, bounds.bottom); debug.lineTo(bounds.left + 32, -330);
       debug.moveTo(bounds.right - 32, bounds.bottom); debug.lineTo(bounds.right - 32, -330);
       debug.stroke();
@@ -2896,7 +3437,11 @@ this.drawCityWallsAndGate();
     const townRoadZ = 4;
     const townSpacing = 100;
 
-    // South road: X=0, from city.bottom down to o.bottom
+    // South road: X=0, from city.bottom down to o.bottom. These matching
+    // tiles overlap both existing runs through the south-gate threshold so
+    // the grass-arm overlay cannot leave a visible seam at the stairs.
+    [-250, -150].forEach((y, index) =>
+      this.pixelSprite(`SouthGateRoadConnector${index}`, 'road-straight', this.world, 0, y, roadW, roadW, 63));
     for (let y = city.bottom - halfW; y >= o.bottom + halfW; y -= townSpacing) {
       this.pixelSprite('OutskirtsRoadSouth', 'road-straight', this.world, 0, y, roadW, roadW, 63);
     }
@@ -3044,9 +3589,11 @@ this.drawCityWallsAndGate();
     // The art has longer timber tails so it reaches both grassy banks.  The
     // physical rails stop at the actual water span; otherwise their invisible
     // collision extended onto the landing and trapped the player beside it.
+    // Player-center corridor = rail inner edge - player radius - 3 px safety.
     const railCollisionHeight = Math.min(bridgeHeight - 24, 390);
-    this.addObstacle(bridgeX - 51, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
-    this.addObstacle(bridgeX + 51, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
+    const railOffset = 51 - 3;
+    this.addObstacle(bridgeX - railOffset, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeWestRail', RegionId.RIVERBANK);
+    this.addObstacle(bridgeX + railOffset, bridgeY, 18, railCollisionHeight, 'RiverbankNorthBridgeEastRail', RegionId.RIVERBANK);
   }
 
   private drawRiverbankPhaseOneBoundary() {
@@ -3492,8 +4039,11 @@ this.drawCityWallsAndGate();
     // South gate detailed visuals (preserved)
     this.pixelSprite('SouthGateThreshold', 'south-gate-threshold-v2', visualRoot, -28, -252, 260, 180, 39);
     this.pixelSprite('SouthGatePixelArt', 'south-gate', visualRoot, 0, -165, 420, 325, 44);
-    const gateCanopy = this.pixelSprite('SouthGateForegroundCanopy', 'south-gate-canopy-v2', this.world, 0, -112, 400, 176, 106);
-    this.fixedForegroundNodes.push(gateCanopy);
+    // Keep the transparent foreground independent from the solid gate bodies.
+    // It is permanently above actors, but contains only source-image pixels.
+    this.southGateForegroundVisual = this.createSouthGateForegroundOccluder();
+    this.southGateForegroundVisual.active = true;
+    this.fixedForegroundNodes.push(this.southGateForegroundVisual);
 
     // Gate collision bodies for all four gates
     this.addGateBodyCollisions('north', northGate, boundary);
@@ -3522,15 +4072,14 @@ this.drawCityWallsAndGate();
     const sideWidth = gate.gatehouseHalfWidth - passageHalf;
 
     if (key === 'north' || key === 'south') {
-      // South gate body uses the calibrated absolute Y=-185 that matches the
-      // authored pixel-art gate sprite. North gate body is omitted -- the wall
-      // collision already provides the barrier, and the gate body created an
-      // invisible air wall blocking OUTSKIRTS grass on both sides of the road.
+      // These AABBs trace only the timber tower bodies, columns and stone
+      // plinths. They deliberately leave the outward roof eaves, lintel and
+      // banners visual-only, as well as the central 112px gate passage.
       if (key === 'north') return;
-      const centerY = key === 'south' ? -185 : boundary.top;
-      const bodyH = key === 'south' ? 226 : 160;
-      this.addObstacle(gate.center - passageHalf - sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateLeftBody`);
-      this.addObstacle(gate.center + passageHalf + sideWidth / 2, centerY, sideWidth, bodyH, `${key}GateRightBody`);
+      // Mapped from the authored 299x282 frame's solid tower ranges:
+      // left x=12..99/right x=200..287, y=74..276, scaled to 420x325.
+      this.addObstacle(gate.center - 132, -204, 122, 232, `${key}GateLeftGatehouseSolid`);
+      this.addObstacle(gate.center + 132, -204, 122, 232, `${key}GateRightGatehouseSolid`);
     } else {
       const x = key === 'west' ? boundary.left : boundary.right;
       const offsetX = key === 'west' ? 185 : -185;
@@ -3658,15 +4207,32 @@ this.drawCityWallsAndGate();
 
   private drawTemple() {
     this.createTempleForecourt();
-    this.createBuilding('占卜宗庙', 0, 1190 + this.templeMoveDeltaY, 360, 210, new Color(181, 117, 68), new Color(86, 55, 39), null);
+    // The bespoke 440 x 375 sprite includes its own plinth, roof, and details;
+    // do not leave the former procedural rectangular building behind it.
     this.pixelSprite('占卜宗庙PixelArt', 'divination-temple', this.world, 0, 1210 + this.templeMoveDeltaY, 440, 375, 34);
     this.worldLabel('占卜宗庙', 0, 1400 + this.templeMoveDeltaY, 22, new Color(100, 48, 31));
-    // Split temple collision into left/right halves to clear the north road passage (X:-56~56)
-    const footprintY = 1190 + this.templeMoveDeltaY + 35;
-    const footprintH = 350;
-    this.obstacles = this.obstacles.filter(o => o.name !== 'StructureFootprint:占卜宗庙PixelArt');
-    this.addObstacle(-122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Left');
-    this.addObstacle(122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Right');
+    // Remove every former temple footprint before rebuilding its outline. This
+    // includes the old two-piece wall as well as any legacy named footprint.
+    const templeY = 1210 + this.templeMoveDeltaY;
+    this.obstacles = this.obstacles.filter(o =>
+      !o.name.includes('占卜宗庙') && !o.name.startsWith('StructureFootprint:占卜宗庙PixelArt'));
+    // Short, overlapping segments follow the painted outer roof, walls, and
+    // front plinth. The central stair remains approachable; a narrow sill just
+    // behind the enter zone prevents crossing into the painted doorway.
+    [
+      [0, templeY + 162, 64, 20, 'RearRidge'],
+      [-56, templeY + 150, 72, 22, 'RearLeftEave'], [56, templeY + 150, 72, 22, 'RearRightEave'],
+      [-112, templeY + 123, 70, 28, 'UpperLeftRoof'], [112, templeY + 123, 70, 28, 'UpperRightRoof'],
+      [-155, templeY + 72, 34, 82, 'LeftRoofEdge'], [155, templeY + 72, 34, 82, 'RightRoofEdge'],
+      [-170, templeY - 13, 28, 98, 'LeftOuterWall'], [170, templeY - 13, 28, 98, 'RightOuterWall'],
+      [-151, templeY - 93, 30, 70, 'LeftLowerWall'], [151, templeY - 93, 30, 70, 'RightLowerWall'],
+      [-111, templeY - 143, 122, 22, 'LeftFrontPlinth'], [111, templeY - 143, 122, 22, 'RightFrontPlinth'],
+      [-86, templeY - 96, 106, 14, 'LeftDoorFacade'], [0, templeY - 96, 66, 14, 'DoorSill'],
+      [86, templeY - 96, 106, 14, 'RightDoorFacade'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `StructureFootprint:占卜宗庙PixelArt:${suffix as string}`,
+    ));
   }
 
   private createTempleForecourt() {
@@ -3692,38 +4258,23 @@ this.drawCityWallsAndGate();
       }
     }
 
-    // The central processional path continues the town road through a shallow
-    // drain and up to the temple threshold.
-    for (let row = 0; row < 7; row++) {
-      const y = (858 + this.templeMoveDeltaY) + row * 29;
-      const x = row % 2 === 0 ? -3 : 4;
-      court.fillColor = row % 3 === 0 ? new Color(177, 149, 96) : new Color(151, 128, 88);
-      court.roundRect(x - 34, y - 12, 68, 25, 4); court.fill();
-      court.fillColor = new Color(213, 181, 116, 110);
-      court.rect(x - 22, y + 5, 24, 2); court.fill();
-    }
-    court.fillColor = new Color(70, 71, 58, 180);
-    court.rect(-245, 875 + this.templeMoveDeltaY, 490, 7); court.fill();
-    court.fillColor = new Color(109, 126, 77, 190);
-    for (let x = -235; x <= 235; x += 47) {
-      if (Math.abs(x) < 48) continue;
-      court.rect(x, (881 + this.templeMoveDeltaY) + Math.abs(x % 3), 3, 12 + Math.abs(x % 7));
-      court.rect(x + 6, 880 + this.templeMoveDeltaY, 2, 8); court.fill();
-    }
+    // The existing north-south road remains exposed through the center of the
+    // forecourt. Do not add duplicate processional-road Graphics here.
+    // The former green rectangle came from a separate grass pass at this
+    // exact site. It is intentionally absent: no overlay or replacement node
+    // is retained here, so the normal forecourt and road remain untouched.
     court.fillColor = new Color(86, 66, 47, 170);
     [-248, 248].forEach(x => {
       for (let y = (900 + this.templeMoveDeltaY); y <= (1005 + this.templeMoveDeltaY); y += 28) court.roundRect(x - 7, y - 9, 14, 19, 3);
     });
     court.fill();
 
-    const threshold = this.localGraphics('TempleDoorThresholdDetail', this.world, 0, 1025 + this.templeMoveDeltaY, 130, 42, 36);
-    threshold.fillColor = new Color(63, 48, 38, 175); threshold.rect(-61, -12, 122, 24); threshold.fill();
-    threshold.fillColor = new Color(177, 151, 101); threshold.rect(-55, -5, 110, 13); threshold.fill();
-    threshold.strokeColor = new Color(91, 71, 50); threshold.lineWidth = 2;
-    [-33, 4, 38].forEach(x => { threshold.moveTo(x, -4); threshold.lineTo(x + 8, 7); }); threshold.stroke();
+    // The temple sprite already contains its own threshold and stairs. A
+    // separate Graphics threshold here created the abnormal gray-green patch
+    // immediately south of the steps, so no duplicate is drawn.
   }
 
-  private createAnimatedTorch(x: number, y: number, index: number) {
+  private createAnimatedTorch(x: number, y: number, index: number, regionId?: RegionId) {
     const root = new Node(`AnimatedBronzeTorch${index}`);
     root.parent = this.world;
     root.setPosition(x, y, 21);
@@ -3754,6 +4305,10 @@ this.drawCityWallsAndGate();
     const embers = emberNode.addComponent(Graphics);
     this.torchFlames.push({ root, flame, glow, embers, phase: index * 1.73 + x * .001, intensity: 1 });
     this.depthOccluders.push({ node: root, footY: y - 35, halfWidth: 32, coverHeight: 96, baseZ: 21, foregroundZ: 98 });
+    if (regionId === RegionId.ROYAL_TOMB) {
+      this.addObstacle(x, y - 3, 54, 74, `RoyalTombTorchSolid${index}`, regionId);
+      return;
+    }
     this.addObstacle(x, y - 18, 28, 32, '青铜火盆');
   }
 
@@ -3788,7 +4343,10 @@ this.drawCityWallsAndGate();
       { x: -335, y: -136, w: 118, h: 50, name: '左火盆石质底座' },
       { x: 335, y: -136, w: 118, h: 50, name: '右火盆石质底座' },
       { x: 466, y: 52, w: 220, h: 176, name: '右侧材料工具台' },
-      { x: 0, y: -102, w: 250, h: 108, name: '中央占卜案桌' },
+      // The tabletop projects farther toward the player than its opaque
+      // center pixels.  This foot-sized rectangle seals the full tabletop and
+      // apron, while stopping short of the scripted chair anchor at y=-24.
+      { x: 0, y: -106, w: 236, h: 126, name: '中央占卜案桌' },
       // The visible chair content occupies roughly 88x104 inside its 94x112
       // display node. This blocks ordinary walking through the back, seat,
       // arms and feet while the scripted sit placement remains unrestricted.
@@ -3797,6 +4355,7 @@ this.drawCityWallsAndGate();
   }
 
   private createTempleInteriorCollisionDebug(root: Node) {
+    if (!SHOW_COLLISION_DEBUG) return;
     const debugMode = game.config?.debugMode ?? DebugMode.NONE;
     if (debugMode === DebugMode.NONE) return;
     const debugNode = new Node('TempleInteriorCollisionDebug');
@@ -3926,6 +4485,7 @@ this.drawCityWallsAndGate();
         const cabinetB = this.createTempleSprite('TempleInteriorOracleCabinetB', frames.cabinetB, root, -337, 47, 148, 240, 76);
         const table = this.createTempleSprite('TempleInteriorDivinationTableSprite', frames.table, root, 0, -91, 250, 130, 76);
         this.templeTableVisual = table;
+        this.templeTableForegroundVisual = this.createTempleTableForegroundOccluder(root, frames.table);
         const brazierLeft = this.createTempleSprite('TempleInteriorBrazierLeftSprite', frames.brazier, root, -335, -105, 124, 112, 76);
         const brazierRight = this.createTempleSprite('TempleInteriorBrazierRightSprite', frames.brazier, root, 335, -105, 124, 112, 76);
         const toolBench = this.createTempleSprite('TempleInteriorToolBenchSprite', frames.toolBench, root, 466, 52, 220, 176, 76);
@@ -3979,37 +4539,101 @@ this.drawCityWallsAndGate();
     return node;
   }
 
+  private createTempleTableForegroundOccluder(parent: Node, frame: SpriteFrame) {
+    const root = new Node('TempleInteriorDivinationTableForegroundOccluder');
+    root.parent = parent;
+    root.setPosition(0, -91, 98);
+    root.addComponent(UITransform).setContentSize(250, 130);
+
+    // The foreground must share the room root with the player. A child of the
+    // table sprite would always render inside that earlier subtree and could
+    // never reliably cover a later player sibling. These slices keep the
+    // table's transform while remaining comparable with the player layer.
+    // They reuse authored pixels rather than drawing an opaque rectangle.
+    const addSlice = (name: string, x: number, y: number, width: number, height: number) => {
+      const clip = new Node(name);
+      clip.parent = root;
+      clip.setPosition(x, y, 0);
+      clip.addComponent(UITransform).setContentSize(width, height);
+      clip.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+      const spriteNode = new Node(`${name}Pixels`);
+      spriteNode.parent = clip;
+      spriteNode.setPosition(-x, -y, 0);
+      spriteNode.addComponent(UITransform).setContentSize(250, 130);
+      const sprite = spriteNode.addComponent(Sprite);
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      sprite.spriteFrame = frame;
+      frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+    };
+    // This is the continuous painted tabletop front edge, deliberately kept in
+    // a separate foreground root so a seated or north-side actor has their
+    // lower body covered by the table instead of appearing on its surface.
+    addSlice('TableFrontEdgeOcclusion', 0, 22, 244, 82);
+    addSlice('TableFrontLeftLegOcclusion', -96, -48, 38, 42);
+    addSlice('TableFrontRightLegOcclusion', 96, -48, 38, 42);
+    root.active = true;
+    return root;
+  }
+
+  private createSouthGateForegroundOccluder() {
+    const root = new Node('SouthGateForegroundOccluder');
+    root.parent = this.world;
+    root.setPosition(0, -165, 106);
+    root.addComponent(UITransform).setContentSize(420, 325);
+
+    // Every foreground slice samples the same full-size source as
+    // SouthGatePixelArt. This keeps the roof contours, lintel and banners
+    // pixel-aligned with the base gate without introducing painted overlays.
+    const addSlice = (name: string, x: number, y: number, width: number, height: number) => {
+      const clip = new Node(name);
+      clip.parent = root;
+      clip.setPosition(x, y, 0);
+      clip.addComponent(UITransform).setContentSize(width, height);
+      clip.addComponent(Mask).type = Mask.Type.GRAPHICS_RECT;
+      const spriteNode = new Node(`${name}Pixels`);
+      spriteNode.parent = clip;
+      spriteNode.setPosition(-x, -y, 0);
+      spriteNode.addComponent(UITransform).setContentSize(420, 325);
+      this.attachPixelSprite(spriteNode, 'south-gate');
+    };
+    addSlice('SouthGateLeftUpperForeground', -143, 96, 136, 132);
+    addSlice('SouthGateRightUpperForeground', 143, 96, 136, 132);
+    addSlice('SouthGateLintelForeground', 0, 45, 148, 46);
+    addSlice('SouthGateLeftBannerForeground', -61, -24, 40, 115);
+    addSlice('SouthGateRightBannerForeground', 61, -24, 40, 115);
+    root.active = true;
+    return root;
+  }
+
   private updateTempleSeatDepthOrdering() {
     const chair = this.templeChairVisualRoot;
     const table = this.templeTableVisual;
+    const tableForeground = this.templeTableForegroundVisual;
     if (!chair?.isValid || !table?.isValid || chair.parent !== table.parent) return;
 
     const playerIsInRoom = this.player?.isValid && this.player.parent === table.parent;
-    // The player node is its foot point. North/above the table foot line means
-    // the tabletop must cover the actor; south of it the actor is in front.
-    const playerOverlapsTable = Math.abs(this.playerPos.x) <= 125 + this.templeFootHalfWidth;
-    const tableCoversPlayer = playerIsInRoom && (this.seated
-      || (playerOverlapsTable && this.playerPos.y >= -156));
     chair.setPosition(chair.position.x, chair.position.y, 68);
-    table.setPosition(table.position.x, table.position.y, tableCoversPlayer ? 98 : 76);
+    table.setPosition(table.position.x, table.position.y, 76);
+    if (tableForeground?.isValid) {
+      tableForeground.setPosition(tableForeground.position.x, tableForeground.position.y, 98);
+      // North/back of the tabletop is y >= -145. Sitting is always the north
+      // use-case even while an interaction animation adjusts the player point.
+      // South/front actors keep the normal in-front draw order.
+      tableForeground.active = !playerIsInRoom || this.seated || this.playerPos.y >= -145;
+    }
 
     const ensureBefore = (earlier: Node, later: Node) => {
       if (earlier.getSiblingIndex() > later.getSiblingIndex()) earlier.setSiblingIndex(later.getSiblingIndex());
     };
     if (!playerIsInRoom) {
       ensureBefore(chair, table);
+      if (tableForeground?.isValid) ensureBefore(table, tableForeground);
       return;
     }
-    if (tableCoversPlayer) {
-      ensureBefore(chair, this.player);
-      ensureBefore(this.player, table);
-      // The first move can shift the other pair; normalize once more.
-      ensureBefore(chair, this.player);
-    } else {
-      ensureBefore(chair, table);
-      ensureBefore(table, this.player);
-      ensureBefore(chair, table);
-    }
+    ensureBefore(chair, table);
+    ensureBefore(table, this.player);
+    if (tableForeground?.isValid) ensureBefore(this.player, tableForeground);
+    ensureBefore(chair, table);
   }
 
   private enterTempleInterior() {
@@ -4025,7 +4649,10 @@ this.drawCityWallsAndGate();
     this.updateTreeDepthOrdering();
     this.templeInterior.active = true;
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = false;
+    // 宗庙内部 world 被隐藏，切换到内部节点挂箭头，使占卜路仍可指示。
+    this.questGuide.setWorldNode(this.templeInterior);
     this.storyController?.handle({ type: 'temple-entered' });
+    if (this.storyController?.currentStep()) this.presentStoryStep(this.storyController.currentStep());
   }
 
   private exitTempleInterior() {
@@ -4041,6 +4668,9 @@ this.drawCityWallsAndGate();
     this.facing = 'down'; this.displayedPlayerFrame = -1; this.showPlayerFrame(0);
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = true;
     this.drawWeatherParticles(this.weather !== '晴');
+    // 离开宗庙：箭头节点切回外部 world，并按当前 step 刷新位置。
+    this.questGuide.setWorldNode(this.world);
+    if (this.storyController?.currentStep()) this.presentStoryStep(this.storyController.currentStep());
   }
 
   private drawVillage() {
@@ -4065,7 +4695,7 @@ this.drawCityWallsAndGate();
     this.worldLabel('商代集市', 1010, 1365, 19, new Color(90, 59, 38));
     this.createTownShop(1030, 630);
     this.createMarketStall(820, 1030, .72); this.createMarketStall(1060, 1030, .72);
-    this.createVillageWell(245, 620);
+    this.createVillageWell(245, 620, RegionId.CITY);
   }
 
   private drawTownDetails() {
@@ -4079,11 +4709,14 @@ this.drawCityWallsAndGate();
 
     this.pixelSprite('MarketPottery', 'pottery-jar-cluster', this.world, 1160, 540, 90, 76, 18);
     this.pixelSprite('MarketSupplies', 'barrel-crate-cluster', this.world, 820, 550, 88, 78, 18);
+    // Full, grounded footprint for the combined barrels, crate and sacks.
+    this.addObstacle(820, 528, 78, 58, 'CityMarketBarrelCrateSolid', RegionId.CITY);
     this.addObstacle(1160, 507, 48, 20, '集市陶罐底座');
     this.addObstacle(820, 512, 52, 22, '集市箱笼底座');
   }
 
   private drawFields() {
+    const fieldVisualStartIndex = this.world.children.length;
     const boundary = this.graphics('FieldLowEarthBoundary', this.world, 4);
     boundary.fillColor = new Color(112, 77, 46);
     boundary.rect(200, -450, 2800, 70);
@@ -4151,10 +4784,10 @@ this.drawCityWallsAndGate();
       if ([1100, 1700].some(gap => Math.abs(x - gap) < 105)) continue;
       this.pixelSprite('FieldRoadFenceNorth', 'mud-fence-straight', this.world, x, -675, 158, 76, 14);
       this.pixelSprite('FieldRoadFenceSouth', 'mud-fence-straight', this.world, x, -846, 158, 76, 14);
-      // Adjacent collision strips overlap slightly, leaving openings only at
-      // the authored lanes instead of tiny gaps where an actor can climb on.
-      this.addObstacle(x, -701, 170, 18, '田野路边北矮墙基座');
-      this.addObstacle(x, -872, 170, 18, '田野路边南矮墙基座');
+      // Block the complete visible wall body from every direction. Adjacent
+      // footprints overlap slightly, while the authored lane openings remain.
+      this.addObstacle(x, -675, 170, 64, 'FieldRoadFenceNorthSolid', RegionId.FIELDS);
+      this.addObstacle(x, -846, 170, 64, 'FieldRoadFenceSouthSolid', RegionId.FIELDS);
     }
 
     const field = this.graphics('OrderedFarmPlots', this.world, 5);
@@ -4182,11 +4815,11 @@ this.drawCityWallsAndGate();
       'FieldContinuousRiverNetwork', 'field-huan-canal-network-v1',
       this.world, 1630, -1567, 2620, 1060, 8,
     );
-    [727, 1290, 1867, 2440].forEach((x, branchIndex) => {
+    [727, 1290, 1867, 2440].forEach(x => {
       this.addObstacle(x, -1510, 28, 290, '田间支渠');
       this.addObstacle(x, -1925, 28, 350, '田间支渠');
     });
-    let canalStart = 320;
+    let canalStart = 100;
     [1100, 1700, 2300].forEach(gap => {
       const end = gap - 70;
       this.addObstacle((canalStart + end) / 2, -1270, end - canalStart, 108, '田野主干水渠');
@@ -4202,16 +4835,13 @@ this.drawCityWallsAndGate();
       this.createCanalBridgeRails(gap, -1270, wide);
     });
     this.addObstacle((canalStart + 2940) / 2, -1270, 2940 - canalStart, 108, '田野主干水渠');
+    this.drawIrrigationCanalEndCap('FieldMainCanalEastCap', 2940, -1270, 88, 8, 'east');
 
-    this.createVillageWell(350, -1080);
-    this.drawLayeredIrrigationCanal('WellFeederChannel', 350, -1200, 150, 24, false, 9);
-    this.drawIrrigationJunction(350, -1270, 8);
-    const outlet = this.localGraphics('AnimatedWellOutlet', this.world, 350, -1126, 72, 56, 13);
-    outlet.fillColor = new Color(61, 52, 41); outlet.rect(-24, 8, 48, 13); outlet.fill();
-    outlet.fillColor = new Color(39, 88, 111); outlet.rect(-15, -4, 30, 15); outlet.fill();
-    outlet.fillColor = new Color(104, 174, 188, 220); outlet.rect(-9, -15, 18, 17); outlet.fill();
+    [800, 1400, 2000, 2600].forEach((x, index) => {
+      this.drawFieldRoadCanalCrossing(x, -1705, 80 + index);
+    });
 
-    for (let x = 420, index = 0; x <= 2840; x += 145, index++) {
+    for (let x = 140, index = 0; x <= 2840; x += 145, index++) {
       this.createCanalFlowMark(x, -1270, true, index * .17, 72 + index % 3 * 8);
     }
     [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
@@ -4219,23 +4849,23 @@ this.drawCityWallsAndGate();
         this.createCanalFlowMark(x, y, false, branchIndex * .21 + index * .16, 78);
       }
     });
-    this.createCanalFlowMark(350, -1144, false, .1, 96);
 
     this.createFieldStorehouse('东北粮仓一', 2180, -555, 'field-storehouse-a');
     this.createFieldStorehouse('东北粮仓二', 2520, -555, 'field-storehouse-b');
     this.createFieldStorehouse('东北草料仓', 2860, -555, 'field-shelter');
     [2035, 2215, 2395, 2575, 2755, 2935].forEach(x => {
       this.pixelSprite('GranaryFence', 'mud-fence-straight', this.world, x, -430, 150, 72, 15);
-      this.addObstacle(x, -454, 170, 18, '粮仓外矮墙基座');
+      this.addObstacle(x, -430, 170, 60, 'GranaryFenceSolid', RegionId.FIELDS);
     });
 
     this.pixelSprite('FieldStrawPileA', 'straw-stack', this.world, 690, -610, 112, 126, 18);
-    this.addObstacle(690, -667, 66, 22, '田野草垛底座');
+    this.addObstacle(690, -616, 82, 108, 'FieldStrawPileASolid', RegionId.FIELDS);
     this.pixelSprite('FieldStrawPileB', 'straw-stack', this.world, 2050, -885, 98, 112, 18);
-    this.addObstacle(2050, -936, 58, 20, '田野草垛底座');
+    this.addObstacle(2050, -891, 72, 96, 'FieldStrawPileBSolid', RegionId.FIELDS);
     this.pixelSprite('FieldStoneMill', 'stone-mill', this.world, 1430, -620, 124, 112, 19);
     this.pixelSprite('FieldWaterUrnA', 'field-water-urn', this.world, 1850, -875, 102, 110, 19);
-    this.addObstacle(1430, -667, 70, 24, '田野石磨基座'); this.addObstacle(1850, -924, 46, 22, '田野储水瓮基座');
+    this.addObstacle(1430, -633, 112, 84, 'FieldStoneMillSolid', RegionId.FIELDS);
+    this.addObstacle(1850, -881, 80, 88, 'FieldWaterUrnASolid', RegionId.FIELDS);
 
     [[430, -510], [2870, -930], [430, -2040], [2860, -2035]].forEach((p, i) => this.createTree(p[0], p[1], 100 + i));
     // Keep roadside tree trunks behind the north fence so the two-tile trunk
@@ -4248,10 +4878,14 @@ this.drawCityWallsAndGate();
     [[300, -520], [580, -2110], [980, -2110], [1540, -2110], [2050, -2110], [2700, -2110], [2920, -1050]].forEach((p, i) => this.pixelSprite(`FoxtailGrass${i}`, 'foxtail-grass', this.world, p[0], p[1], 68, 74, 12));
     [[360, -2050], [1020, -2050], [1660, -2080], [2710, -2070], [2890, -1170]].forEach((p, i) => this.pixelSprite(`FieldBoundaryStone${i}`, 'field-stone-cluster', this.world, p[0], p[1], 92, 78, 12));
     this.worldLabel('郊外田野', 1420, -475, 25, new Color(92, 65, 38));
+    this.fieldVisualNodes = this.world.children.slice(fieldVisualStartIndex);
+    this.updateFieldVisibility();
   }
 
   private createCanalBridgeRails(x: number, y: number, wide: boolean) {
-    const railX = wide ? 76 : 53;
+    // Move the physical rail 3 px inward so playerRadius stays inside the
+    // painted rail interior without changing bridge sprites or entrances.
+    const railX = (wide ? 76 : 53) - 3;
     const railWidth = wide ? 28 : 24;
     const halfHeight = 82;
     // The bridge sprite already carries authored rails. The old Graphics
@@ -4344,6 +4978,48 @@ this.drawCityWallsAndGate();
     if (!horizontal) g.node.setRotationFromEuler(0, 0, 90);
   }
 
+  private drawIrrigationCanalEndCap(
+    name: string,
+    x: number,
+    y: number,
+    waterWidth: number,
+    z: number,
+    orientation: 'south' | 'east',
+  ) {
+    const outerWidth = waterWidth + 58;
+    const g = this.localGraphics(name, this.world, x, y, outerWidth + 38, outerWidth + 38, z);
+    const bands: Array<[number, Color]> = [
+      [waterWidth + 58, new Color(82, 83, 69, 215)],
+      [waterWidth + 48, new Color(111, 119, 67)],
+      [waterWidth + 36, new Color(163, 112, 55)],
+      [waterWidth + 23, new Color(211, 163, 84)],
+      [waterWidth + 12, new Color(53, 72, 65)],
+      [waterWidth, new Color(55, 128, 159)],
+      [Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105)],
+    ];
+    bands.forEach(([diameter, color]) => {
+      g.fillColor = color;
+      if (orientation === 'south') {
+        g.rect(-diameter / 2, -18, diameter, 36);
+      } else {
+        g.rect(-18, -diameter / 2, 36, diameter);
+      }
+      g.fill();
+    });
+    // Straight terminal faces keep the canal edge crisp without adding a round plug.
+    g.fillColor = new Color(192, 137, 67, 190);
+    g.rect(orientation === 'south' ? -outerWidth * .31 : -12, orientation === 'south' ? -24 : -outerWidth * .31, 9, 4); g.fill();
+    g.fillColor = new Color(93, 67, 43, 210);
+    g.rect(orientation === 'south' ? outerWidth * .22 : 8, orientation === 'south' ? 18 : outerWidth * .22, 7, 4); g.fill();
+    g.strokeColor = new Color(128, 194, 198, 160); g.lineWidth = 2;
+    if (orientation === 'south') {
+      g.moveTo(-10, 4); g.lineTo(0, 1); g.lineTo(10, 4);
+    } else {
+      g.moveTo(-4, 10); g.lineTo(-1, 0); g.lineTo(-4, -10);
+    }
+    g.stroke();
+  }
+
   private drawIrrigationJunction(x: number, y: number, variant: number) {
     // A cropped authored cross-channel keeps the join naturally continuous;
     // no flat blue cover plate is left at field-canal intersections.
@@ -4354,15 +5030,12 @@ this.drawCityWallsAndGate();
     return;
 
     const g = this.localGraphics(`IrrigationWaterJunction${variant}`, this.world, x, y, 112, 128, 11);
-    // The branch and trunk bands already supply their own banks. This small
-    // stepped water bay hides those overlapping banks without looking like a
-    // rectangular cover plate at every intersection.
+    // Blend the two water runs with a compact pool instead of the old stepped
+    // cross-shaped cover.
     g.fillColor = new Color(55, 128, 159);
-    g.moveTo(-50, -39); g.lineTo(-20, -39); g.lineTo(-20, -55); g.lineTo(18, -55);
-    g.lineTo(18, -39); g.lineTo(50, -39); g.lineTo(50, 39); g.lineTo(19, 39);
-    g.lineTo(19, 54); g.lineTo(-19, 54); g.lineTo(-19, 39); g.lineTo(-50, 39); g.close(); g.fill();
+    g.roundRect(-45, -37, 90, 74, 9); g.fill();
     g.fillColor = new Color(20, 72, 104, 88);
-    g.rect(-49, -12, 98, 24); g.rect(-9, -48, 18, 96); g.fill();
+    g.roundRect(-30, -23, 60, 46, 7); g.fill();
     g.strokeColor = new Color(121, 181, 187, 145); g.lineWidth = 2;
     [-26, -4, 19].forEach((py, index) => {
       const shift = (variant + index) % 2 === 0 ? 6 : -5;
@@ -4373,6 +5046,22 @@ this.drawCityWallsAndGate();
       g.fillColor = index === 0 ? new Color(126, 132, 105) : new Color(153, 139, 96);
       g.ellipse(px, -34 + ((variant + index) % 3) * 30, 7, 4); g.fill();
     });
+  }
+
+  private drawFieldRoadCanalCrossing(x: number, y: number, variant: number) {
+    const g = this.localGraphics(`FieldRoadCanalCrossing${variant}`, this.world, x, y, 174, 60, 13);
+    g.fillColor = new Color(174, 132, 73);
+    g.rect(-87, -24, 174, 48); g.fill();
+    g.strokeColor = new Color(119, 91, 56, 145); g.lineWidth = 2;
+    g.moveTo(-87, 23); g.lineTo(87, 23);
+    g.moveTo(-87, -23); g.lineTo(87, -23);
+    g.stroke();
+    for (let i = 0; i < 7; i++) {
+      const px = -70 + i * 23;
+      const py = ((variant + i * 17) % 33) - 16;
+      g.fillColor = i % 2 === 0 ? new Color(95, 70, 45, 150) : new Color(216, 174, 101, 150);
+      g.rect(px, py, 4 + i % 3, 2 + i % 2); g.fill();
+    }
   }
 
   private createCanalFlowMark(x: number, y: number, horizontal: boolean, phase: number, distance: number) {
@@ -4433,21 +5122,18 @@ this.drawCityWallsAndGate();
 
     // Low tier: scattered stones and sparse trees.
     [[3180, -580, .55], [3440, -1140, .62], [3200, -1720, .52], [3600, -1910, .68]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     [[3200, -920], [3510, -550], [3420, -1530], [3680, -1810]].forEach((p, i) => this.createTreeSized(p[0], p[1], 200 + i, .72 + (i % 2) * .12));
     // Middle tier: dense woodland and grouped rock masses.
     const middleTrees = [[3940,-560],[4180,-610],[4440,-560],[3990,-1050],[4320,-1110],[4520,-930],[3980,-1510],[4210,-1580],[4490,-1480],[4020,-1980],[4370,-2000],[4550,-1860]];
     middleTrees.forEach((p, i) => this.createTreeSized(p[0], p[1], 220 + i, .82 + (i % 3) * .08));
     [[4080, -1320, .88], [4340, -1360, 1.02], [4460, -760, .86], [4140, -1880, .94]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     // Summit: giant standing rocks, short grass, and only isolated trees.
     [[4920, -560, 1.22], [5350, -650, 1.35], [5520, -1540, 1.4], [5070, -1950, 1.18]].forEach(p => {
-      this.createRock(p[0], p[1], p[2]);
-      this.addObstacle(p[0], p[1] + 6 * p[2], 112 * p[2], 118 * p[2], 'MountainRockSolid', RegionId.HIGHLAND);
+      this.createRock(p[0], p[1], p[2], RegionId.HIGHLAND);
     });
     [[4880, -960], [5480, -980], [5270, -1960]].forEach((p, i) => this.createTreeSized(p[0], p[1], 250 + i, .88));
 
@@ -4471,24 +5157,6 @@ this.drawCityWallsAndGate();
   }
 
   private drawOraclePit() {
-    // This is the existing large zone directly below the fields.  It remains
-    // one continuous outdoor map, divided by paths and terrain rather than by
-    // scene transitions or a pasted background image.
-    const ground = this.graphics('RoyalRitualMottledGround', this.world, 3);
-    ground.fillColor = new Color(105, 75, 53, 150);
-    ground.roundRect(680, -4020, 4440, 1480, 44); ground.fill();
-    let seed = 91357;
-    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < 270; i++) {
-      const x = 720 + random() * 4320; const y = -3970 + random() * 1360;
-      const palette = i % 4;
-      ground.fillColor = palette === 0 ? new Color(61, 55, 45, 90)
-        : palette === 1 ? new Color(171, 123, 68, 78)
-          : palette === 2 ? new Color(82, 93, 59, 54) : new Color(201, 156, 86, 45);
-      const width = 5 + Math.floor(random() * 19); const height = 3 + Math.floor(random() * 9);
-      ground.rect(Math.round(x / 3) * 3, Math.round(y / 3) * 3, width, height); ground.fill();
-    }
-
     // Reinforced full-width north wall with no opening; former gate deleted.
     this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
@@ -4500,7 +5168,6 @@ this.drawCityWallsAndGate();
       [[2640, -2940], [3240, -2820], [3750, -2920], [4210, -3160]],
       [[1580, -3070], [1210, -3350], [1510, -3700], [2290, -3800]],
       [[4210, -3160], [4510, -3510], [4170, -3830], [2860, -3650]],
-      [[2290, -3800], [2290, -3700]],
       [[2290, -3800], [2290, -4100]],
     ];
     const roadShadow = this.graphics('RoyalRitualPathShadow', this.world, 5);
@@ -4516,85 +5183,67 @@ this.drawCityWallsAndGate();
 
     // Gate at north entry deleted — north wall is now continuous.
 
-    // Western ritual court: three stepped earthen levels, bronze vessels,
-    // braziers and banner posts form a legible ceremonial composition.
-    const altar = this.localGraphics('LayeredRoyalSacrificeAltar', this.world, 1450, -3190, 720, 520, 16);
-    altar.fillColor = new Color(56, 47, 41, 135); altar.roundRect(-344, -224, 688, 448, 26); altar.fill();
-    altar.fillColor = new Color(112, 91, 67); altar.roundRect(-320, -200, 640, 400, 20); altar.fill();
-    altar.fillColor = new Color(141, 111, 70); altar.roundRect(-256, -148, 512, 296, 14); altar.fill();
-    altar.fillColor = new Color(174, 139, 80); altar.roundRect(-178, -92, 356, 184, 10); altar.fill();
-    altar.strokeColor = new Color(68, 53, 42, 210); altar.lineWidth = 5;
-    [-256, -178, 178, 256].forEach(x => { altar.moveTo(x, -160); altar.lineTo(x, 160); });
-    altar.moveTo(-292, 0); altar.lineTo(292, 0); altar.stroke();
-    altar.strokeColor = new Color(220, 177, 91, 190); altar.lineWidth = 3;
-    altar.moveTo(-92, 0); altar.lineTo(-46, 50); altar.lineTo(0, 0); altar.lineTo(46, 50); altar.lineTo(92, 0); altar.lineTo(46, -50); altar.lineTo(0, 0); altar.lineTo(-46, -50); altar.close(); altar.stroke();
-    this.addObstacle(1450, -3190, 360, 180, '王陵中心祭台');
-    this.createBronzeDing(1370, -3170); this.createBronzeDing(1530, -3170);
-    [[1130,-2960],[1770,-2960],[1130,-3420],[1770,-3420]].forEach((p, i) => this.createAnimatedTorch(p[0], p[1], 20 + i));
-    [[1070,-3170],[1830,-3170]].forEach((p, index) => {
-      const banner = this.localGraphics(`RoyalRitualBanner${index}`, this.world, p[0], p[1], 84, 210, 23);
-      banner.fillColor = new Color(58, 43, 34); banner.rect(-6, -92, 12, 184); banner.fill();
-      banner.fillColor = index ? new Color(111, 42, 38) : new Color(72, 58, 41); banner.moveTo(4, 76); banner.lineTo(index ? 64 : -64, 55); banner.lineTo(index ? 54 : -54, -18); banner.lineTo(4, 3); banner.close(); banner.fill();
-      banner.strokeColor = new Color(207, 157, 72); banner.lineWidth = 3; banner.moveTo(index ? 17 : -17, 45); banner.lineTo(index ? 43 : -43, 25); banner.lineTo(index ? 20 : -20, 2); banner.stroke();
-      this.sways.push({ node: banner.node, phase: index * 1.7, amplitude: 1.1, speed: .58 });
+    // Royal-Tomb landmarks use authored transparent sprites.  Their physical
+    // footprints stay deliberately below the visual crown/banners so collision
+    // follows the real base instead of the full painted rectangle.
+    this.createRoyalTombLandmark('RoyalTombRitualAltar', 'royal_tomb_ritual_altar', 1450, -3190, 720, 480, {
+      footY: -3360, halfWidth: 292, coverHeight: 462,
     });
+    this.addObstacle(1450, -3260, 584, 200, 'RoyalTombRitualAltarSolid', RegionId.ROYAL_TOMB);
     this.worldLabel('王陵祭祀台', 1450, -2840, 21, new Color(237, 202, 125));
 
-    // Central royal burial mound. Layered rims and a sealed stone face read as
-    // raised terrain; collision is only on the mound body, never on the path.
-    const mound = this.localGraphics('LayeredRoyalBurialMound', this.world, 2860, -3450, 900, 600, 12);
-    mound.fillColor = new Color(48, 43, 37, 180); mound.ellipse(0, -34, 420, 250); mound.fill();
-    mound.fillColor = new Color(91, 72, 52); mound.ellipse(0, -4, 395, 230); mound.fill();
-    mound.fillColor = new Color(127, 91, 56); mound.ellipse(0, 28, 344, 192); mound.fill();
-    mound.fillColor = new Color(151, 112, 65); mound.ellipse(0, 58, 276, 145); mound.fill();
-    mound.strokeColor = new Color(193, 147, 78, 150); mound.lineWidth = 5;
-    for (let ring = 0; ring < 3; ring++) { mound.ellipse(0, 22 + ring * 13, 318 - ring * 38, 174 - ring * 22); mound.stroke(); }
-    mound.fillColor = new Color(50, 44, 40); mound.roundRect(-84, -171, 168, 92, 16); mound.fill();
-    mound.fillColor = new Color(113, 91, 65); mound.rect(-64, -153, 128, 61); mound.fill();
-    mound.strokeColor = new Color(206, 166, 91); mound.lineWidth = 4; mound.moveTo(-45, -121); mound.lineTo(0, -92); mound.lineTo(45, -121); mound.lineTo(0, -150); mound.close(); mound.stroke();
-    this.addObstacle(2860, -3405, 660, 305, '王陵封土主体');
+    this.clearRoyalTombBurialMoundRecords();
+    this.createRoyalTombStaticLandmark('RoyalTombBurialMound', 'royal_tomb_burial_mound', 2860, -3450, 900, 600);
+    // Short, overlapping bodies trace the painted outer lip only.  Together
+    // they form one sealed oval, keeping every visible terrace non-walkable
+    // without a broad horizontal air wall below the mound.
+    [
+      [2700, -3164, 132, 34, 'NorthWest'], [2830, -3158, 132, 34, 'NorthCenterLeft'],
+      [2960, -3164, 132, 34, 'NorthCenterRight'], [3072, -3182, 94, 42, 'NorthEast'],
+      [2588, -3192, 94, 42, 'NorthWestShoulder'], [2490, -3239, 104, 64, 'UpperWest'],
+      [2428, -3316, 46, 92, 'UpperWestSide'], [2394, -3415, 42, 108, 'MidWest'],
+      [2398, -3522, 42, 108, 'LowerWest'], [2442, -3616, 100, 82, 'LowerWestSide'],
+      [2532, -3682, 82, 52, 'SouthWestShoulder'], [2638, -3728, 132, 34, 'SouthWest'],
+      [2769, -3742, 132, 34, 'SouthCenterLeft'], [2900, -3742, 132, 34, 'SouthCenterRight'],
+      [3031, -3728, 132, 34, 'SouthEast'], [3118, -3714, 80, 40, 'SouthEastLowerJoin'],
+      [3192, -3682, 82, 52, 'SouthEastShoulder'], [3278, -3616, 92, 82, 'LowerEastSide'],
+      [3274, -3522, 42, 108, 'LowerEast'],
+      [3278, -3415, 42, 108, 'MidEast'], [3292, -3316, 46, 92, 'UpperEastSide'],
+      [3230, -3239, 104, 64, 'UpperEast'], [3138, -3192, 94, 42, 'NorthEastShoulder'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `RoyalTombBurialMoundRim${suffix as string}Solid`, RegionId.ROYAL_TOMB,
+    ));
     this.worldLabel('王陵封土', 2860, -3115, 20, new Color(224, 192, 125));
 
-    // Eastern oracle-bone kiln/cellar is an exposed archaeological cut, not an
-    // interior room. The southern stair keeps the lower terrace accessible.
-    const pitX = 4300; const pitY = -3425; const pitW = 1240; const pitH = 780;
-    const pit = this.localGraphics('OutdoorOracleKilnTerraces', this.world, pitX, pitY, pitW + 120, pitH + 120, 11);
-    pit.fillColor = new Color(50, 45, 40, 195); pit.roundRect(-pitW / 2, -pitH / 2, pitW, pitH, 60); pit.fill();
-    pit.fillColor = new Color(91, 64, 45); pit.roundRect(-pitW / 2 + 32, -pitH / 2 + 32, pitW - 64, pitH - 64, 48); pit.fill();
-    pit.fillColor = new Color(127, 86, 50); pit.roundRect(-pitW / 2 + 78, -pitH / 2 + 82, pitW - 156, pitH - 164, 36); pit.fill();
-    pit.fillColor = new Color(75, 57, 46); pit.roundRect(-pitW / 2 + 132, -pitH / 2 + 140, pitW - 264, pitH - 278, 28); pit.fill();
-    pit.fillColor = new Color(101, 76, 55); pit.roundRect(-pitW / 2 + 180, -pitH / 2 + 188, pitW - 360, pitH - 380, 20); pit.fill();
-    // Three dark kiln/cellar mouths with laid bone shelves.
-    [-285, 0, 285].forEach((offset, index) => {
-      pit.fillColor = new Color(39, 35, 34); pit.ellipse(offset, 132, 112, 72); pit.fill();
-      pit.fillColor = new Color(73, 50, 38); pit.ellipse(offset, 113, 84, 51); pit.fill();
-      pit.fillColor = new Color(211, 177, 112); 
-      for (let shard = 0; shard < 5; shard++) {
-        const sx = offset - 55 + shard * 27; const sy = 98 + (shard % 2) * 15;
-        pit.moveTo(sx - 9, sy - 5); pit.lineTo(sx + 7, sy - 7); pit.lineTo(sx + 11, sy + 4); pit.lineTo(sx - 5, sy + 8); pit.close(); pit.fill();
-      }
-      pit.strokeColor = new Color(158, 112, 63); pit.lineWidth = 5; pit.ellipse(offset, 128, 108, 68); pit.stroke();
-    });
-    // A real stair breaks the south rim and communicates walkable depth.
-    pit.fillColor = new Color(155, 115, 69);
-    for (let step = 0; step < 7; step++) pit.rect(-92 + step * 7, -382 + step * 23, 184 - step * 14, 18);
-    pit.fill();
-    pit.strokeColor = new Color(69, 52, 42, 210); pit.lineWidth = 3;
-    for (let step = 0; step < 7; step++) { pit.moveTo(-92 + step * 7, -364 + step * 23); pit.lineTo(92 - step * 7, -364 + step * 23); }
-    pit.stroke();
-    this.addObstacle(pitX, pitY + pitH / 2 - 26, pitW - 100, 52, '甲骨窑穴北沿');
-    this.addObstacle(pitX - pitW / 2 + 25, pitY, 50, pitH, '甲骨窑穴西沿');
-    this.addObstacle(pitX + pitW / 2 - 25, pitY, 50, pitH, '甲骨窑穴东沿');
-    this.addObstacle(pitX - 345, pitY - pitH / 2 + 26, 350, 52, '甲骨窑穴南沿');
-    this.addObstacle(pitX + 345, pitY - pitH / 2 + 26, 350, 52, '甲骨窑穴南沿');
+    // Eastern oracle-bone kiln/cellar uses the same low, grounded approach as
+    // the altar: its contact base is solid, while its upper walls are visual.
+    const pitX = 4300; const pitY = -3425; const pitW = 960; const pitH = 640;
+    this.clearRoyalTombLandmarkRecords('RoyalTombOutdoorOracleKiln');
+    this.createRoyalTombStaticLandmark('RoyalTombOutdoorOracleKiln', 'royal_tomb_oracle_kiln', pitX, pitY, pitW, pitH);
+    // The kiln is a filled archaeological work area, not an enterable room.
+    // Horizontal strata follow its stepped visible mass without an outer-box
+    // collider or any dynamic occlusion record.
+    [
+      [pitX, -3700, 840, 70, 'SouthBase'], [pitX, -3618, 880, 80, 'SouthWorkFloor'],
+      [pitX, -3536, 900, 80, 'LowerKilnBody'], [pitX, -3454, 900, 80, 'MiddleKilnBody'],
+      [pitX, -3372, 900, 80, 'UpperKilnBody'], [pitX, -3290, 880, 80, 'NorthWorkFloor'],
+      [pitX, -3208, 860, 80, 'NorthWallBase'], [pitX, -3135, 760, 70, 'NorthWallTop'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `RoyalTombOutdoorOracleKiln${suffix as string}Solid`, RegionId.ROYAL_TOMB,
+    ));
     this.worldLabel('室外甲骨窑穴', pitX, -2940, 21, new Color(235, 205, 139));
 
-    [[840,-2800],[900,-3710],[2030,-2760],[2260,-3930],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
+    [[840,-2800],[900,-3710],[2030,-2760],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
       const scale = .55 + (i % 3) * .14;
-      this.createRock(p[0], p[1], scale);
-      this.addObstacle(p[0], p[1] + 6 * scale, 112 * scale, 118 * scale, 'MountainRockSolid', RegionId.ROYAL_TOMB);
+      this.createRock(p[0], p[1], scale, RegionId.ROYAL_TOMB);
     });
-    [[930,-3480],[2020,-3520],[3510,-3880],[4830,-3160]].forEach((p, i) => this.pixelSprite(`RoyalRitualRelic${i}`, i % 2 ? 'pottery-jar-cluster' : 'field-stone-cluster', this.world, p[0], p[1], 68, 62, 15));
+    [[930,-3480],[2020,-3520],[3510,-3880],[4830,-3160]].forEach((p, i) => {
+      const isPottery = i % 2 === 1;
+      this.pixelSprite(`RoyalRitualRelic${i}`, isPottery ? 'pottery-jar-cluster' : 'field-stone-cluster', this.world, p[0], p[1], 68, 62, 15);
+      if (isPottery) this.addObstacle(p[0], p[1] - 4, 62, 56, `RoyalTombPotterySolid${i}`, RegionId.ROYAL_TOMB);
+    });
     this.worldLabel('甲骨窑穴 · 王陵祭祀区', 3320, -2570, 27, new Color(248, 221, 151));
   }
 
@@ -4848,7 +5497,7 @@ this.drawCityWallsAndGate();
       ],
       field: [
         [600,-600],[1500,-600],[2400,-600],
-        [600,-1300],[1500,-1300],[2400,-1300],
+        [600,-1300],[1500,-1300],[260,-1860],
         [600,-2000],[1500,-2000],[2400,-2000],
         [1100,-900],
         [2750,-900],[2750,-1600],[2000,-900],[2000,-1600],[1100,-1600],[300,-1600],[2750,-1300],[2000,-1300],[2000,-1900],
@@ -5153,6 +5802,8 @@ this.drawCityWallsAndGate();
     site.glow.clear();
     site.glow.node.setScale(1, 1, 1);
     site.glow.node.setRotationFromEuler(0, 0, 0);
+    const currentRegionId = this.regionTransitionManager?.currentRegionId;
+    const hiddenFieldSite = site.region === 'field' && !!currentRegionId && currentRegionId !== RegionId.FIELDS;
     site.root.active = true;
     if (!site.active) {
       if (site.holeTimer <= 0) {
@@ -5160,10 +5811,12 @@ this.drawCityWallsAndGate();
         return;
       }
       this.applyExcavationVisualState(site, 'dug');
+      if (hiddenFieldSite) site.root.active = false;
       return;
     }
     this.applyExcavationVisualState(site, 'idle');
     this.drawExcavationInteractionHint(site);
+    if (hiddenFieldSite) site.root.active = false;
   }
 
   private applyExcavationVisualState(site: ExcavationSite, state: ExcavationVisualState) {
@@ -5242,6 +5895,7 @@ this.drawCityWallsAndGate();
     this.redrawExcavationSite(site);
     this.pendingExcavation = { site, timer: .62, rewarded: false };
     this.createDigParticleBurst(site.x, site.y);
+    this.audioManager.playShovelDig();
     if (returningToLesson) this.showStatusNotice('重新清理这个坑位，之前发现的甲骨文字仍保留在这里。', 1.1);
     this.showStatusNotice('正在清理土层……', 1.1);
   }
@@ -5260,6 +5914,11 @@ this.drawCityWallsAndGate();
     site.storyTarget = false;
     const reward = site.reward;
     if (reward.kind === 'oracle' && reward.cardId) {
+      // 记录"已挖到的字"（含待补字）。进度条按此统计，避免待补字挖了却不计入收集数。
+      if (!this.save.excavatedCardIds) this.save.excavatedCardIds = [];
+      if (!this.save.excavatedCardIds.includes(reward.cardId)) {
+        this.save.excavatedCardIds.push(reward.cardId);
+      }
       const card = this.oracleCards.find(item => item.id === reward.cardId && this.hasRealOracleGlyph(item));
       const currentStepId = this.storyController?.currentStep()?.id;
       const expectedFragment = this.allStoryFragmentCards.find(item =>
@@ -5451,16 +6110,6 @@ this.drawCityWallsAndGate();
 
   private createTownHouse(name: string, x: number, y: number, asset: string, index: number) {
     const yard = this.localGraphics(`${name}FrontYard`, this.world, x, y, 190, 170, 7);
-    yard.fillColor = index % 2 === 0 ? new Color(136, 119, 73, 92) : new Color(113, 126, 72, 78);
-    yard.moveTo(-82, -91); yard.lineTo(-70, -37); yard.lineTo(-45, -23); yard.lineTo(48, -25);
-    yard.lineTo(78, -42); yard.lineTo(84, -92); yard.lineTo(52, -108); yard.lineTo(-55, -106); yard.close(); yard.fill();
-    yard.fillColor = new Color(183, 145, 84, 210);
-    yard.roundRect(-18, -140, 36, 105, 6); yard.fill();
-    yard.fillColor = new Color(220, 178, 104, 120);
-    for (let step = 0; step < 4; step++) {
-      const py = -127 + step * 23;
-      yard.rect(-13 + (step % 2) * 5, py, 18 + (step % 3) * 4, 3); yard.fill();
-    }
     yard.fillColor = new Color(91, 114, 62, 180);
     [-74, -58, 56, 73].forEach((gx, grassIndex) => {
       yard.rect(gx, -98 + grassIndex % 2 * 5, 3, 13 + grassIndex % 3 * 4);
@@ -5495,13 +6144,14 @@ this.drawCityWallsAndGate();
     this.addStructureFootprint('VillageShopPixelArt', x, y + 32, 214, 174);
   }
 
-  private createVillageWell(x: number, y: number) {
+  private createVillageWell(x: number, y: number, regionId?: RegionId) {
     const fallback = this.graphics('VillageWellFallback', this.world, 21);
     fallback.fillColor = new Color(98, 87, 67); fallback.circle(0, 0, 34); fallback.fill();
     fallback.strokeColor = new Color(58, 47, 36); fallback.lineWidth = 7; fallback.circle(0, 0, 34); fallback.stroke();
     fallback.node.setPosition(x, y);
     this.pixelSprite('VillageWaterWell', 'village-well', this.world, x, y + 18, 112, 112, 28);
-    this.addStructureFootprint('VillageWaterWell', x, y + 8, 76, 76);
+    if (regionId === RegionId.CITY) this.addObstacle(x, y + 10, 92, 88, 'CityVillageWellSolid', regionId);
+    else this.addStructureFootprint('VillageWaterWell', x, y + 8, 76, 76);
     this.worldLabel('水井', x, y + 84, 14, new Color(80, 57, 38));
   }
 
@@ -5585,13 +6235,30 @@ this.drawCityWallsAndGate();
     });
   }
 
-  private createRock(x: number, y: number, scale: number) {
-    const g = this.graphics('MountainRock', this.world, 18);
+  /**
+   * Large mountain-stock rocks share the tree-style depth contract: only the
+   * grounded lower mass is solid, while the upper mass sorts around actors by
+   * its visual foot.  That keeps a player behind the rock hidden without ever
+   * allowing them to stand inside its base.
+   */
+  private createRock(x: number, y: number, scale: number, regionId: RegionId) {
+    const rockName = `MountainRockSolid:${regionId}:${x}:${y}`;
+    const g = this.graphics(`MountainRockFallback:${regionId}:${x}:${y}`, this.world, 18);
     g.fillColor = new Color(105, 111, 104); g.moveTo(-45 * scale, -22 * scale); g.lineTo(-18 * scale, 45 * scale); g.lineTo(28 * scale, 52 * scale); g.lineTo(52 * scale, -15 * scale); g.close(); g.fill();
     g.fillColor = new Color(151, 153, 137); g.moveTo(-18 * scale, 45 * scale); g.lineTo(9 * scale, 23 * scale); g.lineTo(28 * scale, 52 * scale); g.close(); g.fill();
     g.node.setPosition(x, y);
-    this.pixelSprite('MountainRockPixelArt', 'mountain-rock', this.world, x, y + 12, 150 * scale, 150 * scale, 20);
-    this.addObstacle(x, y - 34 * scale, 78 * scale, 24 * scale, '山石基座');
+    const rockNode = this.pixelSprite(`MountainRockPixelArt:${regionId}:${x}:${y}`, 'mountain-rock', this.world,
+      x, y + 12 * scale, 150 * scale, 150 * scale, 20);
+    // The lower/middle stone mass is impassable.  The top remains a visual
+    // occluder so a north-side actor is hidden rather than standing on it.
+    this.addObstacle(x, y + 2 * scale, 102 * scale, 104 * scale, rockName, regionId);
+    this.depthTrees.push({
+      node: rockNode,
+      trunkY: y - 58 * scale,
+      halfWidth: 58 * scale,
+      canopyHeight: 142 * scale,
+      baseZ: 20,
+    });
   }
 
   /**
@@ -5621,6 +6288,7 @@ this.drawCityWallsAndGate();
       node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
       if (obstacle && !obstacleCreated) {
         this.addObstacle(obstacle.x, obstacle.y, obstacle.w, obstacle.h, obstacle.name, regionId);
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(obstacle.name);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, asset, node, regionId, obstacleCreated);
@@ -5628,8 +6296,20 @@ this.drawCityWallsAndGate();
     return node;
   }
 
-  private createRegionalNatureTree(name: string, x: number, y: number, index: number, scale: number, regionId: RegionId, obstacleName: string) {
+  private createRegionalNatureTree(
+    name: string,
+    x: number,
+    y: number,
+    index: number,
+    scale: number,
+    regionId: RegionId,
+    obstacleName: string,
+    extraRootObstacle?: { x: number; y: number; w: number; h: number; name: string },
+  ) {
     const node = new Node(name);
+    // Ground cover lives under OutskirtsNatureRoot, but an occluding tree must
+    // be a direct world sibling of the player so both can share one foot-Y
+    // ordering pass (the same arrangement already used by RIVERBANK).
     node.parent = this.world;
     if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureEntityNodes.push(node);
     node.setPosition(x, y, 64);
@@ -5637,15 +6317,36 @@ this.drawCityWallsAndGate();
     const sprite = node.addComponent(Sprite);
     sprite.sizeMode = Sprite.SizeMode.CUSTOM;
     let obstacleCreated = false;
+    let extraRootObstacleCreated = false;
     this.requestFrame('ancient-tree', frame => {
+      if (this.retiredOutskirtsNatureTreeNames.has(name)) {
+        if (node.isValid) node.destroy();
+        return;
+      }
       if (!node.isValid || !sprite.isValid) return;
       sprite.spriteFrame = frame;
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
       if (!obstacleCreated) {
         // Cover trunk, roots and baked-in stones without blocking the canopy.
-        this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, obstacleName, regionId);
+        // This callback runs only after SpriteFrame binding, so no invisible
+        // tree obstacle survives a failed asset load.
+        const nameWithOwner = `${obstacleName}:${name}`;
+        this.addObstacle(x, y - 78 * scale, 150 * scale, 64 * scale, nameWithOwner, regionId);
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(nameWithOwner);
         obstacleCreated = true;
+      }
+      if (extraRootObstacle && !extraRootObstacleCreated) {
+        this.addObstacle(
+          extraRootObstacle.x,
+          extraRootObstacle.y,
+          extraRootObstacle.w,
+          extraRootObstacle.h,
+          extraRootObstacle.name,
+          regionId,
+        );
+        if (regionId === RegionId.OUTSKIRTS) this.outskirtsNatureObstacleNames.add(extraRootObstacle.name);
+        extraRootObstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'ancient-tree', node, regionId, obstacleCreated);
     });
@@ -5677,7 +6378,9 @@ this.drawCityWallsAndGate();
     const height = 142;
     const rootY = y - height * .32;
     const node = new Node(name);
-    node.parent = this.outskirtsNatureRoot!;
+    // These are solid shrubs, so they share the actor-depth layer with trees.
+    node.parent = this.world;
+    this.outskirtsNatureEntityNodes.push(node);
     node.setPosition(x, y, 64);
     node.addComponent(UITransform).setContentSize(width, height);
     const sprite = node.addComponent(Sprite);
@@ -5688,7 +6391,9 @@ this.drawCityWallsAndGate();
       sprite.spriteFrame = frame;
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       if (!obstacleCreated) {
-        this.addObstacle(x, y - height * .04, 120, 108, `${name}Solid`, RegionId.OUTSKIRTS);
+        const obstacleName = `${name}Solid`;
+        this.addObstacle(x, y - height * .04, 120, 108, obstacleName, RegionId.OUTSKIRTS);
+        this.outskirtsNatureObstacleNames.add(obstacleName);
         obstacleCreated = true;
       }
       this.reportNatureDecorVisible(name, 'jujube-bush', node, RegionId.OUTSKIRTS, obstacleCreated);
@@ -5762,8 +6467,30 @@ this.drawCityWallsAndGate();
     });
   }
 
+  /** Remove only the rebuildable OUTSKIRTS entities; terrain and FIELDS stay untouched. */
+  private clearOutskirtsNatureEntities() {
+    const entityNodes = new Set(this.outskirtsNatureEntityNodes);
+    entityNodes.forEach(node => { if (node.isValid) node.destroy(); });
+    this.depthTrees = this.depthTrees.filter(tree => !entityNodes.has(tree.node));
+    this.obstacles = this.obstacles.filter(obstacle => !this.outskirtsNatureObstacleNames.has(obstacle.name));
+    this.outskirtsNatureEntityNodes = [];
+    this.outskirtsNatureObstacleNames.clear();
+  }
+
+  /** Retire a known bad grove node and make any late SpriteFrame callback inert. */
+  private retireOutskirtsNatureTree(name: string) {
+    this.retiredOutskirtsNatureTreeNames.add(name);
+    const oldNodes = this.outskirtsNatureEntityNodes.filter(node => node.name === name);
+    oldNodes.forEach(node => { if (node.isValid) node.destroy(); });
+    this.outskirtsNatureEntityNodes = this.outskirtsNatureEntityNodes.filter(node => node.name !== name);
+    this.depthTrees = this.depthTrees.filter(tree => tree.node.name !== name);
+    this.obstacles = this.obstacles.filter(obstacle => obstacle.name !== `OutskirtsNatureTreeRoot:${name}`);
+    this.outskirtsNatureObstacleNames.delete(`OutskirtsNatureTreeRoot:${name}`);
+  }
+
   /** Dense, road-safe decoration with collisions isolated to the owning region. */
   private drawRegionalNatureDecorations() {
+    this.clearOutskirtsNatureEntities();
     this.outskirtsNatureRoot?.destroy();
     this.outskirtsNatureRoot = new Node('OutskirtsNatureRoot');
     this.outskirtsNatureRoot.parent = this.world;
@@ -5798,8 +6525,35 @@ this.drawCityWallsAndGate();
       // larger than the retained compact meadows above.
       [[1660, 120], [1440, -650], [720, -650], [-720, -690], [-1650, -120], [-1760, 920]]
         .forEach(([x, y], index) => this.createLargeNatureCluster(`OutskirtsGrove${index}-`, x, y, RegionId.OUTSKIRTS, (px, py) => place(px, py, 90)));
-      [[1800, 180, 0], [-920, -720, 3], [-1740, -100, 4], [-1830, 980, 5]]
-        .forEach(([x, y, index]) => { if (place(x, y, 170)) this.createRegionalNatureTree(`OutskirtsGroveTree${index}`, x, y, 150 + index, 1.35, RegionId.OUTSKIRTS, 'OutskirtsNatureTreeRoot'); });
+      // Retire the four previous grove nodes completely.  In particular, a
+      // delayed ancient-tree frame must never recreate their former collider.
+      ['OutskirtsGroveTree0', 'OutskirtsGroveTree3', 'OutskirtsGroveTree4', 'OutskirtsGroveTree5']
+        .forEach(name => this.retireOutskirtsNatureTree(name));
+      const rebuiltSouthRoadRightTrees: Array<[string, number, number, number]> = [
+        ['OutskirtsSouthRoadRightTree1', 1800, 180, 150],
+        ['OutskirtsSouthRoadRightTree2', -920, -720, 153],
+        ['OutskirtsSouthRoadRightTree3', -1740, -100, 154],
+        ['OutskirtsSouthRoadRightTree4', -1830, 980, 155],
+      ];
+      const southRoadRightTreeAirwalls = new Map<string, { x: number; y: number; w: number; h: number; name: string }>([
+        ['OutskirtsSouthRoadRightTree1', { x: 1800, y: 75, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall1' }],
+        ['OutskirtsSouthRoadRightTree2', { x: -920, y: -825, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall2' }],
+        ['OutskirtsSouthRoadRightTree3', { x: -1740, y: -205, w: 176, h: 68, name: 'OutskirtsSouthRoadRightTreeAirwall3' }],
+      ]);
+      rebuiltSouthRoadRightTrees.forEach(([name, x, y, index]) => {
+        if (place(x, y, 170)) {
+          this.createRegionalNatureTree(
+            name,
+            x,
+            y,
+            index,
+            1.35,
+            RegionId.OUTSKIRTS,
+            'OutskirtsNatureTreeRoot',
+            southRoadRightTreeAirwalls.get(name),
+          );
+        }
+      });
     });
 
     this.withObstacleRegion(RegionId.RIVERBANK, () => {
@@ -6054,7 +6808,7 @@ this.drawCityWallsAndGate();
     // normalized to the same raw canvas and foot baseline before import.
     const shadow = this.graphics('PlayerShadow', root, -3);
     shadow.fillColor = new Color(30, 37, 33, 88);
-    shadow.ellipse(0, 1, 12, 4);
+    shadow.ellipse(0, 1, 15, 5);
     shadow.fill();
 
     this.playerVisual = new Node('OracleApprenticeWalkFrames');
@@ -6078,7 +6832,12 @@ this.drawCityWallsAndGate();
   }
 
   private playerCharacterFolder() {
-    return this.save.avatarId === 'oracle-girl-pixel' ? 'oracle-girl-pixel' : 'oracle-boy-pixel';
+    switch (this.save.avatarId) {
+      case 'oracle-girl-pixel': return 'oracle-girl-pixel';
+      case 'oracle-boy-v1': return 'oracle-boy-v1';
+      case 'oracle-girl-v1': return 'oracle-girl-v1';
+      default: return 'oracle-boy-pixel';
+    }
   }
 
   private loadPlayerCharacterFrames() {
@@ -6091,7 +6850,7 @@ this.drawCityWallsAndGate();
     };
     const folder = this.playerCharacterFolder();
     (['down', 'left', 'right', 'up'] as Facing[]).forEach(direction => {
-      for (let frameIndex = 0; frameIndex < 6; frameIndex++) {
+      for (let frameIndex = 0; frameIndex < this.playerFrameCount; frameIndex++) {
         this.requestSpriteFrame(`characters/${folder}/${direction}-${frameIndex}/spriteFrame`, frame => {
           if (loadToken !== this.playerSpriteLoadToken) return;
           this.playerFrames[direction][frameIndex] = frame;
@@ -6103,6 +6862,10 @@ this.drawCityWallsAndGate();
     });
   }
 
+  private loadPlayerFrames() {
+    this.loadPlayerCharacterFrames();
+  }
+
   private animatePlayer(moving: boolean, direction: Vec2, movedDistance: number) {
     if (this.seated) {
       this.walkPhase = 0;
@@ -6110,7 +6873,7 @@ this.drawCityWallsAndGate();
       // screen-down is the room entrance direction.
       this.facing = 'down';
       this.showPlayerFrame(0);
-      this.playerVisual.setPosition(0, 17, 4);
+      this.playerVisual.setPosition(0, 24, 4);
       this.playerVisual.setScale(.9, .78, 1);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
       return;
@@ -6142,12 +6905,36 @@ this.drawCityWallsAndGate();
   }
 
   private showPlayerFrame(frameIndex: number) {
-    const displayKey = (['down', 'left', 'right', 'up'].indexOf(this.facing) * 6) + frameIndex;
+    const displayKey = (['down', 'left', 'right', 'up'].indexOf(this.facing) * this.playerFrameCount) + frameIndex;
     if (displayKey === this.displayedPlayerFrame) return;
     const frame = this.playerFrames[this.facing][frameIndex];
     if (!frame || !this.playerSprite?.isValid) return;
     this.playerSprite.spriteFrame = frame;
     this.displayedPlayerFrame = displayKey;
+  }
+
+  private updatePlayerFootsteps(movedDistance: number, movementAllowed: boolean) {
+    const walkingOnOutdoorGround = movementAllowed
+      && this.worldMode === 'outside'
+      && !this.regionInputLocked
+      && movedDistance > .01;
+    if (!walkingOnOutdoorGround) {
+      this.footstepDistance = 0;
+      this.wasWalkingForAudio = false;
+      return;
+    }
+
+    // 54 px at the current 158 px/s movement speed is roughly one step every
+    // 0.34 seconds. Starting partway into the first stride avoids a long,
+    // silent delay without producing an immediate click on direction changes.
+    if (!this.wasWalkingForAudio) {
+      this.footstepDistance = 26;
+      this.wasWalkingForAudio = true;
+    }
+    this.footstepDistance += movedDistance;
+    if (this.footstepDistance < 54) return;
+    this.footstepDistance %= 54;
+    this.audioManager.playFootstep();
   }
 
   private equipTool(tool: ToolKind) {
@@ -6272,6 +7059,7 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(104, 66, 39); g.ellipse(-20, 7, 9, 5); g.ellipse(19, 6, 10, 5); g.fill();
     g.fillColor = new Color(148, 96, 49); g.rect(-23, 9, 9, 3); g.rect(13, 9, 11, 3); g.fill();
     this.dugHoles.push({ node: hole, timer: 15, x, y });
+    this.audioManager.playShovelDig();
     this.showStatusNotice('挖出了一处小土坑，约15秒后会自然填平。');
   }
 
@@ -6390,8 +7178,8 @@ this.drawCityWallsAndGate();
     }
     const cast = this.fishingCastEffect;
     if (!cast?.root.isValid) { this.fishingCastEffect = null; return; }
-    if (this.worldMode !== 'outside' || this.equippedTool !== 'fishing'
-      || Vec2.distance(this.playerPos, cast.playerOrigin) > 10) {
+        if (this.worldMode !== 'outside'
+            || Vec2.distance(this.playerPos, cast.playerOrigin) > 10) {
       this.cancelFishingCast('你离开了钓位，鱼钩已经收回。');
       return;
     }
@@ -6922,6 +7710,7 @@ this.drawCityWallsAndGate();
   }
 
   private drawOutdoorCollisionDebug() {
+    if (!SHOW_COLLISION_DEBUG) return;
     if ((game.config?.debugMode ?? DebugMode.NONE) === DebugMode.NONE) return;
     const relevant = this.obstacles.filter(obstacle =>
       /Wall|SouthGate|Corner|HouseFootprint|StructureFootprint|古树根部|SouthOutskirtsTrial|RiverbankNorthHighland/.test(obstacle.name));
@@ -7011,7 +7800,7 @@ this.drawCityWallsAndGate();
       blockedSamples.push([`WestWall@${y}`, b.left, y], [`EastWall@${y}`, b.right, y]);
     }
     for (let x = b.left + 20; x <= b.right - 20; x += 64) blockedSamples.push([`NorthWall@${x}`, x, b.top]);
-    blockedSamples.push(['SouthGateLeftBody', -120, -180], ['SouthGateRightBody', 120, -180]);
+    blockedSamples.push(['SouthGateLeftGatehouseSolid', -132, -255], ['SouthGateRightGatehouseSolid', 132, -255]);
     const failedBlocked = blockedSamples.filter(([, x, y]) => this.canStandRadius(x, y, this.playerRadius));
     const passageSamples: Array<[string, number, number]> = [
       ['门洞外', 0, -330], ['台阶中央', 0, -286], ['门洞中央', 0, -220], ['门洞内', 0, -120],
@@ -7027,6 +7816,39 @@ this.drawCityWallsAndGate();
     }
   }
 
+  /** Verifies all four interior approaches to both south gatehouse solids. */
+  private runSouthGateCollisionChecks() {
+    const gateBodies = this.obstacles.filter(obstacle =>
+      obstacle.name === 'SouthGateLeftGatehouseSolid' || obstacle.name === 'SouthGateRightGatehouseSolid');
+    const samples: Array<[string, number, number]> = [];
+    gateBodies.forEach(body => {
+      const inset = Math.max(this.playerRadius + 1, 12);
+      samples.push(
+        [`${body.name}:center`, body.x, body.y],
+        [`${body.name}:north`, body.x, body.y + body.h / 2 - inset],
+        [`${body.name}:south`, body.x, body.y - body.h / 2 + inset],
+        [`${body.name}:west`, body.x - body.w / 2 + inset, body.y],
+        [`${body.name}:east`, body.x + body.w / 2 - inset, body.y],
+      );
+    });
+    const passage: Array<[string, number, number]> = [
+      ['SouthGatePassageSouth', 0, -330],
+      ['SouthGatePassageSteps', 0, -286],
+      ['SouthGatePassageCenter', 0, -220],
+      ['SouthGatePassageNorth', 0, -120],
+    ];
+    const failedSolid = samples.filter(([, x, y]) => this.canStandRadius(x, y, this.playerRadius));
+    const failedPassage = passage.filter(([, x, y]) => !this.canStandRadius(x, y, this.playerRadius));
+    if (failedSolid.length || failedPassage.length) {
+      console.error('[YinXuCity] south gate AABB verification failed', {
+        unexpectedlyWalkable: failedSolid.map(([name]) => name),
+        unexpectedlyBlocked: failedPassage.map(([name]) => name),
+      });
+      return;
+    }
+    console.info(`[YinXuCity] south gate AABB verification passed: ${samples.length} solid samples, ${passage.length} passage samples.`);
+  }
+
   private getSouthOutskirtsSurfaceCeilingIndex() {
     let ceiling = -1;
     this.southOutskirtsSurfaceNodes.forEach(node => {
@@ -7036,21 +7858,44 @@ this.drawCityWallsAndGate();
   }
 
   private updateTreeDepthOrdering() {
-    if (!this.player?.isValid || this.player.parent !== this.world) return;
+    this.updateStoryNpcWorldLabels();
+    if (!this.player?.isValid) return;
+    if (this.player.parent !== this.world) {
+      this.updateTempleSeatDepthOrdering();
+      return;
+    }
+    const currentRegionId = this.regionTransitionManager?.currentRegionId;
     const actors: Array<{ node: Node; baselineY: number }> = [
       { node: this.player, baselineY: this.playerPos.y },
     ];
     this.villagers.forEach(villager => {
-      if (villager.root.isValid && villager.root.parent === this.world) actors.push({ node: villager.root, baselineY: villager.root.position.y });
+      if (villager.root.isValid && villager.root.activeInHierarchy && villager.root.parent === this.world) {
+        actors.push({ node: villager.root, baselineY: villager.root.position.y });
+      }
     });
     this.horseCarts.forEach(cart => {
-      if (cart.root.isValid && cart.root.parent === this.world) actors.push({ node: cart.root, baselineY: cart.root.position.y });
+      if (cart.root.isValid && cart.root.activeInHierarchy && cart.root.parent === this.world) {
+        actors.push({ node: cart.root, baselineY: cart.root.position.y });
+      }
     });
     for (const tree of this.depthTrees) {
-      if (tree.node.isValid && tree.node.parent === this.world) actors.push({ node: tree.node, baselineY: tree.trunkY });
+      if (tree.node.isValid && tree.node.activeInHierarchy && tree.node.parent === this.world) {
+        actors.push({ node: tree.node, baselineY: tree.trunkY });
+      }
+    }
+    if (currentRegionId === RegionId.FIELDS || currentRegionId === RegionId.ROYAL_TOMB) {
+      for (const occluder of this.depthOccluders) {
+        if (occluder.regionId === currentRegionId
+          && occluder.node.isValid
+          && occluder.node.activeInHierarchy
+          && occluder.node.parent === this.world) {
+          actors.push({ node: occluder.node, baselineY: occluder.footY });
+        }
+      }
     }
     // Higher/northern baselines render first; lower/southern actors render on
-    // top. Only actor nodes participate, so terrain and architecture never move.
+    // top. FIELDS wall/prop sprites join this same foot-Y pass so objects behind
+    // a wall stay behind it while foreground actors can still pass in front.
     actors.sort((a, b) => b.baselineY - a.baselineY || a.node.name.localeCompare(b.node.name));
     actors.forEach(actor => actor.node.setSiblingIndex((actor.node.parent?.children.length ?? 1) - 1));
 
@@ -7184,14 +8029,10 @@ this.drawCityWallsAndGate();
         // roots must never become invisible CITY collision.  Other shared
         // CITY/OUTSKIRTS route and wall collision remains unchanged.
         if (regionId === RegionId.CITY && r.regionId === RegionId.OUTSKIRTS
-          && /^(OutskirtsNatureTreeRoot|OutskirtsGroveTree|OutskirtsSouthAirwallTree|OutskirtsSouthAirwallJujube|OutskirtsJujube)/.test(r.name)) continue;
+          && /^(OutskirtsNatureTreeRoot|OutskirtsGroveTree|OutskirtsSouthAirwallTree|OutskirtsSouthAirwallJujube|OutskirtsSouthRoadRightTreeAirwall|OutskirtsJujube)/.test(r.name)) continue;
         const isShared = (regionId === 'CITY' || regionId === 'OUTSKIRTS') && (r.regionId === 'CITY' || r.regionId === 'OUTSKIRTS');
         if (!isShared) continue;
       }
-      // createRock() still emits a visual-era base marker. Full-body, scoped
-      // MountainRockSolid colliders own gameplay now, so the old unscoped
-      // marker must never participate in movement in another region.
-      if (!r.regionId && r.name === '\u705E\u8FA9\u7176\u9369\u54C4\u9A87') continue;
       if (x + radius > r.x - r.w / 2 && x - radius < r.x + r.w / 2 && y + radius > r.y - r.h / 2 && y - radius < r.y + r.h / 2) {
         console.debug('[HIT]', { currentRegionId: regionId, obstacleName: r.name, obstacleRegionId: r.regionId, bounds: r, source: r.source, player: { x, y, radius } });
         return false;
@@ -7216,7 +8057,7 @@ this.drawCityWallsAndGate();
       .map(segment => ({ ax: segment.ax, ay: segment.ay, bx: segment.bx, by: segment.by, radius: segment.radius }));
     console.info('[CollisionProbe]', {
       label, currentRegionId: currentRegionId ?? 'UNINITIALIZED', point: { x, y, radius },
-      obstacles: overlaps.map(({ r, skippedForRegion }) => ({ name: r.name, regionId: r.regionId ?? 'UNSCOPED', aabb: { x: r.x, y: r.y, width: r.w, height: r.h }, source: r.source ?? 'unclassified addObstacle()', skippedForRegion, participatesInCanStandRadius: !skippedForRegion })),
+      obstacles: overlaps.map(({ r, skippedForRegion }) => ({ name: r.name, regionId: r.regionId ?? 'UNSCOPED', aabb: { x: r.x, y: r.y, width: r.w, height: r.h }, source: r.source ?? 'YinXuCity.addObstacle()', skippedForRegion, participatesInCanStandRadius: !skippedForRegion })),
       waterSegments,
     });
   }
@@ -7393,7 +8234,7 @@ this.drawCityWallsAndGate();
     let penalty = 0;
     const selfCart = this.horseCarts.find(cart => cart.root === self);
     const addCircle = (node: Node, otherRadius: number, padding = 20) => {
-      if (!node.isValid || node === self) return;
+      if (!node.isValid || !node.activeInHierarchy || node === self) return;
       const required = radius + otherRadius + padding;
       const distance = Math.hypot(x - node.position.x, y - node.position.y);
       if (distance < required) penalty += (required - distance) / required;
@@ -7406,7 +8247,7 @@ this.drawCityWallsAndGate();
       if (gapX > 0 && gapY > 0) penalty += Math.min(gapX / halfW, gapY / halfH);
     };
     const addActorRect = (node: Node) => {
-      if (!node.isValid || node === self) return;
+      if (!node.isValid || !node.activeInHierarchy || node === self) return;
       const halfW = 48;
       const halfH = 66;
       const gapX = halfW - Math.abs(x - node.position.x);
@@ -7552,6 +8393,7 @@ this.drawCityWallsAndGate();
 
   private setWeather(next: WeatherKind, initial = false) {
     this.weather = next;
+    this.audioManager.setRaining(next === '小雨' || next === '雨天' || next === '中雨');
     this.weatherChangeTimer = initial ? 42 + Math.random() * 42 : 55 + Math.random() * 65;
     this.precipitation = [];
     this.rainSplashes = [];
@@ -7695,13 +8537,15 @@ this.drawCityWallsAndGate();
       experience: 0,
       // The teaching card remains the starter set. Field finds stay dark until excavated.
       unlockedOracleIds: ['sun'],
+      excavatedStoryIds: [],
+      excavatedCardIds: [],
       mastery: {},
       wrongBook: {},
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
-      placedDecorationIds: [],
       playerName: '少年卜官',
-      avatarId: 'oracle-boy-pixel',
+      // Entering the world prompts a first-time player to choose a protagonist.
+      avatarId: 'unselected',
       characterChoiceCompleted: false,
       musicOn: true,
       sfxOn: true,
@@ -7794,11 +8638,12 @@ this.drawCityWallsAndGate();
       unlockedOracleIds: unlockedOracleIds.length > 0
         ? unlockedOracleIds
         : [...defaults.unlockedOracleIds],
+      excavatedStoryIds: uniqueStrings(source.excavatedStoryIds),
+      excavatedCardIds: uniqueStrings(source.excavatedCardIds),
       mastery,
       wrongBook,
       ownedProductIds,
       equippedShellId,
-      placedDecorationIds: uniqueStrings(source.placedDecorationIds),
       playerName,
       avatarId: typeof source.avatarId === 'string' && source.avatarId.length > 0 ? source.avatarId : defaults.avatarId,
       avatarUrl: typeof source.avatarUrl === 'string' && source.avatarUrl.length > 0 ? source.avatarUrl : undefined,
@@ -7858,52 +8703,6 @@ this.drawCityWallsAndGate();
     this.worldLabel('占卜席', 0, 770, 15, new Color(99, 58, 37));
   }
 
-  private createDecorationSlots() {
-    this.decorationNodes.clear();
-    const positions: Array<[number, number]> = [
-      [-330, 890], [575, 940], [390, 610], [-1035, 500], [330, 890], [1045, 820],
-    ];
-    this.shopProducts.filter(product => product.category === 'decoration').forEach(product => {
-      const slot = product.slot ?? 0;
-      const position = positions[slot] ?? positions[0];
-      const root = new Node(`PlacedDecoration-${product.id}`);
-      root.parent = this.world;
-      root.setPosition(position[0], position[1], 27);
-      root.addComponent(UITransform).setContentSize(92, 100);
-      this.drawDecorationIcon(root, product.id, 1);
-      root.active = this.save.placedDecorationIds.includes(product.id);
-      this.decorationNodes.set(product.id, root);
-    });
-  }
-
-  private drawDecorationIcon(parent: Node, id: string, scale: number) {
-    const g = this.localGraphics(`${id}-PixelDecoration`, parent, 0, 0, 90 * scale, 96 * scale, 0);
-    const brown = new Color(99, 61, 38); const bronze = new Color(104, 116, 72); const gold = new Color(205, 155, 70);
-    if (id === 'decor-ding') {
-      g.fillColor = bronze; g.roundRect(-25 * scale, -8 * scale, 50 * scale, 36 * scale, 6 * scale); g.fill();
-      g.fillColor = brown; g.rect(-19 * scale, -28 * scale, 7 * scale, 22 * scale); g.rect(12 * scale, -28 * scale, 7 * scale, 22 * scale); g.fill();
-      g.strokeColor = gold; g.lineWidth = 3 * scale; g.moveTo(-25 * scale, 8 * scale); g.lineTo(25 * scale, 8 * scale); g.stroke();
-    } else if (id === 'decor-oracle-stand') {
-      g.fillColor = brown; g.rect(-30 * scale, -25 * scale, 60 * scale, 12 * scale); g.rect(-22 * scale, -13 * scale, 8 * scale, 40 * scale); g.rect(14 * scale, -13 * scale, 8 * scale, 40 * scale); g.fill();
-      g.fillColor = new Color(222, 190, 126); g.roundRect(-18 * scale, 2 * scale, 36 * scale, 34 * scale, 5 * scale); g.fill();
-    } else if (id === 'decor-millet') {
-      g.fillColor = new Color(154, 91, 48); g.roundRect(-24 * scale, -27 * scale, 48 * scale, 28 * scale, 6 * scale); g.fill();
-      g.strokeColor = new Color(101, 132, 61); g.lineWidth = 5 * scale;
-      [-16, -7, 3, 13].forEach((x, index) => { g.moveTo(x * scale, 0); g.lineTo((x + (index % 2 ? 8 : -5)) * scale, (31 + index % 3 * 5) * scale); }); g.stroke();
-    } else if (id === 'decor-jars') {
-      g.fillColor = new Color(156, 88, 49); g.circle(-15 * scale, -6 * scale, 18 * scale); g.circle(15 * scale, -10 * scale, 14 * scale); g.fill();
-      g.fillColor = brown; g.rect(-25 * scale, 9 * scale, 20 * scale, 7 * scale); g.rect(8 * scale, 2 * scale, 15 * scale, 6 * scale); g.fill();
-    } else if (id === 'decor-lamp') {
-      g.fillColor = brown; g.rect(-5 * scale, -28 * scale, 10 * scale, 54 * scale); g.fill();
-      g.fillColor = bronze; g.moveTo(-22 * scale, 9 * scale); g.lineTo(22 * scale, 9 * scale); g.lineTo(14 * scale, 30 * scale); g.lineTo(-14 * scale, 30 * scale); g.close(); g.fill();
-      g.fillColor = new Color(242, 163, 62); g.circle(0, 22 * scale, 9 * scale); g.fill();
-    } else {
-      g.fillColor = brown; g.rect(-4 * scale, -30 * scale, 8 * scale, 65 * scale); g.fill();
-      g.fillColor = new Color(157, 55, 45); g.moveTo(4 * scale, 30 * scale); g.lineTo(32 * scale, 20 * scale); g.lineTo(4 * scale, 6 * scale); g.close(); g.fill();
-      g.strokeColor = gold; g.lineWidth = 2 * scale; g.moveTo(9 * scale, 22 * scale); g.lineTo(26 * scale, 18 * scale); g.stroke();
-    }
-  }
-
   private createUiLabel(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' = 'center', z = 2) {
     const node = new Node(name);
     node.parent = parent;
@@ -7950,10 +8749,6 @@ this.drawCityWallsAndGate();
     if (this.currencyLabel?.isValid) {
       this.currencyLabel.string = `墨料 ${this.save.ink}   ·   贝币 ${this.save.coins}   ·   卜官经验 ${this.save.experience}`;
     }
-    this.decorationNodes.forEach((node, id) => {
-      if (node.isValid) node.active = this.save.placedDecorationIds.includes(id);
-    });
-
     if (this.supplicant?.isValid) this.updateSupplicant(dt);
     if (this.overlay !== 'divination') return;
 
@@ -8009,6 +8804,18 @@ this.drawCityWallsAndGate();
 
   private beginDivination() {
     if (this.worldMode !== 'templeInterior' || !this.templeInterior?.isValid) return;
+    // A new chapter must first contribute its own evidence. Test jumps carry
+    // earlier chapters' cards in the save, so without this gate a player
+    // could start Chapter 8 divination using only old words.
+    const chapterId = this.storyController?.currentStep()?.chapterId;
+    if (chapterId) {
+      const progress = this.chapterMainProgress(chapterId);
+      const required = Math.min(3, progress.total);
+      if (required > 0 && progress.collected < required) {
+        this.showStatusNotice(`本章尚未收集足够甲骨字。请先挖掘本章至少 ${required} 个主线字（当前 ${progress.collected}/${required}）。`, 4.5);
+        return;
+      }
+    }
     this.templePreSitPosition = this.playerPos.clone();
     this.templePreSitFacing = this.facing;
     this.templePreSitWorldMode = this.worldMode;
@@ -8023,6 +8830,8 @@ this.drawCityWallsAndGate();
     this.showPlayerFrame(0);
     this.updateTempleSeatDepthOrdering();
     this.currentQuestion = null;
+    this.storyDivinationRounds = 0;
+    this.storyDivinationAnswerIds = [];
     this.currentAttempts = 0;
     this.divinationStage = 'waiting';
     this.queueTimer = .8;
@@ -8084,7 +8893,9 @@ this.drawCityWallsAndGate();
 
   private updateRiseButtonState() {
     if (!this.riseButtonLabel?.isValid) return;
-    const canRise = this.divinationStage === 'waiting';
+    const ceremonyInProgress = this.isActiveDivinationStep()
+      && this.storyDivinationRounds > 0 && this.storyDivinationRounds < 3;
+    const canRise = this.divinationStage === 'waiting' && !ceremonyInProgress;
     this.riseButtonLabel.string = canRise ? '起身离开' : '本轮进行中';
     this.riseButtonLabel.color = canRise ? new Color(255, 238, 197) : new Color(191, 173, 143);
   }
@@ -8111,17 +8922,23 @@ this.drawCityWallsAndGate();
     const storyStep = this.storyController?.currentStep();
     const currentStepId = storyStep?.id;
     const chapterCardIds = storyStep ? STORY_CHAPTER_FRAGMENT_CARDS[storyStep.chapterId] ?? [] : [];
+    // In a three-round story ceremony, avoid serving the same oracle card in
+    // consecutive rounds when the player owns enough different cards.
+    const unusedAvailable = this.isActiveDivinationStep()
+      ? available.filter(question => !this.storyDivinationAnswerIds.includes(question.answerId))
+      : available;
+    const questionPool = unusedAvailable.length > 0 ? unusedAvailable : available;
     const scriptedQuestion = currentStepId ? CHAPTER_SIX_DIVINATION_QUESTIONS[currentStepId] : null;
-    const storyQuestion = currentStepId === 'chapter-1-first-divination'
-      ? available.find(question => question.answerId === 'rain' && question.villager === '阿禾')
-      : (scriptedQuestion && available.some(question => question.answerId === scriptedQuestion.answerId)
+    const storyQuestion = this.storyDivinationRounds === 0 && currentStepId === 'chapter-1-first-divination'
+      ? questionPool.find(question => question.answerId === 'rain' && question.villager === '阿禾')
+      : (this.storyDivinationRounds === 0 && scriptedQuestion && questionPool.some(question => question.answerId === scriptedQuestion.answerId)
         ? scriptedQuestion
         : (this.isActiveDivinationStep()
-          ? available.find(question => chapterCardIds.some(fragment => fragment.cardId === question.answerId))
+          ? questionPool.find(question => chapterCardIds.some(fragment => fragment.cardId === question.answerId))
           : null));
-    let next = Math.floor(Math.random() * available.length);
-    if (available.length > 1 && available[next] === this.currentQuestion) next = (next + 1) % available.length;
-    this.currentQuestion = storyQuestion ?? available[next];
+    let next = Math.floor(Math.random() * questionPool.length);
+    if (questionPool.length > 1 && questionPool[next] === this.currentQuestion) next = (next + 1) % questionPool.length;
+    this.currentQuestion = storyQuestion ?? questionPool[next];
     this.currentQuestionIndex = this.divinationQuestions.findIndex(question => question.answerId === this.currentQuestion?.answerId);
     this.createSupplicant(this.currentQuestion);
     if (this.divinationText?.isValid) this.divinationText.string = `${this.currentQuestion.villager}正向占卜席走来……`;
@@ -8240,7 +9057,11 @@ this.drawCityWallsAndGate();
     this.divinationActiveCard = null;
 
     this.createUiLabel(layer, 'SelectionInstruction', '拖动一枚甲骨到右侧完整龟腹甲上', -160, 284, 650, 42, 20, new Color(255, 230, 168));
-    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId && this.hasRealOracleGlyph(card));
+    // A divination card is never lent from the catalogue: the answer itself
+    // must be a card the player has already excavated and learned to use.
+    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId
+      && this.save.unlockedOracleIds.includes(card.id)
+      && this.hasRealOracleGlyph(card));
     const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id
       && this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
     if (!answer || wrongCandidates.length < 2) {
@@ -8531,14 +9352,24 @@ this.drawCityWallsAndGate();
   private finishDivinationReview() {
     if (this.divinationStage !== 'review') return;
     const completedQuestion = this.currentQuestion;
+    const storyRound = this.isActiveDivinationStep();
+    if (storyRound) {
+      this.storyDivinationRounds++;
+      if (completedQuestion?.answerId && !this.storyDivinationAnswerIds.includes(completedQuestion.answerId)) {
+        this.storyDivinationAnswerIds.push(completedQuestion.answerId);
+      }
+    }
+    const completesStoryCeremony = !storyRound || this.storyDivinationRounds >= 3;
     // 在 handle 推进步骤之前记录「刚完成的是哪一章的占卜」，用于线索标记与文案。
     const finishedChapterId = this.storyController?.currentStep()?.chapterId;
-    const storyAdvanced = this.storyController?.handle({
-      type: 'divination-completed',
-      cardId: completedQuestion?.answerId,
-      npcId: completedQuestion?.villager,
-      correct: true,
-    }) ?? false;
+    const storyAdvanced = completesStoryCeremony
+      ? (this.storyController?.handle({
+        type: 'divination-completed',
+        cardId: completedQuestion?.answerId,
+        npcId: completedQuestion?.villager,
+        correct: true,
+      }) ?? false)
+      : false;
     // 各章占卜完成后的线索 flag 与「起身查看裂纹」文案：集中成映射，加章只改这里。
     const chapterClueFlags: Record<string, string> = {
       [CHAPTER_TWO_ID]: 'clue.upstream-missing',
@@ -8567,10 +9398,14 @@ this.drawCityWallsAndGate();
     }
     // handle 之后，若当前步骤仍是「占卜步骤」，说明还有下一轮，保持 overlay 自动续接；
     // 否则（末轮）逼玩家起身查看裂纹。
-    const stillDivining = this.isActiveDivinationStep();
+    const stillDivining = storyRound && !completesStoryCeremony
+      ? true
+      : this.isActiveDivinationStep();
     this.overlayRoot?.getChildByName('DivinationReviewPanel')?.destroy();
     if (this.divinationText?.isValid) {
-      this.divinationText.string = storyAdvanced
+      this.divinationText.string = storyRound && !completesStoryCeremony
+        ? `第 ${this.storyDivinationRounds} 卜已记入兆纹。请留在占卜席，下一位村民马上前来（${3 - this.storyDivinationRounds} 卜未完成）。`
+        : storyAdvanced
         ? ((finishedChapterId && chapterRiseTexts[finishedChapterId])
           || '“雨”字兆纹之外浮现出一道陌生裂纹，似乎正指向西侧河畔。请起身查看。')
         : this.save.ink >= this.divinationInkCost
@@ -8581,12 +9416,16 @@ this.drawCityWallsAndGate();
     this.currentQuestion = null;
     this.currentDivinationCards = [];
     this.divinationStage = 'waiting';
-    this.queueTimer = storyAdvanced && !stillDivining ? 9999 : this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
+    this.queueTimer = storyRound && !completesStoryCeremony
+      ? 1.15
+      : storyAdvanced && !stillDivining ? 9999 : this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
     this.updateRiseButtonState();
   }
 
   private exitDivination() {
-    if (this.divinationStage !== 'waiting') {
+    const ceremonyInProgress = this.isActiveDivinationStep()
+      && this.storyDivinationRounds > 0 && this.storyDivinationRounds < 3;
+    if (this.divinationStage !== 'waiting' || ceremonyInProgress) {
       if (this.divinationText?.isValid) this.divinationText.string = '当前占卜尚未完成，完成本轮教学后才能起身。';
       return;
     }
@@ -8653,6 +9492,8 @@ this.drawCityWallsAndGate();
   private destroyOverlayRoot() {
     this.overlayRoot?.destroy();
     this.overlayRoot = null;
+    this.excavationLearningMask?.destroy();
+    this.excavationLearningMask = null;
     this.divinationText = null;
     this.divinationName = null;
     this.riseButtonLabel = null;
@@ -8778,13 +9619,24 @@ this.drawCityWallsAndGate();
     const card = this.excavationLearningCard;
     if (!card) return;
     this.destroyOverlayRoot();
+    const canvas = this.findCanvasNode();
+    const mask = new Node('ExcavationLearningFullscreenMask');
+    mask.parent = canvas;
+    mask.setPosition(0, 0, 419);
+    mask.addComponent(UITransform).setContentSize(1280, 720);
+    const maskWidget = mask.addComponent(Widget);
+    maskWidget.isAlignTop = maskWidget.isAlignBottom = maskWidget.isAlignLeft = maskWidget.isAlignRight = true;
+    maskWidget.top = maskWidget.bottom = maskWidget.left = maskWidget.right = 0;
+    maskWidget.updateAlignment();
+    mask.addComponent(Graphics);
+    this.excavationLearningMask = mask;
+    this.refreshExcavationLearningMask();
+
     const root = new Node('ExcavationLearningOverlay');
     root.parent = this.node;
     root.setPosition(0, 0, 420);
     root.addComponent(UITransform).setContentSize(1280, 720);
     this.overlayRoot = root;
-    const shade = this.localGraphics('LearningMapShade', root, 0, 0, 1280, 720, 0);
-    shade.fillColor = new Color(31, 27, 24, 112); shade.rect(-640, -360, 1280, 720); shade.fill();
     this.drawWoodPanel(root, 'ExcavationLearningFrame', 0, 0, 1150, 650, 1, false);
     this.createUiLabel(root, 'ExcavationLearningTitle',
       this.excavationLearningStage === 'question' ? '新发现 · 甲骨文字辨识' : '甲骨文学习档案',
@@ -8831,6 +9683,26 @@ this.drawCityWallsAndGate();
     this.drawUiButton(root, 'ExcavationLearnLaterButton', '稍后学习', 425, -257, 210, 58, false);
     this.createUiLabel(root, 'ExcavationLearnLaterHint', '稍后学习不会丢失该文字；重新挖掘此坑位仍是同一个字。',
       -55, -257, 690, 40, 14, new Color(218, 198, 165), 'left', 5);
+  }
+
+  private findCanvasNode() {
+    let current: Node | null = this.node;
+    while (current && !current.getComponent(Canvas)) current = current.parent;
+    return current ?? this.node;
+  }
+
+  private refreshExcavationLearningMask() {
+    if (this.overlay !== 'excavationLearning' || !this.excavationLearningMask?.isValid) return;
+    const widget = this.excavationLearningMask.getComponent(Widget);
+    widget?.updateAlignment();
+    const transform = this.excavationLearningMask.getComponent(UITransform);
+    const graphics = this.excavationLearningMask.getComponent(Graphics);
+    if (!transform || !graphics) return;
+    const { width, height } = transform.contentSize;
+    graphics.clear();
+    graphics.fillColor = new Color(0, 0, 0, 168);
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.fill();
   }
 
   private answerExcavationLearning(optionIndex: number) {
@@ -9035,6 +9907,18 @@ this.drawCityWallsAndGate();
         ? { title: '第二章完成', detail: '河畔的计数碎甲已经重新回应你。' }
         : { title: '第一章完成', detail: '失语的甲骨已经重新回应你，第二章尚未开启。' };
     }
+    // The visible chapter progress is collection progress, not the internal
+    // position of the old linear dialogue script.  Free-main words are still
+    // required even though their obsolete per-word dialogue steps are skipped.
+    if (chapterId && stepId?.endsWith('fragment-awakens')) {
+      const progress = this.chapterMainProgress(chapterId);
+      if (progress.learned < progress.total) {
+        return {
+          title: '整理本章骨纹',
+          detail: `已挖到 ${progress.collected}/${progress.total}，已学 ${progress.learned}/${progress.total}。继续在本章区域挖掘并学习剩余主线字，收齐后即可完成章节挑战。`,
+        };
+      }
+    }
     const step = this.storyController?.currentStep();
     if (step?.objective) {
       return {
@@ -9114,22 +9998,30 @@ this.drawCityWallsAndGate();
     const chapterMeta = this.chapterProgressMeta();
     const meta = chapterMeta[currentChapterId] ?? chapterMeta[CHAPTER_ONE_ID];
     const activeDef = meta.def;
-    const activeCards = meta.cards;
+    const plannedCards = CHAPTER_CHAR_PLANS.find(plan => plan.chapterId === currentChapterId)?.chars
+      .map(item => ({ cardId: planCardId(item), character: item.char }));
+    // Use the 250-word collection plan as the authoritative list. The older
+    // story definitions remain only for dialogue sequencing.
+    const activeCards = plannedCards?.length ? plannedCards : meta.cards;
     this.createUiLabel(root, 'ChapterProgressTitle',
       `${meta.label} · ${meta.name}`,
-      0, 252, 560, 48, 29, new Color(255, 224, 148));
+      0, 252, 680, 48, 29, new Color(255, 224, 148));
 
     const completed = (snapshot?.completedChapterIds.indexOf(currentChapterId) ?? -1) >= 0;
     const stepId = snapshot?.currentStepId ?? null;
-    const currentIndex = completed
-      ? activeDef.steps.length - 1
-      : Math.max(0, activeDef.steps.findIndex(step => step.id === stepId));
+    const collection = this.chapterMainProgress(currentChapterId);
+    // 章节进度按「已挖到」的字计算（宝宝要求：进度根据挖字确定），
+    // 不再依赖是否已去图鉴学习；章节任务完成度由下方任务面板（step）呈现。
     const chapterPercent = completed
       ? 100
-      : Math.round(currentIndex / Math.max(1, activeDef.steps.length - 1) * 100);
+      : Math.round(collection.collected / Math.max(1, collection.total) * 100);
 
+    // Keep every chapter-act title inside the 920 px panel: the label's left
+    // edge is inset 36 px from the panel edge, regardless of its text length.
+    const chapterStageLeft = -424;
+    const chapterStageWidth = 400;
     this.createUiLabel(root, 'ChapterStage', this.chapterStageName(stepId, completed, currentChapterId),
-      -345, 187, 430, 40, 22, new Color(250, 211, 125), 'left');
+      chapterStageLeft + chapterStageWidth / 2, 187, chapterStageWidth, 40, 22, new Color(250, 211, 125), 'left');
     this.createUiLabel(root, 'ChapterPercent', `章节进度 ${chapterPercent}%`,
       318, 187, 180, 36, 18, new Color(242, 216, 163));
     const progressBack = this.localGraphics('ChapterProgressBack', root, 0, 152, 730, 22, 3);
@@ -9139,8 +10031,9 @@ this.drawCityWallsAndGate();
     progressFill.fillColor = new Color(211, 151, 65); progressFill.roundRect(-progressWidth / 2, -6, progressWidth, 12, 6); progressFill.fill();
 
     const task = this.chapterTaskText(stepId, completed, currentChapterId);
+    const guided = this.chapterGuidedProgress(currentChapterId);
     this.drawWoodPanel(root, 'ChapterTaskPanel', 0, 68, 770, 126, 2, true);
-    this.createUiLabel(root, 'ChapterTaskCaption', '当前任务', -322, 108, 150, 26, 15, new Color(119, 67, 37), 'left', 5);
+    this.createUiLabel(root, 'ChapterTaskCaption', '当前任务', -300, 108, 140, 26, 15, new Color(119, 67, 37), 'left', 5);
     const taskTitleLabel = this.createUiLabel(root, 'ChapterTaskTitle', task.title, -10, 77, 660, 36, 20, new Color(84, 45, 28), 'left', 5);
     taskTitleLabel.overflow = Label.Overflow.CLAMP;
     taskTitleLabel.enableWrapText = false;
@@ -9149,14 +10042,27 @@ this.drawCityWallsAndGate();
     this.createUiLabel(root, 'ChapterGlyphCaption', '本章碎甲文字（上下滑动查看）', -280, -20, 330, 30, 17, new Color(245, 211, 145), 'left');
     this.buildChapterGlyphScrollView(root, activeCards);
 
-    const chapterUnlocked = activeCards.filter(fragment =>
-      this.save.unlockedOracleIds.indexOf(fragment.cardId) >= 0).length;
-    const totalUnlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.indexOf(card.id) >= 0 && this.hasRealOracleGlyph(card)).length;
-    this.createUiLabel(root, 'ChapterCollectionSummary',
-      `本章骨纹 ${chapterUnlocked} / ${activeCards.length}     甲骨总收集 ${totalUnlocked} / 300     命途卜力 ${snapshot?.destinyPower ?? 0}`,
-      0, -258, 760, 36, 17, new Color(247, 217, 154));
-    this.createUiLabel(root, 'ChapterProgressHint', '跟随当前任务推进剧情；挖掘并学习碎甲文字会逐步点亮本章骨纹。',
-      0, -285, 760, 24, 13, new Color(207, 186, 148));
+    const chapterUnlocked = collection.collected;
+    // 全盘收集：主线甲骨(250) + 甲骨拾遗(50) 合计已挖 / 总数，独立于当前章节。
+    const excavatedCards = this.save.excavatedCardIds ?? [];
+    const storyCollected = [...STORY_CARD_IDS].filter(id => excavatedCards.includes(id)).length;
+    const supplementCollected = [...SUPPLEMENT_CARD_IDS].filter(id => excavatedCards.includes(id)).length;
+    const storyTotal = STORY_CARD_IDS.size;
+    const supplementTotal = SUPPLEMENT_CARD_IDS.size;
+    const allCollected = storyCollected + supplementCollected;
+    const allTotal = storyTotal + supplementTotal;
+    const summaryLabel = this.createUiLabel(root, 'ChapterCollectionSummary',
+      `必要引导字 已挖${guided.collected}/${guided.total}·已学${guided.learned}/${guided.total}　本章字 已挖${collection.collected}/${collection.total}·已学${collection.learned}/${collection.total}`,
+      0, -234, 760, 34, 16, new Color(247, 217, 154));
+    summaryLabel.overflow = Label.Overflow.SHRINK;
+    summaryLabel.enableWrapText = false;
+    this.createUiLabel(root, 'ChapterProgressHint', `本章全部 ${collection.total} 个主线字均需收集并学习后才能挑战；占卜前至少挖掘本章 ${Math.min(3, collection.total)} 字。`,
+      0, -256, 760, 22, 13, new Color(207, 186, 148));
+    const globalLabel = this.createUiLabel(root, 'ChapterGlobalCollection',
+      `全盘甲骨收集 已挖${allCollected}/${allTotal}　主线 ${storyCollected}/${storyTotal} · 拾遗 ${supplementCollected}/${supplementTotal}`,
+      0, -278, 760, 24, 15, new Color(255, 232, 165));
+    globalLabel.overflow = Label.Overflow.SHRINK;
+    globalLabel.enableWrapText = false;
   }
 
   // 统一章节进度面板：甲骨文字网格，支持拖拽/滚轮上下滑动，字不出框
@@ -9252,11 +10158,10 @@ this.drawCityWallsAndGate();
     this.drawUiButton(root, 'BackpackCloseButton', '关闭', 443, 240, 104, 44, false);
 
     const tabs: Array<{ id: BackpackTab; text: string; x: number }> = [
-      { id: 'tools', text: '工具栏', x: -285 },
-      { id: 'clothing', text: '服装栏', x: 0 },
-      { id: 'codex', text: '甲骨图鉴', x: 285 },
+      { id: 'tools', text: '工具栏', x: -170 },
+      { id: 'codex', text: '甲骨图鉴', x: 170 },
     ];
-    tabs.forEach(tab => this.drawUiButton(root, `BackpackTab-${tab.id}`, tab.text, tab.x, 186, 220, 50, this.backpackTab === tab.id));
+    tabs.forEach(tab => this.drawUiButton(root, `BackpackTab-${tab.id}`, tab.text, tab.x, 186, 300, 50, this.backpackTab === tab.id));
 
     if (this.backpackTab === 'tools') {
       const tools: Array<{ id: ToolKind; name: string; note: string; asset?: string; x: number }> = [
@@ -9287,15 +10192,6 @@ this.drawCityWallsAndGate();
         if (selected) this.createUiLabel(root, `ToolEquipped-${tool.id}`, '已装备', tool.x, -146, 120, 28, 16, new Color(255, 221, 111));
       });
       this.createUiLabel(root, 'ToolUseHint', '选中工具后，地图右侧会出现对应工具按钮；再次选择“空手”即可收起。', 0, -212, 830, 34, 16, new Color(235, 207, 157));
-      return;
-    }
-
-    if (this.backpackTab === 'clothing') {
-      const hanger = this.localGraphics('ClothingPlaceholder', root, 0, 0, 220, 180, 4);
-      hanger.strokeColor = new Color(210, 170, 101); hanger.lineWidth = 6;
-      hanger.arc(0, 58, 20, Math.PI * .1, Math.PI * 1.6, false); hanger.moveTo(-6, 37); hanger.lineTo(-76, -37); hanger.lineTo(76, -37); hanger.lineTo(6, 37); hanger.stroke();
-      this.createUiLabel(root, 'ClothingEmptyTitle', '服装栏暂未开放', 0, -100, 460, 46, 25, new Color(255, 224, 164));
-      this.createUiLabel(root, 'ClothingEmptyHint', '该栏位已经预留，后续服装资源可直接接入。', 0, -146, 620, 34, 16, new Color(208, 184, 143));
       return;
     }
 
@@ -9358,14 +10254,13 @@ this.drawCityWallsAndGate();
     this.overlayRoot = root;
     this.drawWoodPanel(root, 'ShopConfirmPanel', 0, 20, 600, 280, 0, true);
     this.createUiLabel(root, 'ShopConfirmTitle', '商代集市', 0, 92, 470, 50, 29, new Color(91, 47, 29));
-    this.createUiLabel(root, 'ShopConfirmText', '是否进入商店查看龟甲外观、村落装饰和收藏拓片？', 0, 32, 490, 72, 20, new Color(93, 57, 37));
+    this.createUiLabel(root, 'ShopConfirmText', '是否进入商店查看龟甲外观？', 0, 32, 490, 72, 20, new Color(93, 57, 37));
     this.drawUiButton(root, 'ShopCancelButton', '暂不进入', -125, -65, 180, 58, false);
     this.drawUiButton(root, 'ShopEnterButton', '进入商店', 125, -65, 180, 58, true);
   }
 
   private openShop() {
     this.overlay = 'shop';
-    this.selectedShopCategory = 'shell';
     this.selectedShopProductIndex = 0;
     this.buildShopUi();
   }
@@ -9382,20 +10277,14 @@ this.drawCityWallsAndGate();
     this.createUiLabel(root, 'ShopCurrency', `贝币 ${this.save.coins}`, -440, 292, 200, 44, 20, new Color(242, 204, 114));
     this.drawUiButton(root, 'ShopCloseButton', '离开', 510, 292, 112, 48, false);
 
-    const categories: Array<[ShopCategory, string]> = [
-      ['shell', '龟甲外观'], ['decoration', '村落装饰'], ['rubbing', '收藏拓片'],
-    ];
-    categories.forEach(([category, label], index) => {
-      const y = 150 - index * 90;
-      const selected = category === this.selectedShopCategory;
-      const tab = this.localGraphics(`ShopCategory-${category}`, root, -470, y, 170, 66, 3);
-      tab.fillColor = selected ? new Color(165, 74, 49) : new Color(75, 52, 39);
+    const categoryY = 0;
+    const tab = this.localGraphics('ShopCategory-shell', root, -470, categoryY, 170, 66, 3);
+    tab.fillColor = new Color(165, 74, 49);
       tab.roundRect(-82, -30, 164, 60, 9); tab.fill();
-      tab.strokeColor = selected ? new Color(244, 199, 104) : new Color(143, 103, 65); tab.lineWidth = 3; tab.roundRect(-82, -30, 164, 60, 9); tab.stroke();
-      this.createUiLabel(root, `ShopCategoryLabel-${category}`, label, -470, y, 150, 44, 19, selected ? new Color(255, 234, 182) : new Color(210, 188, 148));
-    });
+    tab.strokeColor = new Color(244, 199, 104); tab.lineWidth = 3; tab.roundRect(-82, -30, 164, 60, 9); tab.stroke();
+    this.createUiLabel(root, 'ShopCategoryLabel-shell', '龟甲外观', -470, categoryY, 150, 44, 19, new Color(255, 234, 182));
 
-    const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+    const products = this.shopProducts;
     this.selectedShopProductIndex = this.clamp(this.selectedShopProductIndex, 0, Math.max(0, products.length - 1));
     products.forEach((product, index) => {
       const col = index % 2;
@@ -9412,9 +10301,9 @@ this.drawCityWallsAndGate();
       this.createUiLabel(root, 'ShopProductTitle', selected.name, 340, 35, 300, 52, 25, new Color(86, 44, 28));
       this.createUiLabel(root, 'ShopProductDescription', selected.description, 340, -45, 292, 100, 18, new Color(92, 57, 38), 'left');
       const owned = this.save.ownedProductIds.includes(selected.id);
-      const equipped = selected.category === 'shell' && this.save.equippedShellId === selected.id;
-      const buttonText = equipped ? '使用中' : owned ? (selected.category === 'shell' ? '装备' : '已拥有') : `购买 · ${selected.price} 贝币`;
-      this.drawUiButton(root, 'ShopPurchaseButton', buttonText, 340, -178, 250, 58, !owned || (selected.category === 'shell' && !equipped));
+      const equipped = this.save.equippedShellId === selected.id;
+      const buttonText = equipped ? '使用中' : owned ? '装备' : `购买 · ${selected.price} 贝币`;
+      this.drawUiButton(root, 'ShopPurchaseButton', buttonText, 340, -178, 250, 58, !owned || !equipped);
     }
     this.shopFeedback = this.createUiLabel(root, 'ShopFeedback', feedback, 340, -245, 320, 58, 16, new Color(255, 221, 157), 'center', 5);
   }
@@ -9435,33 +10324,21 @@ this.drawCityWallsAndGate();
     holder.parent = parent;
     holder.setPosition(x, y, 5);
     holder.addComponent(UITransform).setContentSize(100 * scale, 110 * scale);
-    if (product.category === 'decoration') {
-      this.drawDecorationIcon(holder, product.id, scale);
-      return;
-    }
     const g = holder.addComponent(Graphics);
-    if (product.category === 'shell') {
-      g.fillColor = product.id === 'shell-gold' ? new Color(225, 179, 74) : product.id === 'shell-vermilion' ? new Color(181, 75, 53) : new Color(213, 179, 116);
-      g.ellipse(0, 0, 35 * scale, 45 * scale); g.fill();
-      g.strokeColor = new Color(78, 48, 33); g.lineWidth = 4 * scale; g.ellipse(0, 0, 35 * scale, 45 * scale); g.stroke();
-      g.moveTo(-3 * scale, 30 * scale); g.lineTo(4 * scale, 9 * scale); g.lineTo(-8 * scale, -10 * scale); g.lineTo(7 * scale, -34 * scale); g.stroke();
-    } else {
-      g.fillColor = new Color(226, 194, 132); g.roundRect(-38 * scale, -43 * scale, 76 * scale, 86 * scale, 7 * scale); g.fill();
-      g.strokeColor = this.qualityColor(product.quality); g.lineWidth = 4 * scale; g.roundRect(-38 * scale, -43 * scale, 76 * scale, 86 * scale, 7 * scale); g.stroke();
-      g.strokeColor = new Color(89, 55, 36); g.lineWidth = 2 * scale;
-      for (let row = 0; row < 3; row++) { g.moveTo(-24 * scale, (20 - row * 18) * scale); g.lineTo(24 * scale, (20 - row * 18) * scale); }
-      g.stroke();
-    }
+    g.fillColor = product.id === 'shell-gold' ? new Color(225, 179, 74) : product.id === 'shell-vermilion' ? new Color(181, 75, 53) : new Color(213, 179, 116);
+    g.ellipse(0, 0, 35 * scale, 45 * scale); g.fill();
+    g.strokeColor = new Color(78, 48, 33); g.lineWidth = 4 * scale; g.ellipse(0, 0, 35 * scale, 45 * scale); g.stroke();
+    g.moveTo(-3 * scale, 30 * scale); g.lineTo(4 * scale, 9 * scale); g.lineTo(-8 * scale, -10 * scale); g.lineTo(7 * scale, -34 * scale); g.stroke();
   }
 
   private purchaseSelectedShopProduct() {
     if (this.overlay !== 'shop') return;
-    const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+    const products = this.shopProducts;
     const product = products[this.selectedShopProductIndex];
     if (!product) return;
     const owned = this.save.ownedProductIds.includes(product.id);
     if (owned) {
-      if (product.category === 'shell' && this.save.equippedShellId !== product.id) {
+      if (this.save.equippedShellId !== product.id) {
         this.save.equippedShellId = product.id;
         this.persistCitySave();
         this.buildShopUi(`已装备：${product.name}`);
@@ -9474,10 +10351,7 @@ this.drawCityWallsAndGate();
     }
     this.save.coins -= product.price;
     this.save.ownedProductIds.push(product.id);
-    if (product.category === 'shell') this.save.equippedShellId = product.id;
-    if (product.category === 'decoration' && !this.save.placedDecorationIds.includes(product.id)) {
-      this.save.placedDecorationIds.push(product.id);
-    }
+    this.save.equippedShellId = product.id;
     this.persistCitySave();
     this.buildShopUi(`已获得：${product.name}`);
   }
@@ -9616,6 +10490,7 @@ this.drawCityWallsAndGate();
   }
 
   private onKeyDown(e: EventKeyboard) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     if (sys.isBrowser && e.keyCode === KeyCode.ESCAPE) {
       if (this.overlay === 'divination') this.exitDivination();
@@ -9848,16 +10723,8 @@ this.drawCityWallsAndGate();
       this.buildBackpackUi();
       return;
     }
-    if (sys.isBrowser && e.keyCode === KeyCode.KEY_C && this.overlay === 'shop') {
-      const categories: ShopCategory[] = ['shell', 'decoration', 'rubbing'];
-      const current = categories.indexOf(this.selectedShopCategory);
-      this.selectedShopCategory = categories[(current + 1) % categories.length];
-      this.selectedShopProductIndex = 0;
-      this.buildShopUi();
-      return;
-    }
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_N && this.overlay === 'shop') {
-      const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+      const products = this.shopProducts;
       this.selectedShopProductIndex = products.length > 0 ? (this.selectedShopProductIndex + 1) % products.length : 0;
       this.buildShopUi();
       return;
@@ -9898,6 +10765,7 @@ this.drawCityWallsAndGate();
   }
 
   private onTouchStart(e: EventTouch) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     const p = e.getUILocation(); const size = view.getVisibleSize();
     const localX = p.x - size.width / 2;
@@ -9920,15 +10788,22 @@ this.drawCityWallsAndGate();
       return;
     }
     if (Math.hypot(localX - 500, localY + 230) <= 80) {
-      if (this.actionKind !== 'none') this.performWorldAction();
-      else if (this.equippedTool !== 'none') this.useEquippedTool();
+      if (this.actionKind !== 'none') {
+        this.playUiClickSound(true);
+        this.performWorldAction();
+      } else if (this.equippedTool !== 'none') {
+        this.playUiClickSound();
+        this.useEquippedTool();
+      }
       return;
     }
     if (Math.hypot(localX - 380, localY + 230) <= 66) {
+      this.playUiClickSound();
       this.openBackpack();
       return;
     }
     if (Math.hypot(localX - 260, localY + 230) <= 66) {
+      this.playUiClickSound();
       this.openChapterProgress();
       return;
     }
@@ -9974,30 +10849,41 @@ this.drawCityWallsAndGate();
       for (let index = 0; index < positions.length; index++) {
         const [choiceX, choiceY] = positions[index];
         if (!this.pointInUiRect(x, y, choiceX, choiceY, 360, 66)) continue;
+        this.playUiClickSound(true);
         this.answerChapterChallenge(index);
         return;
       }
       return;
     }
     if (this.overlay === 'chapterProgress') {
-      if (this.pointInUiRect(x, y, 392, 258, 104, 44)) this.closeCityOverlay();
+      if (this.pointInUiRect(x, y, 392, 258, 104, 44)) {
+        this.playUiClickSound();
+        this.closeCityOverlay();
+      }
       return;
     }
     if (this.overlay === 'shopConfirm') {
-      if (this.pointInUiRect(x, y, -125, -65, 180, 58)) this.closeCityOverlay();
-      else if (this.pointInUiRect(x, y, 125, -65, 180, 58)) this.openShop();
+      if (this.pointInUiRect(x, y, -125, -65, 180, 58)) {
+        this.playUiClickSound();
+        this.closeCityOverlay();
+      } else if (this.pointInUiRect(x, y, 125, -65, 180, 58)) {
+        this.playUiClickSound(true);
+        this.openShop();
+      }
       return;
     }
     if (this.overlay === 'backpack') {
       if (this.pointInUiRect(x, y, 443, 240, 104, 44)) {
+        this.playUiClickSound();
         this.closeCityOverlay();
         return;
       }
       const tabs: Array<{ id: BackpackTab; x: number }> = [
-        { id: 'tools', x: -285 }, { id: 'clothing', x: 0 }, { id: 'codex', x: 285 },
+        { id: 'tools', x: -170 }, { id: 'codex', x: 170 },
       ];
       for (const tab of tabs) {
-        if (!this.pointInUiRect(x, y, tab.x, 186, 220, 50)) continue;
+        if (!this.pointInUiRect(x, y, tab.x, 186, 300, 50)) continue;
+        this.playUiClickSound();
         this.backpackTab = tab.id;
         if (tab.id === 'codex') this.codexPage = Math.floor(this.selectedBackpackIndex / 12);
         this.buildBackpackUi();
@@ -10012,6 +10898,7 @@ this.drawCityWallsAndGate();
         ];
         for (const tool of tools) {
           if (!this.pointInUiRect(x, y, tool.x, -28, 205, 292)) continue;
+          this.playUiClickSound(true);
           this.equipTool(tool.id);
           this.buildBackpackUi();
           return;
@@ -10020,9 +10907,11 @@ this.drawCityWallsAndGate();
         const unlocked = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
         const codexPageCount = Math.max(1, Math.ceil(unlocked.length / 12));
         if (this.codexPage > 0 && this.pointInUiRect(x, y, -410, -258, 105, 42)) {
+          this.playUiClickSound();
           this.codexPage--; this.buildBackpackUi(); return;
         }
         if (this.codexPage < codexPageCount - 1 && this.pointInUiRect(x, y, -130, -258, 105, 42)) {
+          this.playUiClickSound();
           this.codexPage++; this.buildBackpackUi(); return;
         }
         const codexPageStart = this.codexPage * 12;
@@ -10031,6 +10920,7 @@ this.drawCityWallsAndGate();
           const cardX = -385 + (index % 3) * 118;
           const cardY = 105 - Math.floor(index / 3) * 92;
           if (!this.pointInUiRect(x, y, cardX, cardY, 102, 80)) continue;
+          this.playUiClickSound();
           this.selectedBackpackIndex = codexPageStart + index;
           this.buildBackpackUi();
           return;
@@ -10059,15 +10949,12 @@ this.drawCityWallsAndGate();
         this.closeCityOverlay();
         return;
       }
-      const categories: ShopCategory[] = ['shell', 'decoration', 'rubbing'];
-      for (let index = 0; index < categories.length; index++) {
-        if (!this.pointInUiRect(x, y, -470, 150 - index * 90, 170, 66)) continue;
-        this.selectedShopCategory = categories[index];
+      if (this.pointInUiRect(x, y, -470, 0, 170, 66)) {
         this.selectedShopProductIndex = 0;
         this.buildShopUi();
         return;
       }
-      const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+      const products = this.shopProducts;
       for (let index = 0; index < products.length; index++) {
         const productX = -250 + (index % 2) * 215;
         const productY = 170 - Math.floor(index / 2) * 150;
@@ -10090,6 +10977,42 @@ this.drawCityWallsAndGate();
     }
   }
 
+  /** Same short wooden click used by the Learning Hall buttons. */
+  private playUiClickSound(confirmed = false) {
+    if (!sys.isBrowser || !this.save?.sfxOn) return;
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const context = this.uiAudioContext ?? (this.uiAudioContext = new Ctx());
+      if (context.state === 'suspended') void context.resume();
+      const now = context.currentTime;
+      const duration = confirmed ? 0.016 : 0.013;
+      const cutoff = confirmed ? 0.50 : 0.40;
+      const decay = confirmed ? 340 : 380;
+      const volume = confirmed ? 0.58 : 0.55;
+      const sampleCount = Math.max(1, Math.floor(duration * context.sampleRate));
+      const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
+      const data = buffer.getChannelData(0);
+      let lowPass = 0;
+      for (let index = 0; index < sampleCount; index++) {
+        const noise = Math.random() * 2 - 1;
+        lowPass += (noise - lowPass) * cutoff;
+        const time = index / context.sampleRate;
+        const attack = time < 0.001 ? time / 0.001 : 1;
+        data[index] = Math.max(-1, Math.min(1, lowPass * volume * attack * Math.exp(-(time - 0.001) * decay)));
+      }
+      const source = context.createBufferSource();
+      const master = context.createGain();
+      source.buffer = buffer;
+      master.gain.value = 0.7;
+      source.connect(master);
+      master.connect(context.destination);
+      source.start(now);
+    } catch {
+      // Audio feedback must never prevent a UI action on devices that block WebAudio.
+    }
+  }
+
   private pointInUiRect(x: number, y: number, centerX: number, centerY: number, width: number, height: number) {
     return Math.abs(x - centerX) <= width / 2 && Math.abs(y - centerY) <= height / 2;
   }
@@ -10100,6 +11023,90 @@ this.drawCityWallsAndGate();
     if (delta.length() > 58) delta.normalize().multiplyScalar(58);
     this.stick.set(delta.x / 58, delta.y / 58);
     this.joystickKnob.setPosition(-500 + delta.x, -230 + delta.y, 202);
+  }
+
+  /**
+   * Adds a large ROYAL_TOMB landmark with an explicit foot line.  Unlike a
+   * generic tile, these props have tall visual crowns but compact solid bases.
+   */
+  private createRoyalTombLandmark(
+    name: string,
+    asset: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    depth: Pick<DepthOccluder, 'footY' | 'halfWidth' | 'coverHeight'>,
+  ) {
+    const node = new Node(name);
+    node.parent = this.world;
+    node.setPosition(x, y, 18);
+    node.addComponent(UITransform).setContentSize(w, h);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    this.requestSpriteFrame(`art/royal_tomb/${asset}/spriteFrame`, frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    });
+    this.depthOccluders.push({
+      node,
+      ...depth,
+      baseZ: 18,
+      foregroundZ: 98,
+      regionId: RegionId.ROYAL_TOMB,
+    });
+    return node;
+  }
+
+  /** Clears all former mound records, including unnamed legacy air-wall bodies in the painted footprint. */
+  private clearRoyalTombBurialMoundRecords() {
+    const overlapsMound = (x: number, y: number, w = 0, h = 0) =>
+      x + w / 2 > 2360 && x - w / 2 < 3360 && y + h / 2 > -3780 && y - h / 2 < -3140;
+    this.obstacles = this.obstacles.filter(obstacle =>
+      !obstacle.name.startsWith('RoyalTombBurialMound')
+      && !(obstacle.regionId === RegionId.ROYAL_TOMB && overlapsMound(obstacle.x, obstacle.y, obstacle.w, obstacle.h)));
+    this.depthTrees = this.depthTrees.filter(tree =>
+      !tree.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(tree.node.position.x, tree.node.position.y));
+    this.depthOccluders = this.depthOccluders.filter(occluder =>
+      !occluder.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(occluder.node.position.x, occluder.node.position.y));
+    // Ground tiles are normal map surface, not former mound records. Leaving
+    // them intact exposes the authored yellow earth and grass around the
+    // transparent mound sprite instead of the base map's green fill.
+    this.world.children
+      .filter(node => node.name.startsWith('RoyalTombBurialMound'))
+      .forEach(node => node.destroy());
+  }
+
+  private clearRoyalTombLandmarkRecords(prefix: 'RoyalTombOutdoorOracleKiln') {
+    this.obstacles = this.obstacles.filter(obstacle => !obstacle.name.startsWith(prefix));
+    this.depthTrees = this.depthTrees.filter(tree => !tree.node.name.startsWith(prefix));
+    this.depthOccluders = this.depthOccluders.filter(occluder => !occluder.node.name.startsWith(prefix));
+    this.world.children
+      .filter(node => node.name.startsWith(prefix))
+      .forEach(node => node.destroy());
+  }
+
+  /** A normal map sprite: deliberately excluded from all dynamic depth passes. */
+  private createRoyalTombStaticLandmark(name: string, asset: string, x: number, y: number, w: number, h: number) {
+    const node = new Node(name);
+    node.parent = this.world;
+    node.setPosition(x, y, 18);
+    node.addComponent(UITransform).setContentSize(w, h);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    this.requestSpriteFrame(`art/royal_tomb/${asset}/spriteFrame`, frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    });
+    return node;
   }
 
   private pixelSprite(name: string, asset: string, parent: Node, x: number, y: number, w: number, h: number, z: number) {
@@ -10136,6 +11143,7 @@ this.drawCityWallsAndGate();
       coverHeight: h * coverRatio,
       baseZ,
       foregroundZ: 98,
+      regionId: this.currentObstacleRegionId,
     });
   }
 

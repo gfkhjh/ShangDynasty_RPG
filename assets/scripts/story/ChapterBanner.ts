@@ -211,6 +211,13 @@ export class ChapterBanner {
       .start();
   }
 
+  forceClose() {
+    Tween.stopAllByTarget(this.opacity);
+    this.stopEffects();
+    this.opacity.opacity = 0;
+    this.root.active = false;
+  }
+
   destroy() {
     this.stopEffects();
     view.off('canvas-resize', this.refreshLayout, this);
