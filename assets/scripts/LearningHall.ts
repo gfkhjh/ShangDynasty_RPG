@@ -58,8 +58,6 @@ const RANKS = [
 const AVATARS = [
   { id: 'oracle-boy-pixel', name: '玄衣卜官', emoji: '⚔', path: 'characters/oracle-boy-pixel/down-0/spriteFrame' },
   { id: 'oracle-girl-pixel', name: '青衣卜官', emoji: '✦', path: 'characters/oracle-girl-pixel/down-0/spriteFrame' },
-  { id: 'oracle-boy-v1', name: '小卜官', emoji: '👦', path: 'characters/oracle-boy-v1/down-0/spriteFrame' },
-  { id: 'oracle-girl-v1', name: '小卜女', emoji: '👧', path: 'characters/oracle-girl-v1/down-0/spriteFrame' },
 ] as const;
 
 export type HallCard = {

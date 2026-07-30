@@ -1126,7 +1126,7 @@ export class YinXuCity extends Component {
           delete this.save.avatarUrl;
         }
         this.persistCitySave();
-        if (['oracle-boy-pixel', 'oracle-girl-pixel', 'oracle-boy-v1', 'oracle-girl-v1'].includes(avatarId)) {
+        if (avatarId === 'oracle-boy-pixel' || avatarId === 'oracle-girl-pixel') {
           this.loadPlayerCharacterFrames();
         }
       },
@@ -6832,12 +6832,7 @@ this.drawCityWallsAndGate();
   }
 
   private playerCharacterFolder() {
-    switch (this.save.avatarId) {
-      case 'oracle-girl-pixel': return 'oracle-girl-pixel';
-      case 'oracle-boy-v1': return 'oracle-boy-v1';
-      case 'oracle-girl-v1': return 'oracle-girl-v1';
-      default: return 'oracle-boy-pixel';
-    }
+    return this.save.avatarId === 'oracle-girl-pixel' ? 'oracle-girl-pixel' : 'oracle-boy-pixel';
   }
 
   private loadPlayerCharacterFrames() {
@@ -6860,10 +6855,6 @@ this.drawCityWallsAndGate();
         });
       }
     });
-  }
-
-  private loadPlayerFrames() {
-    this.loadPlayerCharacterFrames();
   }
 
   private animatePlayer(moving: boolean, direction: Vec2, movedDistance: number) {
