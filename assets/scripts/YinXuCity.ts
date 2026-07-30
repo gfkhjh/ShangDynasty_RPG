@@ -1,6 +1,7 @@
 import {
   _decorator,
   BlockInputEvents,
+  Canvas,
   Color,
   Component,
   DebugMode,
@@ -24,12 +25,14 @@ import {
   UITransform,
   Vec2,
   view,
+  Widget,
 } from 'cc';
 import { HallCard, LearningHall } from './LearningHall';
 import { createPhaseOneRegionConfig } from './regions/RegionTrialConfig';
 import { RegionTransitionManager } from './regions/RegionTransitionManager';
 import { RegionEntry, RegionExit, RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
+import { GameAudioManager } from './GameAudioManager';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
 import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
@@ -548,12 +551,15 @@ export class YinXuCity extends Component {
   private weatherIcon!: Graphics;
   private weatherParticles!: Graphics;
   private weatherParticleNode!: Node;
+  private audioManager!: GameAudioManager;
 
   private playerPos = new Vec2(0, 20);
   private cameraPos = new Vec2(0, 20);
   private keyboard = new Vec2();
   private stick = new Vec2();
   private playerMotion = new Vec2();
+  private footstepDistance = 0;
+  private wasWalkingForAudio = false;
   private touchOrigin: Vec2 | null = null;
   private obstacles: RectObstacle[] = [];
   /** Synchronous authoring scope inherited by addObstacle() when no region is supplied. */
@@ -573,6 +579,9 @@ export class YinXuCity extends Component {
   private depthTrees: DepthTree[] = [];
   private depthOccluders: DepthOccluder[] = [];
   private fixedForegroundNodes: Node[] = [];
+  /** Story NPC names stay outside actor subtrees and always render above the world. */
+  private storyNpcLabelRoot: Node | null = null;
+  private storyNpcWorldLabels: Array<{ source: Node; label: Node }> = [];
   /** Alpha-only south-gate pixels rendered permanently above outdoor actors. */
   private southGateForegroundVisual: Node | null = null;
   private southOutskirtsSurfaceNodes: Node[] = [];
@@ -868,6 +877,7 @@ export class YinXuCity extends Component {
   private overlay: CityOverlay = 'none';
   private divinationStage: DivinationStage = 'none';
   private overlayRoot: Node | null = null;
+  private excavationLearningMask: Node | null = null;
   private actionLabel!: Label;
   private actionButtonNode!: Node;
   private actionToolIconNode!: Node;
@@ -993,6 +1003,9 @@ export class YinXuCity extends Component {
 
   private async initializeGame() {
     this.save = await this.loadCitySave();
+    this.audioManager = GameAudioManager.ensure();
+    this.audioManager.setMusicEnabled(this.save.musicOn);
+    this.audioManager.setSfxEnabled(this.save.sfxOn);
     this.restoreSavedRegionPosition();
     this.buildWorld();
     this.createRegionTransitionManager();
@@ -1003,6 +1016,8 @@ export class YinXuCity extends Component {
     input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.on('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.on('design-resolution-changed', this.refreshExcavationLearningMask, this);
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
       getCards: () => {
@@ -1078,10 +1093,12 @@ export class YinXuCity extends Component {
       },
       toggleMusic: () => {
         this.save.musicOn = !this.save.musicOn;
+        this.audioManager.setMusicEnabled(this.save.musicOn);
         this.persistCitySave();
       },
       toggleSfx: () => {
         this.save.sfxOn = !this.save.sfxOn;
+        this.audioManager.setSfxEnabled(this.save.sfxOn);
         this.persistCitySave();
       },
       toggleNight: () => {
@@ -1152,6 +1169,8 @@ export class YinXuCity extends Component {
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
+    view.off('canvas-resize', this.refreshExcavationLearningMask, this);
+    view.off('design-resolution-changed', this.refreshExcavationLearningMask, this);
   }
 
   update(dt: number) {
@@ -1181,6 +1200,7 @@ export class YinXuCity extends Component {
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
     const moving = movedDistance > .01;
+    this.updatePlayerFootsteps(movedDistance, movementAllowed);
     this.updateTerrainElevationState();
     if (moving) this.playerMotion.set((this.playerPos.x - oldX) / movedDistance, (this.playerPos.y - oldY) / movedDistance);
     else this.playerMotion.set(0, 0);
@@ -2199,10 +2219,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-XiaoShitou-Name', '小石头',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-XiaoShitou-Name', '小石头');
     root.active = false;
     this.storyNpc = root;
   }
@@ -2226,10 +2243,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-woman-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-Fisher-Name', '渔娘阿潍',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-Fisher-Name', '渔娘阿潍');
     // 脚下柔和金色光环 + 头顶微光：让玩家在河畔一眼定位渔娘（随 NPC 显隐而显隐）
     const guide = new Node('StoryNpc-Fisher-Guide');
     guide.parent = root;
@@ -2285,10 +2299,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-farmer-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-GorgeKeeper-Name', '守峡人阿沚',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-GorgeKeeper-Name', '守峡人阿沚');
     // 脚下柔和金色光环：让玩家在第三章一眼定位守峡人阿沚
     const guide = new Node('StoryNpc-GorgeKeeper-Guide');
     guide.parent = root;
@@ -2443,10 +2454,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame('characters/villager-woman-v2/down-0/spriteFrame', frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, 'StoryNpc-ForestKeeper-Name', '守林人阿岚',
-      0, 72, 92, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, 'StoryNpc-ForestKeeper-Name', '守林人阿岚');
     // 脚下柔和金色光环：让玩家在第四章一眼定位守林人阿岚
     const guide = new Node('StoryNpc-ForestKeeper-Guide');
     guide.parent = root;
@@ -2541,10 +2549,7 @@ export class YinXuCity extends Component {
     this.requestSpriteFrame(spriteFrame, frame => {
       if (sprite.isValid) sprite.spriteFrame = frame;
     });
-    this.createUiLabel(
-      root, `${nodeName}-Name`, labelText,
-      0, 72, 96, 26, 16, new Color(255, 235, 177), 'center', 6,
-    );
+    this.createStoryNpcWorldLabel(root, `${nodeName}-Name`, labelText);
     const guide = new Node(`${nodeName}-Guide`);
     guide.parent = root;
     guide.setPosition(0, 0, 6);
@@ -2569,6 +2574,33 @@ export class YinXuCity extends Component {
     }, this);
     root.active = false;
     return root;
+  }
+
+  private createStoryNpcWorldLabel(source: Node, name: string, text: string) {
+    if (!this.storyNpcLabelRoot?.isValid) {
+      const root = new Node('WorldLabelRoot');
+      root.parent = this.world;
+      root.setPosition(0, 0, 118);
+      root.addComponent(UITransform).setContentSize(this.mapWidth, this.mapHeight);
+      this.storyNpcLabelRoot = root;
+      this.fixedForegroundNodes.push(root);
+    }
+    const label = this.createUiLabel(
+      this.storyNpcLabelRoot, name, text,
+      source.position.x, source.position.y + 98, 116, 28, 16,
+      new Color(255, 235, 177), 'center', 0,
+    ).node;
+    this.storyNpcWorldLabels.push({ source, label });
+    this.updateStoryNpcWorldLabels();
+  }
+
+  private updateStoryNpcWorldLabels() {
+    this.storyNpcWorldLabels = this.storyNpcWorldLabels.filter(({ source, label }) => {
+      if (!source.isValid || !label.isValid) return false;
+      label.active = source.activeInHierarchy;
+      label.setPosition(source.position.x, source.position.y + 98, 0);
+      return true;
+    });
   }
 
   private createChapterFiveNpc() {
@@ -2743,6 +2775,8 @@ export class YinXuCity extends Component {
     this.retiredOutskirtsNatureTreeNames.clear();
     this.depthOccluders = [];
     this.fixedForegroundNodes = [];
+    this.storyNpcLabelRoot = null;
+    this.storyNpcWorldLabels = [];
     this.southOutskirtsSurfaceNodes = [];
     this.staticCityBoundaryNodes = [];
     this.cityWallVisualRoot = null;
@@ -2872,7 +2906,9 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(128, 137, 74); g.rect(3000, -2200, 800, 1800); g.fill();
     g.fillColor = new Color(119, 121, 66); g.rect(3800, -2200, 900, 1800); g.fill();
     g.fillColor = new Color(145, 126, 70); g.rect(4700, -2200, 1000, 1800); g.fill();
-    g.fillColor = new Color(126, 89, 58); g.rect(this.tombRegion.left, this.tombRegion.bottom, this.tombRegion.right - this.tombRegion.left, this.tombRegion.top - this.tombRegion.bottom); g.fill();
+    // The tomb keeps the shared earth/grass base beneath its authored ground
+    // tiles.  Do not paint a region-sized brown panel here: it obscures the
+    // yellow soil texture and reads as a walkable rectangular platform.
 
     // Broad, deterministic mottling replaces tens of thousands of 48 px draw calls.
     let seed = 18471;
@@ -3034,7 +3070,11 @@ this.drawCityWallsAndGate();
     const townRoadZ = 4;
     const townSpacing = 100;
 
-    // South road: X=0, from city.bottom down to o.bottom
+    // South road: X=0, from city.bottom down to o.bottom. These matching
+    // tiles overlap both existing runs through the south-gate threshold so
+    // the grass-arm overlay cannot leave a visible seam at the stairs.
+    [-250, -150].forEach((y, index) =>
+      this.pixelSprite(`SouthGateRoadConnector${index}`, 'road-straight', this.world, 0, y, roadW, roadW, 63));
     for (let y = city.bottom - halfW; y >= o.bottom + halfW; y -= townSpacing) {
       this.pixelSprite('OutskirtsRoadSouth', 'road-straight', this.world, 0, y, roadW, roadW, 63);
     }
@@ -3810,15 +3850,32 @@ this.drawCityWallsAndGate();
 
   private drawTemple() {
     this.createTempleForecourt();
-    this.createBuilding('占卜宗庙', 0, 1190 + this.templeMoveDeltaY, 360, 210, new Color(181, 117, 68), new Color(86, 55, 39), null);
+    // The bespoke 440 x 375 sprite includes its own plinth, roof, and details;
+    // do not leave the former procedural rectangular building behind it.
     this.pixelSprite('占卜宗庙PixelArt', 'divination-temple', this.world, 0, 1210 + this.templeMoveDeltaY, 440, 375, 34);
     this.worldLabel('占卜宗庙', 0, 1400 + this.templeMoveDeltaY, 22, new Color(100, 48, 31));
-    // Split temple collision into left/right halves to clear the north road passage (X:-56~56)
-    const footprintY = 1190 + this.templeMoveDeltaY + 35;
-    const footprintH = 350;
-    this.obstacles = this.obstacles.filter(o => o.name !== 'StructureFootprint:占卜宗庙PixelArt');
-    this.addObstacle(-122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Left');
-    this.addObstacle(122, footprintY, 132, footprintH, 'StructureFootprint:占卜宗庙PixelArt:Right');
+    // Remove every former temple footprint before rebuilding its outline. This
+    // includes the old two-piece wall as well as any legacy named footprint.
+    const templeY = 1210 + this.templeMoveDeltaY;
+    this.obstacles = this.obstacles.filter(o =>
+      !o.name.includes('占卜宗庙') && !o.name.startsWith('StructureFootprint:占卜宗庙PixelArt'));
+    // Short, overlapping segments follow the painted outer roof, walls, and
+    // front plinth. The central stair remains approachable; a narrow sill just
+    // behind the enter zone prevents crossing into the painted doorway.
+    [
+      [0, templeY + 162, 64, 20, 'RearRidge'],
+      [-56, templeY + 150, 72, 22, 'RearLeftEave'], [56, templeY + 150, 72, 22, 'RearRightEave'],
+      [-112, templeY + 123, 70, 28, 'UpperLeftRoof'], [112, templeY + 123, 70, 28, 'UpperRightRoof'],
+      [-155, templeY + 72, 34, 82, 'LeftRoofEdge'], [155, templeY + 72, 34, 82, 'RightRoofEdge'],
+      [-170, templeY - 13, 28, 98, 'LeftOuterWall'], [170, templeY - 13, 28, 98, 'RightOuterWall'],
+      [-151, templeY - 93, 30, 70, 'LeftLowerWall'], [151, templeY - 93, 30, 70, 'RightLowerWall'],
+      [-111, templeY - 143, 122, 22, 'LeftFrontPlinth'], [111, templeY - 143, 122, 22, 'RightFrontPlinth'],
+      [-86, templeY - 96, 106, 14, 'LeftDoorFacade'], [0, templeY - 96, 66, 14, 'DoorSill'],
+      [86, templeY - 96, 106, 14, 'RightDoorFacade'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `StructureFootprint:占卜宗庙PixelArt:${suffix as string}`,
+    ));
   }
 
   private createTempleForecourt() {
@@ -3846,12 +3903,9 @@ this.drawCityWallsAndGate();
 
     // The existing north-south road remains exposed through the center of the
     // forecourt. Do not add duplicate processional-road Graphics here.
-    court.fillColor = new Color(109, 126, 77, 190);
-    for (let x = -235; x <= 235; x += 47) {
-      if (Math.abs(x) < 48) continue;
-      court.rect(x, (881 + this.templeMoveDeltaY) + Math.abs(x % 3), 3, 12 + Math.abs(x % 7));
-      court.rect(x + 6, 880 + this.templeMoveDeltaY, 2, 8); court.fill();
-    }
+    // The former green rectangle came from a separate grass pass at this
+    // exact site. It is intentionally absent: no overlay or replacement node
+    // is retained here, so the normal forecourt and road remain untouched.
     court.fillColor = new Color(86, 66, 47, 170);
     [-248, 248].forEach(x => {
       for (let y = (900 + this.templeMoveDeltaY); y <= (1005 + this.templeMoveDeltaY); y += 28) court.roundRect(x - 7, y - 9, 14, 19, 3);
@@ -3932,7 +3986,10 @@ this.drawCityWallsAndGate();
       { x: -335, y: -136, w: 118, h: 50, name: '左火盆石质底座' },
       { x: 335, y: -136, w: 118, h: 50, name: '右火盆石质底座' },
       { x: 466, y: 52, w: 220, h: 176, name: '右侧材料工具台' },
-      { x: 0, y: -102, w: 250, h: 108, name: '中央占卜案桌' },
+      // The tabletop projects farther toward the player than its opaque
+      // center pixels.  This foot-sized rectangle seals the full tabletop and
+      // apron, while stopping short of the scripted chair anchor at y=-24.
+      { x: 0, y: -106, w: 236, h: 126, name: '中央占卜案桌' },
       // The visible chair content occupies roughly 88x104 inside its 94x112
       // display node. This blocks ordinary walking through the back, seat,
       // arms and feet while the scripted sit placement remains unrestricted.
@@ -4150,7 +4207,10 @@ this.drawCityWallsAndGate();
       sprite.spriteFrame = frame;
       frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
     };
-    addSlice('TableFrontHalfAndApronOcclusion', 0, -2, 244, 72);
+    // This is the continuous painted tabletop front edge, deliberately kept in
+    // a separate foreground root so a seated or north-side actor has their
+    // lower body covered by the table instead of appearing on its surface.
+    addSlice('TableFrontEdgeOcclusion', 0, 22, 244, 82);
     addSlice('TableFrontLeftLegOcclusion', -96, -48, 38, 42);
     addSlice('TableFrontRightLegOcclusion', 96, -48, 38, 42);
     root.active = true;
@@ -4198,6 +4258,10 @@ this.drawCityWallsAndGate();
     table.setPosition(table.position.x, table.position.y, 76);
     if (tableForeground?.isValid) {
       tableForeground.setPosition(tableForeground.position.x, tableForeground.position.y, 98);
+      // North/back of the tabletop is y >= -145. Sitting is always the north
+      // use-case even while an interaction animation adjusts the player point.
+      // South/front actors keep the normal in-front draw order.
+      tableForeground.active = !playerIsInRoom || this.seated || this.playerPos.y >= -145;
     }
 
     const ensureBefore = (earlier: Node, later: Node) => {
@@ -4702,24 +4766,6 @@ this.drawCityWallsAndGate();
   }
 
   private drawOraclePit() {
-    // This is the existing large zone directly below the fields.  It remains
-    // one continuous outdoor map, divided by paths and terrain rather than by
-    // scene transitions or a pasted background image.
-    const ground = this.graphics('RoyalRitualMottledGround', this.world, 3);
-    ground.fillColor = new Color(105, 75, 53, 150);
-    ground.roundRect(680, -4020, 4440, 1480, 44); ground.fill();
-    let seed = 91357;
-    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < 270; i++) {
-      const x = 720 + random() * 4320; const y = -3970 + random() * 1360;
-      const palette = i % 4;
-      ground.fillColor = palette === 0 ? new Color(61, 55, 45, 90)
-        : palette === 1 ? new Color(171, 123, 68, 78)
-          : palette === 2 ? new Color(82, 93, 59, 54) : new Color(201, 156, 86, 45);
-      const width = 5 + Math.floor(random() * 19); const height = 3 + Math.floor(random() * 9);
-      ground.rect(Math.round(x / 3) * 3, Math.round(y / 3) * 3, width, height); ground.fill();
-    }
-
     // Reinforced full-width north wall with no opening; former gate deleted.
     this.createLayeredRitualWallSegment('北墙', 2900, -2484, 4600, true, 0);
     this.createLayeredRitualWallSegment('西墙', 646, -3270, 1662, false, 19);
@@ -4731,7 +4777,6 @@ this.drawCityWallsAndGate();
       [[2640, -2940], [3240, -2820], [3750, -2920], [4210, -3160]],
       [[1580, -3070], [1210, -3350], [1510, -3700], [2290, -3800]],
       [[4210, -3160], [4510, -3510], [4170, -3830], [2860, -3650]],
-      [[2290, -3800], [2290, -3700]],
       [[2290, -3800], [2290, -4100]],
     ];
     const roadShadow = this.graphics('RoyalRitualPathShadow', this.world, 5);
@@ -4747,80 +4792,59 @@ this.drawCityWallsAndGate();
 
     // Gate at north entry deleted — north wall is now continuous.
 
-    // Western ritual court: three stepped earthen levels, bronze vessels,
-    // braziers and banner posts form a legible ceremonial composition.
-    const altar = this.localGraphics('LayeredRoyalSacrificeAltar', this.world, 1450, -3190, 720, 520, 16);
-    altar.fillColor = new Color(56, 47, 41, 135); altar.roundRect(-344, -224, 688, 448, 26); altar.fill();
-    altar.fillColor = new Color(112, 91, 67); altar.roundRect(-320, -200, 640, 400, 20); altar.fill();
-    altar.fillColor = new Color(141, 111, 70); altar.roundRect(-256, -148, 512, 296, 14); altar.fill();
-    altar.fillColor = new Color(174, 139, 80); altar.roundRect(-178, -92, 356, 184, 10); altar.fill();
-    altar.strokeColor = new Color(68, 53, 42, 210); altar.lineWidth = 5;
-    [-256, -178, 178, 256].forEach(x => { altar.moveTo(x, -160); altar.lineTo(x, 160); });
-    altar.moveTo(-292, 0); altar.lineTo(292, 0); altar.stroke();
-    altar.strokeColor = new Color(220, 177, 91, 190); altar.lineWidth = 3;
-    altar.moveTo(-92, 0); altar.lineTo(-46, 50); altar.lineTo(0, 0); altar.lineTo(46, 50); altar.lineTo(92, 0); altar.lineTo(46, -50); altar.lineTo(0, 0); altar.lineTo(-46, -50); altar.close(); altar.stroke();
-    this.addObstacle(1450, -3190, 360, 180, '王陵中心祭台');
-    this.createBronzeDing(1370, -3170); this.createBronzeDing(1530, -3170);
-    [[1130,-2960],[1770,-2960],[1130,-3420],[1770,-3420]].forEach((p, i) => this.createAnimatedTorch(p[0], p[1], 20 + i, RegionId.ROYAL_TOMB));
-    [[1070,-3170],[1830,-3170]].forEach((p, index) => {
-      const banner = this.localGraphics(`RoyalRitualBanner${index}`, this.world, p[0], p[1], 84, 210, 23);
-      banner.fillColor = new Color(58, 43, 34); banner.rect(-6, -92, 12, 184); banner.fill();
-      banner.fillColor = index ? new Color(111, 42, 38) : new Color(72, 58, 41); banner.moveTo(4, 76); banner.lineTo(index ? 64 : -64, 55); banner.lineTo(index ? 54 : -54, -18); banner.lineTo(4, 3); banner.close(); banner.fill();
-      banner.strokeColor = new Color(207, 157, 72); banner.lineWidth = 3; banner.moveTo(index ? 17 : -17, 45); banner.lineTo(index ? 43 : -43, 25); banner.lineTo(index ? 20 : -20, 2); banner.stroke();
-      this.sways.push({ node: banner.node, phase: index * 1.7, amplitude: 1.1, speed: .58 });
+    // Royal-Tomb landmarks use authored transparent sprites.  Their physical
+    // footprints stay deliberately below the visual crown/banners so collision
+    // follows the real base instead of the full painted rectangle.
+    this.createRoyalTombLandmark('RoyalTombRitualAltar', 'royal_tomb_ritual_altar', 1450, -3190, 720, 480, {
+      footY: -3360, halfWidth: 292, coverHeight: 462,
     });
+    this.addObstacle(1450, -3260, 584, 200, 'RoyalTombRitualAltarSolid', RegionId.ROYAL_TOMB);
     this.worldLabel('王陵祭祀台', 1450, -2840, 21, new Color(237, 202, 125));
 
-    // Central royal burial mound. Layered rims and a sealed stone face read as
-    // raised terrain; collision is only on the mound body, never on the path.
-    const mound = this.localGraphics('LayeredRoyalBurialMound', this.world, 2860, -3450, 900, 600, 12);
-    mound.fillColor = new Color(48, 43, 37, 180); mound.ellipse(0, -34, 420, 250); mound.fill();
-    mound.fillColor = new Color(91, 72, 52); mound.ellipse(0, -4, 395, 230); mound.fill();
-    mound.fillColor = new Color(127, 91, 56); mound.ellipse(0, 28, 344, 192); mound.fill();
-    mound.fillColor = new Color(151, 112, 65); mound.ellipse(0, 58, 276, 145); mound.fill();
-    mound.strokeColor = new Color(193, 147, 78, 150); mound.lineWidth = 5;
-    for (let ring = 0; ring < 3; ring++) { mound.ellipse(0, 22 + ring * 13, 318 - ring * 38, 174 - ring * 22); mound.stroke(); }
-    mound.fillColor = new Color(50, 44, 40); mound.roundRect(-84, -171, 168, 92, 16); mound.fill();
-    mound.fillColor = new Color(113, 91, 65); mound.rect(-64, -153, 128, 61); mound.fill();
-    mound.strokeColor = new Color(206, 166, 91); mound.lineWidth = 4; mound.moveTo(-45, -121); mound.lineTo(0, -92); mound.lineTo(45, -121); mound.lineTo(0, -150); mound.close(); mound.stroke();
-    this.addObstacle(2860, -3405, 660, 305, '王陵封土主体');
+    this.clearRoyalTombBurialMoundRecords();
+    this.createRoyalTombStaticLandmark('RoyalTombBurialMound', 'royal_tomb_burial_mound', 2860, -3450, 900, 600);
+    // Short, overlapping bodies trace the painted outer lip only.  Together
+    // they form one sealed oval, keeping every visible terrace non-walkable
+    // without a broad horizontal air wall below the mound.
+    [
+      [2700, -3164, 132, 34, 'NorthWest'], [2830, -3158, 132, 34, 'NorthCenterLeft'],
+      [2960, -3164, 132, 34, 'NorthCenterRight'], [3072, -3182, 94, 42, 'NorthEast'],
+      [2588, -3192, 94, 42, 'NorthWestShoulder'], [2490, -3239, 104, 64, 'UpperWest'],
+      [2428, -3316, 46, 92, 'UpperWestSide'], [2394, -3415, 42, 108, 'MidWest'],
+      [2398, -3522, 42, 108, 'LowerWest'], [2442, -3616, 100, 82, 'LowerWestSide'],
+      [2532, -3682, 82, 52, 'SouthWestShoulder'], [2638, -3728, 132, 34, 'SouthWest'],
+      [2769, -3742, 132, 34, 'SouthCenterLeft'], [2900, -3742, 132, 34, 'SouthCenterRight'],
+      [3031, -3728, 132, 34, 'SouthEast'], [3118, -3714, 80, 40, 'SouthEastLowerJoin'],
+      [3192, -3682, 82, 52, 'SouthEastShoulder'], [3278, -3616, 92, 82, 'LowerEastSide'],
+      [3274, -3522, 42, 108, 'LowerEast'],
+      [3278, -3415, 42, 108, 'MidEast'], [3292, -3316, 46, 92, 'UpperEastSide'],
+      [3230, -3239, 104, 64, 'UpperEast'], [3138, -3192, 94, 42, 'NorthEastShoulder'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `RoyalTombBurialMoundRim${suffix as string}Solid`, RegionId.ROYAL_TOMB,
+    ));
     this.worldLabel('王陵封土', 2860, -3115, 20, new Color(224, 192, 125));
 
-    // Eastern oracle-bone kiln/cellar is an exposed archaeological cut, not an
-    // interior room. The southern stair keeps the lower terrace accessible.
-    const pitX = 4300; const pitY = -3425; const pitW = 1240; const pitH = 780;
-    const pit = this.localGraphics('OutdoorOracleKilnTerraces', this.world, pitX, pitY, pitW + 120, pitH + 120, 11);
-    pit.fillColor = new Color(50, 45, 40, 195); pit.roundRect(-pitW / 2, -pitH / 2, pitW, pitH, 60); pit.fill();
-    pit.fillColor = new Color(91, 64, 45); pit.roundRect(-pitW / 2 + 32, -pitH / 2 + 32, pitW - 64, pitH - 64, 48); pit.fill();
-    pit.fillColor = new Color(127, 86, 50); pit.roundRect(-pitW / 2 + 78, -pitH / 2 + 82, pitW - 156, pitH - 164, 36); pit.fill();
-    pit.fillColor = new Color(75, 57, 46); pit.roundRect(-pitW / 2 + 132, -pitH / 2 + 140, pitW - 264, pitH - 278, 28); pit.fill();
-    pit.fillColor = new Color(101, 76, 55); pit.roundRect(-pitW / 2 + 180, -pitH / 2 + 188, pitW - 360, pitH - 380, 20); pit.fill();
-    // Three dark kiln/cellar mouths with laid bone shelves.
-    [-285, 0, 285].forEach((offset, index) => {
-      pit.fillColor = new Color(39, 35, 34); pit.ellipse(offset, 132, 112, 72); pit.fill();
-      pit.fillColor = new Color(73, 50, 38); pit.ellipse(offset, 113, 84, 51); pit.fill();
-      pit.fillColor = new Color(211, 177, 112); 
-      for (let shard = 0; shard < 5; shard++) {
-        const sx = offset - 55 + shard * 27; const sy = 98 + (shard % 2) * 15;
-        pit.moveTo(sx - 9, sy - 5); pit.lineTo(sx + 7, sy - 7); pit.lineTo(sx + 11, sy + 4); pit.lineTo(sx - 5, sy + 8); pit.close(); pit.fill();
-      }
-      pit.strokeColor = new Color(158, 112, 63); pit.lineWidth = 5; pit.ellipse(offset, 128, 108, 68); pit.stroke();
-    });
-    // A real stair breaks the south rim and communicates walkable depth.
-    pit.fillColor = new Color(155, 115, 69);
-    for (let step = 0; step < 7; step++) pit.rect(-92 + step * 7, -382 + step * 23, 184 - step * 14, 18);
-    pit.fill();
-    pit.strokeColor = new Color(69, 52, 42, 210); pit.lineWidth = 3;
-    for (let step = 0; step < 7; step++) { pit.moveTo(-92 + step * 7, -364 + step * 23); pit.lineTo(92 - step * 7, -364 + step * 23); }
-    pit.stroke();
-    this.addObstacle(pitX, pitY + pitH / 2 - 26, pitW - 100, 52, '甲骨窑穴北沿');
-    this.addObstacle(pitX - pitW / 2 + 25, pitY, 50, pitH, '甲骨窑穴西沿');
-    this.addObstacle(pitX + pitW / 2 - 25, pitY, 50, pitH, '甲骨窑穴东沿');
-    this.addObstacle(pitX - 345, pitY - pitH / 2 + 26, 350, 52, '甲骨窑穴南沿');
-    this.addObstacle(pitX + 345, pitY - pitH / 2 + 26, 350, 52, '甲骨窑穴南沿');
+    // Eastern oracle-bone kiln/cellar uses the same low, grounded approach as
+    // the altar: its contact base is solid, while its upper walls are visual.
+    const pitX = 4300; const pitY = -3425; const pitW = 960; const pitH = 640;
+    this.clearRoyalTombLandmarkRecords('RoyalTombOutdoorOracleKiln');
+    this.createRoyalTombStaticLandmark('RoyalTombOutdoorOracleKiln', 'royal_tomb_oracle_kiln', pitX, pitY, pitW, pitH);
+    // The kiln is a filled archaeological work area, not an enterable room.
+    // Horizontal strata follow its stepped visible mass without an outer-box
+    // collider or any dynamic occlusion record.
+    [
+      [pitX, -3700, 840, 70, 'SouthBase'], [pitX, -3618, 880, 80, 'SouthWorkFloor'],
+      [pitX, -3536, 900, 80, 'LowerKilnBody'], [pitX, -3454, 900, 80, 'MiddleKilnBody'],
+      [pitX, -3372, 900, 80, 'UpperKilnBody'], [pitX, -3290, 880, 80, 'NorthWorkFloor'],
+      [pitX, -3208, 860, 80, 'NorthWallBase'], [pitX, -3135, 760, 70, 'NorthWallTop'],
+    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
+      x as number, y as number, w as number, h as number,
+      `RoyalTombOutdoorOracleKiln${suffix as string}Solid`, RegionId.ROYAL_TOMB,
+    ));
     this.worldLabel('室外甲骨窑穴', pitX, -2940, 21, new Color(235, 205, 139));
 
-    [[840,-2800],[900,-3710],[2030,-2760],[2260,-3930],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
+    [[840,-2800],[900,-3710],[2030,-2760],[3500,-2740],[4940,-2860],[4930,-3900]].forEach((p, i) => {
       const scale = .55 + (i % 3) * .14;
       this.createRock(p[0], p[1], scale, RegionId.ROYAL_TOMB);
     });
@@ -5479,6 +5503,7 @@ this.drawCityWallsAndGate();
     this.redrawExcavationSite(site);
     this.pendingExcavation = { site, timer: .62, rewarded: false };
     this.createDigParticleBurst(site.x, site.y);
+    this.audioManager.playShovelDig();
     if (returningToLesson) this.showStatusNotice('重新清理这个坑位，之前发现的甲骨文字仍保留在这里。', 1.1);
     this.showStatusNotice('正在清理土层……', 1.1);
   }
@@ -5688,16 +5713,6 @@ this.drawCityWallsAndGate();
 
   private createTownHouse(name: string, x: number, y: number, asset: string, index: number) {
     const yard = this.localGraphics(`${name}FrontYard`, this.world, x, y, 190, 170, 7);
-    yard.fillColor = index % 2 === 0 ? new Color(136, 119, 73, 92) : new Color(113, 126, 72, 78);
-    yard.moveTo(-82, -91); yard.lineTo(-70, -37); yard.lineTo(-45, -23); yard.lineTo(48, -25);
-    yard.lineTo(78, -42); yard.lineTo(84, -92); yard.lineTo(52, -108); yard.lineTo(-55, -106); yard.close(); yard.fill();
-    yard.fillColor = new Color(183, 145, 84, 210);
-    yard.roundRect(-18, -140, 36, 105, 6); yard.fill();
-    yard.fillColor = new Color(220, 178, 104, 120);
-    for (let step = 0; step < 4; step++) {
-      const py = -127 + step * 23;
-      yard.rect(-13 + (step % 2) * 5, py, 18 + (step % 3) * 4, 3); yard.fill();
-    }
     yard.fillColor = new Color(91, 114, 62, 180);
     [-74, -58, 56, 73].forEach((gx, grassIndex) => {
       yard.rect(gx, -98 + grassIndex % 2 * 5, 3, 13 + grassIndex % 3 * 4);
@@ -6472,6 +6487,30 @@ this.drawCityWallsAndGate();
     this.displayedPlayerFrame = displayKey;
   }
 
+  private updatePlayerFootsteps(movedDistance: number, movementAllowed: boolean) {
+    const walkingOnOutdoorGround = movementAllowed
+      && this.worldMode === 'outside'
+      && !this.regionInputLocked
+      && movedDistance > .01;
+    if (!walkingOnOutdoorGround) {
+      this.footstepDistance = 0;
+      this.wasWalkingForAudio = false;
+      return;
+    }
+
+    // 54 px at the current 158 px/s movement speed is roughly one step every
+    // 0.34 seconds. Starting partway into the first stride avoids a long,
+    // silent delay without producing an immediate click on direction changes.
+    if (!this.wasWalkingForAudio) {
+      this.footstepDistance = 26;
+      this.wasWalkingForAudio = true;
+    }
+    this.footstepDistance += movedDistance;
+    if (this.footstepDistance < 54) return;
+    this.footstepDistance %= 54;
+    this.audioManager.playFootstep();
+  }
+
   private equipTool(tool: ToolKind) {
     this.equippedTool = tool;
     this.toolActionTimer = 0;
@@ -6592,6 +6631,7 @@ this.drawCityWallsAndGate();
     g.fillColor = new Color(104, 66, 39); g.ellipse(-20, 7, 9, 5); g.ellipse(19, 6, 10, 5); g.fill();
     g.fillColor = new Color(148, 96, 49); g.rect(-23, 9, 9, 3); g.rect(13, 9, 11, 3); g.fill();
     this.dugHoles.push({ node: hole, timer: 15, x, y });
+    this.audioManager.playShovelDig();
     this.showStatusNotice('挖出了一处小土坑，约15秒后会自然填平。');
   }
 
@@ -7389,6 +7429,7 @@ this.drawCityWallsAndGate();
   }
 
   private updateTreeDepthOrdering() {
+    this.updateStoryNpcWorldLabels();
     if (!this.player?.isValid) return;
     if (this.player.parent !== this.world) {
       this.updateTempleSeatDepthOrdering();
@@ -7413,9 +7454,9 @@ this.drawCityWallsAndGate();
         actors.push({ node: tree.node, baselineY: tree.trunkY });
       }
     }
-    if (currentRegionId === RegionId.FIELDS) {
+    if (currentRegionId === RegionId.FIELDS || currentRegionId === RegionId.ROYAL_TOMB) {
       for (const occluder of this.depthOccluders) {
-        if (occluder.regionId === RegionId.FIELDS
+        if (occluder.regionId === currentRegionId
           && occluder.node.isValid
           && occluder.node.activeInHierarchy
           && occluder.node.parent === this.world) {
@@ -7923,6 +7964,7 @@ this.drawCityWallsAndGate();
 
   private setWeather(next: WeatherKind, initial = false) {
     this.weather = next;
+    this.audioManager.setRaining(next === '小雨' || next === '雨天' || next === '中雨');
     this.weatherChangeTimer = initial ? 42 + Math.random() * 42 : 55 + Math.random() * 65;
     this.precipitation = [];
     this.rainSplashes = [];
@@ -9022,6 +9064,8 @@ this.drawCityWallsAndGate();
   private destroyOverlayRoot() {
     this.overlayRoot?.destroy();
     this.overlayRoot = null;
+    this.excavationLearningMask?.destroy();
+    this.excavationLearningMask = null;
     this.divinationText = null;
     this.divinationName = null;
     this.riseButtonLabel = null;
@@ -9147,13 +9191,24 @@ this.drawCityWallsAndGate();
     const card = this.excavationLearningCard;
     if (!card) return;
     this.destroyOverlayRoot();
+    const canvas = this.findCanvasNode();
+    const mask = new Node('ExcavationLearningFullscreenMask');
+    mask.parent = canvas;
+    mask.setPosition(0, 0, 419);
+    mask.addComponent(UITransform).setContentSize(1280, 720);
+    const maskWidget = mask.addComponent(Widget);
+    maskWidget.isAlignTop = maskWidget.isAlignBottom = maskWidget.isAlignLeft = maskWidget.isAlignRight = true;
+    maskWidget.top = maskWidget.bottom = maskWidget.left = maskWidget.right = 0;
+    maskWidget.updateAlignment();
+    mask.addComponent(Graphics);
+    this.excavationLearningMask = mask;
+    this.refreshExcavationLearningMask();
+
     const root = new Node('ExcavationLearningOverlay');
     root.parent = this.node;
     root.setPosition(0, 0, 420);
     root.addComponent(UITransform).setContentSize(1280, 720);
     this.overlayRoot = root;
-    const shade = this.localGraphics('LearningMapShade', root, 0, 0, 1280, 720, 0);
-    shade.fillColor = new Color(31, 27, 24, 112); shade.rect(-640, -360, 1280, 720); shade.fill();
     this.drawWoodPanel(root, 'ExcavationLearningFrame', 0, 0, 1150, 650, 1, false);
     this.createUiLabel(root, 'ExcavationLearningTitle',
       this.excavationLearningStage === 'question' ? '新发现 · 甲骨文字辨识' : '甲骨文学习档案',
@@ -9200,6 +9255,26 @@ this.drawCityWallsAndGate();
     this.drawUiButton(root, 'ExcavationLearnLaterButton', '稍后学习', 425, -257, 210, 58, false);
     this.createUiLabel(root, 'ExcavationLearnLaterHint', '稍后学习不会丢失该文字；重新挖掘此坑位仍是同一个字。',
       -55, -257, 690, 40, 14, new Color(218, 198, 165), 'left', 5);
+  }
+
+  private findCanvasNode() {
+    let current: Node | null = this.node;
+    while (current && !current.getComponent(Canvas)) current = current.parent;
+    return current ?? this.node;
+  }
+
+  private refreshExcavationLearningMask() {
+    if (this.overlay !== 'excavationLearning' || !this.excavationLearningMask?.isValid) return;
+    const widget = this.excavationLearningMask.getComponent(Widget);
+    widget?.updateAlignment();
+    const transform = this.excavationLearningMask.getComponent(UITransform);
+    const graphics = this.excavationLearningMask.getComponent(Graphics);
+    if (!transform || !graphics) return;
+    const { width, height } = transform.contentSize;
+    graphics.clear();
+    graphics.fillColor = new Color(0, 0, 0, 168);
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.fill();
   }
 
   private answerExcavationLearning(optionIndex: number) {
@@ -9985,6 +10060,7 @@ this.drawCityWallsAndGate();
   }
 
   private onKeyDown(e: EventKeyboard) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     if (sys.isBrowser && e.keyCode === KeyCode.ESCAPE) {
       if (this.overlay === 'divination') this.exitDivination();
@@ -10267,6 +10343,7 @@ this.drawCityWallsAndGate();
   }
 
   private onTouchStart(e: EventTouch) {
+    this.audioManager.unlockFromUserGesture();
     if (this.regionInputLocked) return;
     const p = e.getUILocation(); const size = view.getVisibleSize();
     const localX = p.x - size.width / 2;
@@ -10469,6 +10546,90 @@ this.drawCityWallsAndGate();
     if (delta.length() > 58) delta.normalize().multiplyScalar(58);
     this.stick.set(delta.x / 58, delta.y / 58);
     this.joystickKnob.setPosition(-500 + delta.x, -230 + delta.y, 202);
+  }
+
+  /**
+   * Adds a large ROYAL_TOMB landmark with an explicit foot line.  Unlike a
+   * generic tile, these props have tall visual crowns but compact solid bases.
+   */
+  private createRoyalTombLandmark(
+    name: string,
+    asset: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    depth: Pick<DepthOccluder, 'footY' | 'halfWidth' | 'coverHeight'>,
+  ) {
+    const node = new Node(name);
+    node.parent = this.world;
+    node.setPosition(x, y, 18);
+    node.addComponent(UITransform).setContentSize(w, h);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    this.requestSpriteFrame(`art/royal_tomb/${asset}/spriteFrame`, frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    });
+    this.depthOccluders.push({
+      node,
+      ...depth,
+      baseZ: 18,
+      foregroundZ: 98,
+      regionId: RegionId.ROYAL_TOMB,
+    });
+    return node;
+  }
+
+  /** Clears all former mound records, including unnamed legacy air-wall bodies in the painted footprint. */
+  private clearRoyalTombBurialMoundRecords() {
+    const overlapsMound = (x: number, y: number, w = 0, h = 0) =>
+      x + w / 2 > 2360 && x - w / 2 < 3360 && y + h / 2 > -3780 && y - h / 2 < -3140;
+    this.obstacles = this.obstacles.filter(obstacle =>
+      !obstacle.name.startsWith('RoyalTombBurialMound')
+      && !(obstacle.regionId === RegionId.ROYAL_TOMB && overlapsMound(obstacle.x, obstacle.y, obstacle.w, obstacle.h)));
+    this.depthTrees = this.depthTrees.filter(tree =>
+      !tree.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(tree.node.position.x, tree.node.position.y));
+    this.depthOccluders = this.depthOccluders.filter(occluder =>
+      !occluder.node.name.startsWith('RoyalTombBurialMound')
+      && !overlapsMound(occluder.node.position.x, occluder.node.position.y));
+    // Ground tiles are normal map surface, not former mound records. Leaving
+    // them intact exposes the authored yellow earth and grass around the
+    // transparent mound sprite instead of the base map's green fill.
+    this.world.children
+      .filter(node => node.name.startsWith('RoyalTombBurialMound'))
+      .forEach(node => node.destroy());
+  }
+
+  private clearRoyalTombLandmarkRecords(prefix: 'RoyalTombOutdoorOracleKiln') {
+    this.obstacles = this.obstacles.filter(obstacle => !obstacle.name.startsWith(prefix));
+    this.depthTrees = this.depthTrees.filter(tree => !tree.node.name.startsWith(prefix));
+    this.depthOccluders = this.depthOccluders.filter(occluder => !occluder.node.name.startsWith(prefix));
+    this.world.children
+      .filter(node => node.name.startsWith(prefix))
+      .forEach(node => node.destroy());
+  }
+
+  /** A normal map sprite: deliberately excluded from all dynamic depth passes. */
+  private createRoyalTombStaticLandmark(name: string, asset: string, x: number, y: number, w: number, h: number) {
+    const node = new Node(name);
+    node.parent = this.world;
+    node.setPosition(x, y, 18);
+    node.addComponent(UITransform).setContentSize(w, h);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    this.requestSpriteFrame(`art/royal_tomb/${asset}/spriteFrame`, frame => {
+      if (!node.isValid || !sprite.isValid) return;
+      frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+      sprite.spriteFrame = frame;
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    });
+    return node;
   }
 
   private pixelSprite(name: string, asset: string, parent: Node, x: number, y: number, w: number, h: number, z: number) {
