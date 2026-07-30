@@ -208,7 +208,7 @@ type FishingCastEffect = {
   playerOrigin: Vec2; castDuration: number; waitDuration: number;
 };
 type CutPlantRegrowth = { node: Node; timer: number };
-type BackpackTab = 'tools' | 'clothing' | 'codex';
+type BackpackTab = 'tools' | 'codex';
 type DugHole = { node: Node; timer: number; x: number; y: number };
 type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement';
 type ExcavationReward = {
@@ -322,7 +322,6 @@ const CHAPTER_CHALLENGES: Record<string, ChapterChallenge> = {
     success: '你选择整理并传授，让识字与问卜重新服务于众人。',
   },
 };
-type ShopCategory = 'shell' | 'decoration' | 'rubbing';
 type OracleCardData = {
   id: string; glyph: string; modern: string; pinyin: string; quality: OracleQuality;
   meaning: string; evolution: string; history: string;
@@ -387,15 +386,15 @@ const CHAPTER_SIX_DIVINATION_QUESTIONS: Record<string, DivinationQuestion> = {
   },
 };
 type ShopProduct = {
-  id: string; category: ShopCategory; name: string; price: number; description: string;
-  quality: OracleQuality; slot?: number;
+  id: string; name: string; price: number; description: string;
+  quality: OracleQuality;
 };
 type LearningRecord = { attempts: number; bestStars: number; correctCount: number };
 type WrongBookEntry = { wrongCount: number; lastWrongAt: number };
 type CitySave = {
   version: number; ink: number; coins: number; experience: number;
   unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
-  ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
+  ownedProductIds: string[]; equippedShellId: string;
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   story: StorySaveState;
   currentRegionId?: RegionId;
@@ -860,18 +859,9 @@ export class YinXuCity extends Component {
     this.oracleCards.filter(card => this.hasRealOracleGlyph(card)),
   );
   private readonly shopProducts: ShopProduct[] = [
-    { id: 'shell-clay', category: 'shell', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
-    { id: 'shell-vermilion', category: 'shell', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
-    { id: 'shell-gold', category: 'shell', name: '鎏金王室龟甲', price: 420, description: '金色裂纹与祭祀光点环绕的珍贵龟甲外观。', quality: 'gold' },
-    { id: 'decor-ding', category: 'decoration', name: '青铜鼎', price: 120, description: '放置在宗庙院落的固定陈设位。', quality: 'red', slot: 0 },
-    { id: 'decor-oracle-stand', category: 'decoration', name: '甲骨展示台', price: 150, description: '放置在集市入口的固定陈设位。', quality: 'blue', slot: 1 },
-    { id: 'decor-millet', category: 'decoration', name: '禾苗陶盆', price: 90, description: '放置在水井旁的固定陈设位。', quality: 'blue', slot: 2 },
-    { id: 'decor-jars', category: 'decoration', name: '陶瓮组合', price: 110, description: '放置在民居街角的固定陈设位。', quality: 'blue', slot: 3 },
-    { id: 'decor-lamp', category: 'decoration', name: '祭祀灯架', price: 220, description: '放置在宗庙外侧的固定陈设位。', quality: 'red', slot: 4 },
-    { id: 'decor-banner', category: 'decoration', name: '卜官旗幡', price: 260, description: '放置在南北主路的固定陈设位。', quality: 'gold', slot: 5 },
-    { id: 'rubbing-water', category: 'rubbing', name: '洹水卜辞拓片', price: 80, description: '收录洹水、求雨与渔猎主题的收藏页。', quality: 'blue' },
-    { id: 'rubbing-harvest', category: 'rubbing', name: '丰收卜辞拓片', price: 140, description: '收录田猎与农耕主题的进阶收藏页。', quality: 'red' },
-    { id: 'rubbing-royal', category: 'rubbing', name: '王室祭祀拓片', price: 300, description: '收录王室祭祀主题的鎏金收藏页。', quality: 'gold' },
+    { id: 'shell-clay', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
+    { id: 'shell-vermilion', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
+    { id: 'shell-gold', name: '鎏金王室龟甲', price: 420, description: '金色裂纹与祭祀光点环绕的珍贵龟甲外观。', quality: 'gold' },
   ];
   private save!: CitySave;
   private overlay: CityOverlay = 'none';
@@ -964,10 +954,8 @@ export class YinXuCity extends Component {
   private rewardFlights: RewardFlight[] = [];
   private digParticles: DigParticle[] = [];
   private backpackDetailLabel: Label | null = null;
-  private selectedShopCategory: ShopCategory = 'shell';
   private selectedShopProductIndex = 0;
   private shopFeedback: Label | null = null;
-  private decorationNodes = new Map<string, Node>();
   private previewDepthSpot = 0;
   private learningHall!: LearningHall;
   private regionTransitionManager: RegionTransitionManager | null = null;
@@ -2828,7 +2816,6 @@ this.drawCityWallsAndGate();
     this.drawVillage();
     this.drawMarket();
     this.drawTownDetails();
-    this.createDecorationSlots();
     this.withObstacleRegion(RegionId.FIELDS, () => this.drawFields());
     this.drawForest();
     this.drawOraclePit();
@@ -8112,7 +8099,6 @@ this.drawCityWallsAndGate();
       wrongBook: {},
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
-      placedDecorationIds: [],
       playerName: '少年卜官',
       avatarId: 'oracle-apprentice',
       musicOn: true,
@@ -8210,7 +8196,6 @@ this.drawCityWallsAndGate();
       wrongBook,
       ownedProductIds,
       equippedShellId,
-      placedDecorationIds: uniqueStrings(source.placedDecorationIds),
       playerName,
       avatarId: typeof source.avatarId === 'string' && source.avatarId.length > 0 ? source.avatarId : defaults.avatarId,
       avatarUrl: typeof source.avatarUrl === 'string' && source.avatarUrl.length > 0 ? source.avatarUrl : undefined,
@@ -8269,52 +8254,6 @@ this.drawCityWallsAndGate();
     this.worldLabel('占卜席', 0, 770, 15, new Color(99, 58, 37));
   }
 
-  private createDecorationSlots() {
-    this.decorationNodes.clear();
-    const positions: Array<[number, number]> = [
-      [-330, 890], [575, 940], [390, 610], [-1035, 500], [330, 890], [1045, 820],
-    ];
-    this.shopProducts.filter(product => product.category === 'decoration').forEach(product => {
-      const slot = product.slot ?? 0;
-      const position = positions[slot] ?? positions[0];
-      const root = new Node(`PlacedDecoration-${product.id}`);
-      root.parent = this.world;
-      root.setPosition(position[0], position[1], 27);
-      root.addComponent(UITransform).setContentSize(92, 100);
-      this.drawDecorationIcon(root, product.id, 1);
-      root.active = this.save.placedDecorationIds.includes(product.id);
-      this.decorationNodes.set(product.id, root);
-    });
-  }
-
-  private drawDecorationIcon(parent: Node, id: string, scale: number) {
-    const g = this.localGraphics(`${id}-PixelDecoration`, parent, 0, 0, 90 * scale, 96 * scale, 0);
-    const brown = new Color(99, 61, 38); const bronze = new Color(104, 116, 72); const gold = new Color(205, 155, 70);
-    if (id === 'decor-ding') {
-      g.fillColor = bronze; g.roundRect(-25 * scale, -8 * scale, 50 * scale, 36 * scale, 6 * scale); g.fill();
-      g.fillColor = brown; g.rect(-19 * scale, -28 * scale, 7 * scale, 22 * scale); g.rect(12 * scale, -28 * scale, 7 * scale, 22 * scale); g.fill();
-      g.strokeColor = gold; g.lineWidth = 3 * scale; g.moveTo(-25 * scale, 8 * scale); g.lineTo(25 * scale, 8 * scale); g.stroke();
-    } else if (id === 'decor-oracle-stand') {
-      g.fillColor = brown; g.rect(-30 * scale, -25 * scale, 60 * scale, 12 * scale); g.rect(-22 * scale, -13 * scale, 8 * scale, 40 * scale); g.rect(14 * scale, -13 * scale, 8 * scale, 40 * scale); g.fill();
-      g.fillColor = new Color(222, 190, 126); g.roundRect(-18 * scale, 2 * scale, 36 * scale, 34 * scale, 5 * scale); g.fill();
-    } else if (id === 'decor-millet') {
-      g.fillColor = new Color(154, 91, 48); g.roundRect(-24 * scale, -27 * scale, 48 * scale, 28 * scale, 6 * scale); g.fill();
-      g.strokeColor = new Color(101, 132, 61); g.lineWidth = 5 * scale;
-      [-16, -7, 3, 13].forEach((x, index) => { g.moveTo(x * scale, 0); g.lineTo((x + (index % 2 ? 8 : -5)) * scale, (31 + index % 3 * 5) * scale); }); g.stroke();
-    } else if (id === 'decor-jars') {
-      g.fillColor = new Color(156, 88, 49); g.circle(-15 * scale, -6 * scale, 18 * scale); g.circle(15 * scale, -10 * scale, 14 * scale); g.fill();
-      g.fillColor = brown; g.rect(-25 * scale, 9 * scale, 20 * scale, 7 * scale); g.rect(8 * scale, 2 * scale, 15 * scale, 6 * scale); g.fill();
-    } else if (id === 'decor-lamp') {
-      g.fillColor = brown; g.rect(-5 * scale, -28 * scale, 10 * scale, 54 * scale); g.fill();
-      g.fillColor = bronze; g.moveTo(-22 * scale, 9 * scale); g.lineTo(22 * scale, 9 * scale); g.lineTo(14 * scale, 30 * scale); g.lineTo(-14 * scale, 30 * scale); g.close(); g.fill();
-      g.fillColor = new Color(242, 163, 62); g.circle(0, 22 * scale, 9 * scale); g.fill();
-    } else {
-      g.fillColor = brown; g.rect(-4 * scale, -30 * scale, 8 * scale, 65 * scale); g.fill();
-      g.fillColor = new Color(157, 55, 45); g.moveTo(4 * scale, 30 * scale); g.lineTo(32 * scale, 20 * scale); g.lineTo(4 * scale, 6 * scale); g.close(); g.fill();
-      g.strokeColor = gold; g.lineWidth = 2 * scale; g.moveTo(9 * scale, 22 * scale); g.lineTo(26 * scale, 18 * scale); g.stroke();
-    }
-  }
-
   private createUiLabel(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' = 'center', z = 2) {
     const node = new Node(name);
     node.parent = parent;
@@ -8361,10 +8300,6 @@ this.drawCityWallsAndGate();
     if (this.currencyLabel?.isValid) {
       this.currencyLabel.string = `墨料 ${this.save.ink}   ·   贝币 ${this.save.coins}   ·   卜官经验 ${this.save.experience}`;
     }
-    this.decorationNodes.forEach((node, id) => {
-      if (node.isValid) node.active = this.save.placedDecorationIds.includes(id);
-    });
-
     if (this.supplicant?.isValid) this.updateSupplicant(dt);
     if (this.overlay !== 'divination') return;
 
@@ -9572,8 +9507,12 @@ this.drawCityWallsAndGate();
       ? 100
       : Math.round(currentIndex / Math.max(1, activeDef.steps.length - 1) * 100);
 
+    // Keep every chapter-act title inside the 920 px panel: the label's left
+    // edge is inset 36 px from the panel edge, regardless of its text length.
+    const chapterStageLeft = -424;
+    const chapterStageWidth = 400;
     this.createUiLabel(root, 'ChapterStage', this.chapterStageName(stepId, completed, currentChapterId),
-      -345, 187, 430, 40, 22, new Color(250, 211, 125), 'left');
+      chapterStageLeft + chapterStageWidth / 2, 187, chapterStageWidth, 40, 22, new Color(250, 211, 125), 'left');
     this.createUiLabel(root, 'ChapterPercent', `章节进度 ${chapterPercent}%`,
       318, 187, 180, 36, 18, new Color(242, 216, 163));
     const progressBack = this.localGraphics('ChapterProgressBack', root, 0, 152, 730, 22, 3);
@@ -9696,11 +9635,10 @@ this.drawCityWallsAndGate();
     this.drawUiButton(root, 'BackpackCloseButton', '关闭', 443, 240, 104, 44, false);
 
     const tabs: Array<{ id: BackpackTab; text: string; x: number }> = [
-      { id: 'tools', text: '工具栏', x: -285 },
-      { id: 'clothing', text: '服装栏', x: 0 },
-      { id: 'codex', text: '甲骨图鉴', x: 285 },
+      { id: 'tools', text: '工具栏', x: -170 },
+      { id: 'codex', text: '甲骨图鉴', x: 170 },
     ];
-    tabs.forEach(tab => this.drawUiButton(root, `BackpackTab-${tab.id}`, tab.text, tab.x, 186, 220, 50, this.backpackTab === tab.id));
+    tabs.forEach(tab => this.drawUiButton(root, `BackpackTab-${tab.id}`, tab.text, tab.x, 186, 300, 50, this.backpackTab === tab.id));
 
     if (this.backpackTab === 'tools') {
       const tools: Array<{ id: ToolKind; name: string; note: string; asset?: string; x: number }> = [
@@ -9731,15 +9669,6 @@ this.drawCityWallsAndGate();
         if (selected) this.createUiLabel(root, `ToolEquipped-${tool.id}`, '已装备', tool.x, -146, 120, 28, 16, new Color(255, 221, 111));
       });
       this.createUiLabel(root, 'ToolUseHint', '选中工具后，地图右侧会出现对应工具按钮；再次选择“空手”即可收起。', 0, -212, 830, 34, 16, new Color(235, 207, 157));
-      return;
-    }
-
-    if (this.backpackTab === 'clothing') {
-      const hanger = this.localGraphics('ClothingPlaceholder', root, 0, 0, 220, 180, 4);
-      hanger.strokeColor = new Color(210, 170, 101); hanger.lineWidth = 6;
-      hanger.arc(0, 58, 20, Math.PI * .1, Math.PI * 1.6, false); hanger.moveTo(-6, 37); hanger.lineTo(-76, -37); hanger.lineTo(76, -37); hanger.lineTo(6, 37); hanger.stroke();
-      this.createUiLabel(root, 'ClothingEmptyTitle', '服装栏暂未开放', 0, -100, 460, 46, 25, new Color(255, 224, 164));
-      this.createUiLabel(root, 'ClothingEmptyHint', '该栏位已经预留，后续服装资源可直接接入。', 0, -146, 620, 34, 16, new Color(208, 184, 143));
       return;
     }
 
@@ -9802,14 +9731,13 @@ this.drawCityWallsAndGate();
     this.overlayRoot = root;
     this.drawWoodPanel(root, 'ShopConfirmPanel', 0, 20, 600, 280, 0, true);
     this.createUiLabel(root, 'ShopConfirmTitle', '商代集市', 0, 92, 470, 50, 29, new Color(91, 47, 29));
-    this.createUiLabel(root, 'ShopConfirmText', '是否进入商店查看龟甲外观、村落装饰和收藏拓片？', 0, 32, 490, 72, 20, new Color(93, 57, 37));
+    this.createUiLabel(root, 'ShopConfirmText', '是否进入商店查看龟甲外观？', 0, 32, 490, 72, 20, new Color(93, 57, 37));
     this.drawUiButton(root, 'ShopCancelButton', '暂不进入', -125, -65, 180, 58, false);
     this.drawUiButton(root, 'ShopEnterButton', '进入商店', 125, -65, 180, 58, true);
   }
 
   private openShop() {
     this.overlay = 'shop';
-    this.selectedShopCategory = 'shell';
     this.selectedShopProductIndex = 0;
     this.buildShopUi();
   }
@@ -9826,20 +9754,14 @@ this.drawCityWallsAndGate();
     this.createUiLabel(root, 'ShopCurrency', `贝币 ${this.save.coins}`, -440, 292, 200, 44, 20, new Color(242, 204, 114));
     this.drawUiButton(root, 'ShopCloseButton', '离开', 510, 292, 112, 48, false);
 
-    const categories: Array<[ShopCategory, string]> = [
-      ['shell', '龟甲外观'], ['decoration', '村落装饰'], ['rubbing', '收藏拓片'],
-    ];
-    categories.forEach(([category, label], index) => {
-      const y = 150 - index * 90;
-      const selected = category === this.selectedShopCategory;
-      const tab = this.localGraphics(`ShopCategory-${category}`, root, -470, y, 170, 66, 3);
-      tab.fillColor = selected ? new Color(165, 74, 49) : new Color(75, 52, 39);
+    const categoryY = 0;
+    const tab = this.localGraphics('ShopCategory-shell', root, -470, categoryY, 170, 66, 3);
+    tab.fillColor = new Color(165, 74, 49);
       tab.roundRect(-82, -30, 164, 60, 9); tab.fill();
-      tab.strokeColor = selected ? new Color(244, 199, 104) : new Color(143, 103, 65); tab.lineWidth = 3; tab.roundRect(-82, -30, 164, 60, 9); tab.stroke();
-      this.createUiLabel(root, `ShopCategoryLabel-${category}`, label, -470, y, 150, 44, 19, selected ? new Color(255, 234, 182) : new Color(210, 188, 148));
-    });
+    tab.strokeColor = new Color(244, 199, 104); tab.lineWidth = 3; tab.roundRect(-82, -30, 164, 60, 9); tab.stroke();
+    this.createUiLabel(root, 'ShopCategoryLabel-shell', '龟甲外观', -470, categoryY, 150, 44, 19, new Color(255, 234, 182));
 
-    const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+    const products = this.shopProducts;
     this.selectedShopProductIndex = this.clamp(this.selectedShopProductIndex, 0, Math.max(0, products.length - 1));
     products.forEach((product, index) => {
       const col = index % 2;
@@ -9856,9 +9778,9 @@ this.drawCityWallsAndGate();
       this.createUiLabel(root, 'ShopProductTitle', selected.name, 340, 35, 300, 52, 25, new Color(86, 44, 28));
       this.createUiLabel(root, 'ShopProductDescription', selected.description, 340, -45, 292, 100, 18, new Color(92, 57, 38), 'left');
       const owned = this.save.ownedProductIds.includes(selected.id);
-      const equipped = selected.category === 'shell' && this.save.equippedShellId === selected.id;
-      const buttonText = equipped ? '使用中' : owned ? (selected.category === 'shell' ? '装备' : '已拥有') : `购买 · ${selected.price} 贝币`;
-      this.drawUiButton(root, 'ShopPurchaseButton', buttonText, 340, -178, 250, 58, !owned || (selected.category === 'shell' && !equipped));
+      const equipped = this.save.equippedShellId === selected.id;
+      const buttonText = equipped ? '使用中' : owned ? '装备' : `购买 · ${selected.price} 贝币`;
+      this.drawUiButton(root, 'ShopPurchaseButton', buttonText, 340, -178, 250, 58, !owned || !equipped);
     }
     this.shopFeedback = this.createUiLabel(root, 'ShopFeedback', feedback, 340, -245, 320, 58, 16, new Color(255, 221, 157), 'center', 5);
   }
@@ -9879,33 +9801,21 @@ this.drawCityWallsAndGate();
     holder.parent = parent;
     holder.setPosition(x, y, 5);
     holder.addComponent(UITransform).setContentSize(100 * scale, 110 * scale);
-    if (product.category === 'decoration') {
-      this.drawDecorationIcon(holder, product.id, scale);
-      return;
-    }
     const g = holder.addComponent(Graphics);
-    if (product.category === 'shell') {
-      g.fillColor = product.id === 'shell-gold' ? new Color(225, 179, 74) : product.id === 'shell-vermilion' ? new Color(181, 75, 53) : new Color(213, 179, 116);
-      g.ellipse(0, 0, 35 * scale, 45 * scale); g.fill();
-      g.strokeColor = new Color(78, 48, 33); g.lineWidth = 4 * scale; g.ellipse(0, 0, 35 * scale, 45 * scale); g.stroke();
-      g.moveTo(-3 * scale, 30 * scale); g.lineTo(4 * scale, 9 * scale); g.lineTo(-8 * scale, -10 * scale); g.lineTo(7 * scale, -34 * scale); g.stroke();
-    } else {
-      g.fillColor = new Color(226, 194, 132); g.roundRect(-38 * scale, -43 * scale, 76 * scale, 86 * scale, 7 * scale); g.fill();
-      g.strokeColor = this.qualityColor(product.quality); g.lineWidth = 4 * scale; g.roundRect(-38 * scale, -43 * scale, 76 * scale, 86 * scale, 7 * scale); g.stroke();
-      g.strokeColor = new Color(89, 55, 36); g.lineWidth = 2 * scale;
-      for (let row = 0; row < 3; row++) { g.moveTo(-24 * scale, (20 - row * 18) * scale); g.lineTo(24 * scale, (20 - row * 18) * scale); }
-      g.stroke();
-    }
+    g.fillColor = product.id === 'shell-gold' ? new Color(225, 179, 74) : product.id === 'shell-vermilion' ? new Color(181, 75, 53) : new Color(213, 179, 116);
+    g.ellipse(0, 0, 35 * scale, 45 * scale); g.fill();
+    g.strokeColor = new Color(78, 48, 33); g.lineWidth = 4 * scale; g.ellipse(0, 0, 35 * scale, 45 * scale); g.stroke();
+    g.moveTo(-3 * scale, 30 * scale); g.lineTo(4 * scale, 9 * scale); g.lineTo(-8 * scale, -10 * scale); g.lineTo(7 * scale, -34 * scale); g.stroke();
   }
 
   private purchaseSelectedShopProduct() {
     if (this.overlay !== 'shop') return;
-    const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+    const products = this.shopProducts;
     const product = products[this.selectedShopProductIndex];
     if (!product) return;
     const owned = this.save.ownedProductIds.includes(product.id);
     if (owned) {
-      if (product.category === 'shell' && this.save.equippedShellId !== product.id) {
+      if (this.save.equippedShellId !== product.id) {
         this.save.equippedShellId = product.id;
         this.persistCitySave();
         this.buildShopUi(`已装备：${product.name}`);
@@ -9918,10 +9828,7 @@ this.drawCityWallsAndGate();
     }
     this.save.coins -= product.price;
     this.save.ownedProductIds.push(product.id);
-    if (product.category === 'shell') this.save.equippedShellId = product.id;
-    if (product.category === 'decoration' && !this.save.placedDecorationIds.includes(product.id)) {
-      this.save.placedDecorationIds.push(product.id);
-    }
+    this.save.equippedShellId = product.id;
     this.persistCitySave();
     this.buildShopUi(`已获得：${product.name}`);
   }
@@ -10293,16 +10200,8 @@ this.drawCityWallsAndGate();
       this.buildBackpackUi();
       return;
     }
-    if (sys.isBrowser && e.keyCode === KeyCode.KEY_C && this.overlay === 'shop') {
-      const categories: ShopCategory[] = ['shell', 'decoration', 'rubbing'];
-      const current = categories.indexOf(this.selectedShopCategory);
-      this.selectedShopCategory = categories[(current + 1) % categories.length];
-      this.selectedShopProductIndex = 0;
-      this.buildShopUi();
-      return;
-    }
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_N && this.overlay === 'shop') {
-      const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+      const products = this.shopProducts;
       this.selectedShopProductIndex = products.length > 0 ? (this.selectedShopProductIndex + 1) % products.length : 0;
       this.buildShopUi();
       return;
@@ -10440,10 +10339,10 @@ this.drawCityWallsAndGate();
         return;
       }
       const tabs: Array<{ id: BackpackTab; x: number }> = [
-        { id: 'tools', x: -285 }, { id: 'clothing', x: 0 }, { id: 'codex', x: 285 },
+        { id: 'tools', x: -170 }, { id: 'codex', x: 170 },
       ];
       for (const tab of tabs) {
-        if (!this.pointInUiRect(x, y, tab.x, 186, 220, 50)) continue;
+        if (!this.pointInUiRect(x, y, tab.x, 186, 300, 50)) continue;
         this.backpackTab = tab.id;
         if (tab.id === 'codex') this.codexPage = Math.floor(this.selectedBackpackIndex / 12);
         this.buildBackpackUi();
@@ -10505,15 +10404,12 @@ this.drawCityWallsAndGate();
         this.closeCityOverlay();
         return;
       }
-      const categories: ShopCategory[] = ['shell', 'decoration', 'rubbing'];
-      for (let index = 0; index < categories.length; index++) {
-        if (!this.pointInUiRect(x, y, -470, 150 - index * 90, 170, 66)) continue;
-        this.selectedShopCategory = categories[index];
+      if (this.pointInUiRect(x, y, -470, 0, 170, 66)) {
         this.selectedShopProductIndex = 0;
         this.buildShopUi();
         return;
       }
-      const products = this.shopProducts.filter(product => product.category === this.selectedShopCategory);
+      const products = this.shopProducts;
       for (let index = 0; index < products.length; index++) {
         const productX = -250 + (index % 2) * 215;
         const productY = 170 - Math.floor(index / 2) * 150;

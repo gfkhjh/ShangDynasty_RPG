@@ -68,7 +68,8 @@ export const createPhaseOneRegionConfig = (): RegionTrialConfig => ({
     { id: 'chapter-6-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(1900, -3180), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-7-highland-entry', regionId: RegionId.HIGHLAND, worldPosition: new Vec2(4710, -1100), facingDirection: 'left', safeOffset: 72 },
     { id: 'chapter-8-royal-tomb-entry', regionId: RegionId.ROYAL_TOMB, worldPosition: new Vec2(2300, -3200), facingDirection: 'left', safeOffset: 72 },
-    { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(0, 1010), facingDirection: 'left', safeOffset: 72 },
+    // Matches StoryLocations: clear east apron beside the temple, outside its footprint.
+    { id: 'chapter-9-city-entry', regionId: RegionId.CITY, worldPosition: new Vec2(300, 870), facingDirection: 'left', safeOffset: 72 },
     { id: 'story-return-city', regionId: RegionId.CITY, worldPosition: new Vec2(0, 20), facingDirection: 'down', safeOffset: 72 },
     {
       id: 'outskirts-south-road-entry',
