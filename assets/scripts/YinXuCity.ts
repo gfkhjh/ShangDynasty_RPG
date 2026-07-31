@@ -1043,6 +1043,7 @@ export class YinXuCity extends Component {
     this.buildWorld();
     this.relocatePlayerOutOfRiverWater();
     this.createRegionTransitionManager();
+    this.updateBgmForRegion(this.regionTransitionManager.currentRegionId);
     this.updateOutskirtsVisibility();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
@@ -1166,6 +1167,11 @@ export class YinXuCity extends Component {
         delete this.save.wrongBook[cardId];
         this.persistCitySave();
       },
+      enterHall: () => this.audioManager.setHallMuted(true),
+      resumeWorld: () => {
+        this.updateBgmForRegion(this.regionTransitionManager.currentRegionId);
+        this.audioManager.setHallMuted(false);
+      },
       recordReview: (cardId, correct) => {
         const record = this.save.mastery[cardId] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
         record.attempts++;
@@ -1203,6 +1209,8 @@ export class YinXuCity extends Component {
         // 重新进入殷墟时恢复上次存档坐标，让玩家接着原有位置继续，而不是每次都回到城门口原点。
         // 全新游戏尚无有效存档坐标时，restoreSavedRegionPosition 会自然落到 City 入口原点，行为不变。
         this.restoreSavedRegionPosition();
+        this.updateBgmForRegion(this.regionTransitionManager.currentRegionId);
+        this.audioManager.setHallMuted(false);
         this.beginChapterOneIfNeeded();
       },
     });
@@ -1367,7 +1375,8 @@ export class YinXuCity extends Component {
         if (locked) this.stopPlayerInput();
       },
       getWorldNode: () => this.world,
-      onRegionChanged: () => {
+      onRegionChanged: (regionId) => {
+        this.updateBgmForRegion(regionId);
         this.updateOutskirtsVisibility();
         this.persistCitySave();
         // A route calculated before a scripted transfer belongs to the old
@@ -1379,6 +1388,16 @@ export class YinXuCity extends Component {
       },
     });
     this.updateTerrainElevationState(true);
+  }
+
+  private updateBgmForRegion(regionId: RegionId) {
+    const wildRegions = new Set<RegionId>([
+      RegionId.HIGHLAND,
+      RegionId.FIELDS,
+      RegionId.ROYAL_TOMB,
+      RegionId.RIVERBANK,
+    ]);
+    this.audioManager.setBgmTrack(wildRegions.has(regionId) ? 'wild' : 'main');
   }
 
   private updateOutskirtsVisibility() {
@@ -4811,14 +4830,30 @@ this.drawCityWallsAndGate();
     // Layered irrigation water replaces the former flat blue rectangles. The
     // dry bank, wet soil lip, deep channel and moving highlights are separate
     // draw layers, which gives every branch an actual cut-earth profile.
-    this.pixelSprite(
-      'FieldContinuousRiverNetwork', 'field-huan-canal-network-v1',
-      this.world, 1630, -1567, 2620, 1060, 8,
-    );
-    [727, 1290, 1867, 2440].forEach(x => {
-      this.addObstacle(x, -1510, 28, 290, '田间支渠');
-      this.addObstacle(x, -1925, 28, 350, '田间支渠');
+    // The main canal now exits beneath the west boundary instead of terminating
+    // at the removed well feeder. Its existing east end remains at x=2940.
+    this.drawLayeredIrrigationCanal('FieldMainCanal', 1520, -1270, 2840, 88, true, 8);
+    [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
+      this.drawLayeredIrrigationCanal(`FieldBranchCanal${branchIndex}`, x, -1725, 750, 30, false, 8);
+      this.drawIrrigationJunction(x, -1270, branchIndex);
+      this.drawIrrigationCanalEndCap(`FieldBranchCanal${branchIndex}SouthCap`, x, -2100, 30, 8, 'south');
+      this.addObstacle(x, -1510, 28, 290, `FieldBranchCanal${branchIndex}NorthWater`, RegionId.FIELDS);
+      this.addObstacle(x, -1925, 28, 350, `FieldBranchCanal${branchIndex}SouthWater`, RegionId.FIELDS);
+      this.addObstacle(x, -1668, 28, 26, `FieldBranchCanal${branchIndex}RoadNorthWaterLip`, RegionId.FIELDS);
+      this.addObstacle(x, -1739, 28, 22, `FieldBranchCanal${branchIndex}RoadSouthWaterLip`, RegionId.FIELDS);
     });
+    // Water highlights are authored after the canal surface but before every
+    // bridge and road crossing. Cocos UI respects sibling order for these
+    // world children, so later deck/crossing nodes always cover the ripples.
+    for (let x = 140, index = 0; x <= 2840; x += 145, index++) {
+      this.createCanalFlowMark(x, -1270, true, index * .17, 72 + index % 3 * 8);
+    }
+    [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
+      for (let y = -1390, index = 0; y >= -2040; y -= 135, index++) {
+        this.createCanalFlowMark(x, y, false, branchIndex * .21 + index * .16, 78);
+      }
+    });
+
     let canalStart = 100;
     [1100, 1700, 2300].forEach(gap => {
       const end = gap - 70;
@@ -4839,15 +4874,6 @@ this.drawCityWallsAndGate();
 
     [800, 1400, 2000, 2600].forEach((x, index) => {
       this.drawFieldRoadCanalCrossing(x, -1705, 80 + index);
-    });
-
-    for (let x = 140, index = 0; x <= 2840; x += 145, index++) {
-      this.createCanalFlowMark(x, -1270, true, index * .17, 72 + index % 3 * 8);
-    }
-    [800, 1400, 2000, 2600].forEach((x, branchIndex) => {
-      for (let y = -1390, index = 0; y >= -2040; y -= 135, index++) {
-        this.createCanalFlowMark(x, y, false, branchIndex * .21 + index * .16, 78);
-      }
     });
 
     this.createFieldStorehouse('东北粮仓一', 2180, -555, 'field-storehouse-a');
@@ -4903,36 +4929,18 @@ this.drawCityWallsAndGate();
     horizontal: boolean,
     z: number,
   ) {
-    // Field channels use an authored river texture rather than procedural
-    // colour strips.  The same water, stone, wet-earth and grass treatment is
-    // now shared with the Huan River, while the dimensions stay narrow enough
-    // to remain believable as irrigation channels between the crop plots.
-    const bankToBank = horizontal
-      ? Math.max(148, waterWidth + 60)
-      : Math.max(96, waterWidth + 62);
-    const canal = this.pixelSprite(
-      name, 'field-huan-canal-v1', this.world,
-      centerX, centerY, length, bankToBank, z,
-    );
-    if (!horizontal) canal.setRotationFromEuler(0, 0, 90);
-    return;
-
     const outerWidth = waterWidth + 58;
     const g = this.localGraphics(name, this.world, centerX, centerY, length + 34, outerWidth + 26, z);
     const segments = Math.max(4, Math.ceil(length / 92));
-    const visualSeed = [...name].reduce((value, character) => value + character.charCodeAt(0), 0) * .071;
-    const drawBand = (width: number, color: Color, offsetY = 0, edgeVariation = 0) => {
+    const drawBand = (width: number, color: Color, offsetY = 0) => {
       const top: Array<[number, number]> = [];
       const bottom: Array<[number, number]> = [];
       for (let index = 0; index <= segments; index++) {
         const px = -length / 2 + length * index / segments;
-        // Both shores share a gentle organic pulse. This gives the field
-        // stream the same natural bank language as 洹水河畔 without making the
-        // narrow irrigation path look ragged or mechanically tiled.
-        const pulse = Math.sin(index * 1.73 + visualSeed) * edgeVariation
-          + Math.sin(index * .61 + visualSeed * 2.3) * edgeVariation * .45;
-        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY + pulse) / 3) * 3]);
-        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY - pulse * .72) / 3) * 3]);
+        // Straight parallel bank bands prevent the old independently-jittered
+        // polygons from forming diamond-shaped seams at canal joins.
+        top.push([Math.round(px / 3) * 3, Math.round((width / 2 + offsetY) / 3) * 3]);
+        bottom.push([Math.round(px / 3) * 3, Math.round((-width / 2 + offsetY) / 3) * 3]);
       }
       g.fillColor = color;
       g.moveTo(top[0][0], top[0][1]);
@@ -4940,37 +4948,32 @@ this.drawCityWallsAndGate();
       bottom.slice().reverse().forEach(point => g.lineTo(point[0], point[1]));
       g.close(); g.fill();
     };
-    // The same material order as the Huan River: grass, wet soil, embedded
-    // stones, a thin shallow-water rim, then moving deep water.
-    drawBand(waterWidth + 58, new Color(55, 75, 49, 215), -2, 5);
-    drawBand(waterWidth + 49, new Color(86, 128, 61), 0, 4);
-    drawBand(waterWidth + 37, new Color(91, 74, 43), -1, 4);
-    drawBand(waterWidth + 25, new Color(119, 102, 62), 0, 3);
-    drawBand(waterWidth + 13, new Color(95, 151, 153), 0, 2);
-    drawBand(waterWidth, new Color(37, 109, 149), 1, 2);
-    drawBand(Math.max(12, waterWidth - 16), new Color(20, 74, 111, 118), 1, 1);
+    drawBand(waterWidth + 58, new Color(82, 83, 69, 215), -2);
+    drawBand(waterWidth + 48, new Color(111, 119, 67), 0);
+    drawBand(waterWidth + 36, new Color(163, 112, 55), -1);
+    drawBand(waterWidth + 23, new Color(211, 163, 84), 0);
+    drawBand(waterWidth + 12, new Color(53, 72, 65), 0);
+    drawBand(waterWidth, new Color(55, 128, 159), 1);
+    drawBand(Math.max(12, waterWidth - 16), new Color(20, 72, 104, 105), 1);
 
     // Pixel-sized soil clods, damp bank shadows and staggered chevrons keep
     // the long water surface from reading as a single coloured strip.
     for (let i = 0; i < Math.max(4, Math.floor(length / 30)); i++) {
       const x = -length / 2 + 14 + i * 30;
       const side = i % 2 === 0 ? 1 : -1;
-      const bankY = side * (waterWidth / 2 + 12 + Math.sin(i * 1.7 + visualSeed) * 3);
-      // Rounded pebble clusters sit in the wet edge instead of forming the
-      // old repeated square soil dashes.
-      g.fillColor = i % 3 === 0 ? new Color(173, 156, 111, 205) : new Color(87, 78, 60, 220);
-      g.ellipse(x, bankY, 3 + i % 3, 2 + (i + 1) % 2); g.fill();
-      g.fillColor = i % 4 === 0 ? new Color(64, 104, 57, 220) : new Color(45, 80, 51, 185);
-      g.rect(x - 4, bankY + side * 7, 9 + i % 3 * 2, 3); g.fill();
+      g.fillColor = i % 3 === 0 ? new Color(192, 137, 67, 190) : new Color(93, 67, 43, 210);
+      g.rect(x, side * (waterWidth / 2 + 9), 8 + i % 4 * 2, 4 + i % 3); g.fill();
+      g.fillColor = i % 4 === 0 ? new Color(43, 68, 58, 210) : new Color(60, 78, 59, 175);
+      g.rect(x - 5, side * (waterWidth / 2 + 2), 12 + i % 3 * 2, 3); g.fill();
       if (i % 3 === 0) {
         const waterY = -waterWidth * .2 + (i % 4) * Math.max(4, waterWidth * .12);
-        g.strokeColor = i % 2 === 0 ? new Color(153, 211, 211, 180) : new Color(22, 79, 117, 175);
+        g.strokeColor = i % 2 === 0 ? new Color(128, 194, 198, 160) : new Color(12, 69, 105, 175);
         g.lineWidth = 2;
         g.moveTo(x - 9, waterY + 3); g.lineTo(x, waterY); g.lineTo(x + 10, waterY + 3); g.stroke();
       }
       if (i % 7 === 2) {
         const grassY = side * (waterWidth / 2 + 15);
-        g.strokeColor = new Color(109, 151, 63, 210); g.lineWidth = 2;
+        g.strokeColor = new Color(74, 104, 55, 190); g.lineWidth = 2;
         g.moveTo(x, grassY); g.lineTo(x - 3, grassY + side * 9);
         g.moveTo(x + 4, grassY); g.lineTo(x + 8, grassY + side * 8); g.stroke();
       }
@@ -5021,14 +5024,6 @@ this.drawCityWallsAndGate();
   }
 
   private drawIrrigationJunction(x: number, y: number, variant: number) {
-    // A cropped authored cross-channel keeps the join naturally continuous;
-    // no flat blue cover plate is left at field-canal intersections.
-    this.pixelSprite(
-      `IrrigationWaterJunction${variant}`, 'field-huan-canal-cross-v1',
-      this.world, x, y, 260, 260, 11,
-    );
-    return;
-
     const g = this.localGraphics(`IrrigationWaterJunction${variant}`, this.world, x, y, 112, 128, 11);
     // Blend the two water runs with a compact pool instead of the old stepped
     // cross-shaped cover.
@@ -8384,7 +8379,9 @@ this.drawCityWallsAndGate();
 
   private setWeather(next: WeatherKind, initial = false) {
     this.weather = next;
-    this.audioManager.setRaining(next === '小雨' || next === '雨天' || next === '中雨');
+    this.audioManager.setRainWeather(
+      next === '小雨' ? 'light' : next === '雨天' ? 'normal' : next === '中雨' ? 'medium' : null,
+    );
     this.weatherChangeTimer = initial ? 42 + Math.random() * 42 : 55 + Math.random() * 65;
     this.precipitation = [];
     this.rainSplashes = [];
