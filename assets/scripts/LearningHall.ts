@@ -97,6 +97,8 @@ type HallCallbacks = {
   recordReview: (cardId: string, correct: boolean) => void;
   getWrongBook: () => HallWrongBookEntry[];
   clearWrongBook: (cardId: string) => void;
+  enterHall: () => void;
+  resumeWorld: () => void;
   enterYinXu: () => void;
   getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; characterChoiceCompleted: boolean; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
   setName: (name: string) => void;
@@ -199,15 +201,18 @@ export class LearningHall extends Component {
   }
 
   open() {
+    this.callbacks?.enterHall();
     this.render(this.callbacks?.getProfile().characterChoiceCompleted ? 'home' : 'characterSelect');
   }
 
   openStoryLesson() {
+    this.callbacks?.enterHall();
     this.beginReview();
   }
 
   returnToCity() {
     this.close();
+    this.callbacks?.resumeWorld();
   }
 
   private cards() {

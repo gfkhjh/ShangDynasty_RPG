@@ -11,6 +11,9 @@ import {
 
 const { ccclass } = _decorator;
 
+export type BgmTrack = 'main' | 'wild';
+export type RainTrack = 'light' | 'normal' | 'medium';
+
 /**
  * Persistent, scene-independent audio owner.
  *
@@ -21,18 +24,34 @@ const { ccclass } = _decorator;
 export class GameAudioManager extends Component {
   private static instance: GameAudioManager | null = null;
 
-  private readonly rainVolume = 0.08;
+  private readonly rainVolumes: Record<RainTrack, number> = {
+    light: 0.055,
+    normal: 0.058,
+    medium: 0.060,
+  };
   private readonly bgmVolume = 0.22;
   private readonly digVolume = 0.28;
   private readonly footstepVolume = 0.07;
   private readonly fadeDuration = 0.5;
+  private readonly rainFadeDuration = 0.8;
 
   private bgmSource!: AudioSource;
   private rainSource!: AudioSource;
   private sfxSource!: AudioSource;
   private footstepSource!: AudioSource;
-  private bgmClip: AudioClip | null = null;
-  private rainClip: AudioClip | null = null;
+  private readonly bgmClips: Record<BgmTrack, AudioClip | null> = { main: null, wild: null };
+  private readonly bgmPositions: Record<BgmTrack, number> = { main: 0, wild: 0 };
+  private requestedBgm: BgmTrack = 'main';
+  private activeBgm: BgmTrack | null = null;
+  private bgmTargetVolume = 0;
+  private hallMuted = false;
+  private readonly rainClips: Record<RainTrack, AudioClip | null> = {
+    light: null,
+    normal: null,
+    medium: null,
+  };
+  private requestedRain: RainTrack | null = null;
+  private activeRain: RainTrack | null = null;
   private digClip: AudioClip | null = null;
   private readonly footstepClips: Array<AudioClip | null> = [null, null, null, null];
   private readonly sceneSfxVolume = 0.5;
@@ -41,7 +60,6 @@ export class GameAudioManager extends Component {
     'card_flip', 'reward_get', 'divine_success',
     'chapter_clear', 'level_up', 'dialog_open', 'map_transition',
   ];
-  private rainRequested = false;
   private musicEnabled = true;
   private sfxEnabled = true;
   private audioUnlocked = !sys.isBrowser;
@@ -76,24 +94,11 @@ export class GameAudioManager extends Component {
     this.sfxSource = this.node.addComponent(AudioSource);
     this.footstepSource = this.node.addComponent(AudioSource);
 
-    resources.load('audio/bgm_main_loop', AudioClip, (error, clip) => {
-      if (error || !clip) {
-        console.error('[GameAudioManager] Failed to load bgm_main_loop.wav', error);
-        return;
-      }
-      this.bgmClip = clip;
-      this.bgmSource.clip = clip;
-      this.applyBgmState();
-    });
-    resources.load('audio/rain_loop', AudioClip, (error, clip) => {
-      if (error || !clip) {
-        console.error('[GameAudioManager] Failed to load rain_loop.wav', error);
-        return;
-      }
-      this.rainClip = clip;
-      this.rainSource.clip = clip;
-      this.applyRainState();
-    });
+    this.loadBgmTrack('main', 'audio/bgm_main_loop');
+    this.loadBgmTrack('wild', 'audio/bgm_wild_loop');
+    this.loadRainTrack('light', 'audio/rain_light_loop');
+    this.loadRainTrack('normal', 'audio/rain_normal_loop');
+    this.loadRainTrack('medium', 'audio/rain_medium_loop');
     resources.load('audio/shovel_dig', AudioClip, (error, clip) => {
       if (error || !clip) {
         console.error('[GameAudioManager] Failed to load shovel_dig.wav', error);
@@ -139,15 +144,31 @@ export class GameAudioManager extends Component {
     this.applyBgmState();
   }
 
+  setBgmTrack(track: BgmTrack) {
+    if (this.requestedBgm === track) {
+      this.applyBgmState();
+      return;
+    }
+    this.requestedBgm = track;
+    this.applyBgmState();
+  }
+
+  setHallMuted(muted: boolean) {
+    if (this.hallMuted === muted) return;
+    this.hallMuted = muted;
+    this.applyBgmState();
+    this.applyRainState();
+  }
+
   setSfxEnabled(enabled: boolean) {
     if (this.sfxEnabled === enabled) return;
     this.sfxEnabled = enabled;
     this.applyRainState();
   }
 
-  setRaining(raining: boolean) {
-    if (this.rainRequested === raining) return;
-    this.rainRequested = raining;
+  setRainWeather(track: RainTrack | null) {
+    if (this.requestedRain === track) return;
+    this.requestedRain = track;
     this.applyRainState();
   }
 
@@ -186,33 +207,140 @@ export class GameAudioManager extends Component {
   update(dt: number) {
     this.digPlaybackTimer = Math.max(0, this.digPlaybackTimer - dt);
     this.footstepPlaybackTimer = Math.max(0, this.footstepPlaybackTimer - dt);
+    this.updateBgmFade(dt);
+    this.updateRainFade(dt);
+  }
+
+  private updateRainFade(dt: number) {
     if (!this.rainSource) return;
-    const step = this.rainVolume * dt / this.fadeDuration;
+    const activeVolume = this.activeRain ? this.rainVolumes[this.activeRain] : 0;
+    const fadeReferenceVolume = this.rainTargetVolume > 0 ? this.rainTargetVolume : activeVolume;
+    const step = fadeReferenceVolume * dt / this.rainFadeDuration;
     const current = this.rainSource.volume;
     if (Math.abs(current - this.rainTargetVolume) <= step) {
       this.rainSource.volume = this.rainTargetVolume;
-      if (this.rainTargetVolume === 0 && this.rainSource.playing) this.rainSource.stop();
+      if (this.rainTargetVolume === 0 && this.rainSource.playing) {
+        this.rainSource.stop();
+        this.activeRain = null;
+        this.applyRainState();
+      }
       return;
     }
     this.rainSource.volume = current + Math.sign(this.rainTargetVolume - current) * step;
   }
 
   private applyRainState() {
-    const shouldPlay = this.audioUnlocked && this.sfxEnabled && this.rainRequested && Boolean(this.rainClip);
-    this.rainTargetVolume = shouldPlay ? this.rainVolume : 0;
-    if (shouldPlay && !this.rainSource.playing) {
-      this.rainSource.volume = 0;
-      this.rainSource.play();
+    if (!this.rainSource) return;
+    const requestedClip = this.requestedRain ? this.rainClips[this.requestedRain] : null;
+    const shouldPlay = !this.hallMuted && this.audioUnlocked && this.sfxEnabled && Boolean(requestedClip);
+    if (!shouldPlay) {
+      this.rainTargetVolume = 0;
+      return;
     }
+    if (this.activeRain !== this.requestedRain) {
+      if (this.rainSource.playing) {
+        this.rainTargetVolume = 0;
+      } else if (this.requestedRain) {
+        this.startRainTrack(this.requestedRain);
+      }
+      return;
+    }
+    if (!this.rainSource.playing && this.requestedRain) this.startRainTrack(this.requestedRain);
+    this.rainTargetVolume = this.rainVolumes[this.requestedRain!];
+  }
+
+  private loadRainTrack(track: RainTrack, path: string) {
+    resources.load(path, AudioClip, (error, clip) => {
+      if (error || !clip) {
+        console.error(`[GameAudioManager] Failed to load ${path}.wav`, error);
+        return;
+      }
+      this.rainClips[track] = clip;
+      this.applyRainState();
+    });
+  }
+
+  private startRainTrack(track: RainTrack) {
+    const clip = this.rainClips[track];
+    if (!clip || this.rainSource.playing) return;
+    this.activeRain = track;
+    this.rainSource.clip = clip;
+    this.rainSource.volume = 0;
+    this.rainSource.play();
+    this.rainTargetVolume = this.rainVolumes[track];
+  }
+
+  private loadBgmTrack(track: BgmTrack, path: string) {
+    resources.load(path, AudioClip, (error, clip) => {
+      if (error || !clip) {
+        console.error(`[GameAudioManager] Failed to load ${path}.wav`, error);
+        return;
+      }
+      this.bgmClips[track] = clip;
+      this.applyBgmState();
+    });
   }
 
   private applyBgmState() {
-    const shouldPlay = this.audioUnlocked && this.musicEnabled && Boolean(this.bgmClip);
-    if (shouldPlay && !this.bgmSource.playing) {
-      this.bgmSource.volume = this.bgmVolume;
-      this.bgmSource.play();
-    } else if (!shouldPlay && this.bgmSource.playing) {
+    if (!this.bgmSource) return;
+    const requestedClip = this.bgmClips[this.requestedBgm];
+    const shouldPlay = !this.hallMuted && this.audioUnlocked && this.musicEnabled && Boolean(requestedClip);
+    if (!shouldPlay) {
+      this.bgmTargetVolume = 0;
+      return;
+    }
+    if (this.activeBgm !== this.requestedBgm) {
+      if (this.bgmSource.playing) {
+        this.bgmTargetVolume = 0;
+      } else {
+        this.startBgmTrack(this.requestedBgm);
+      }
+      return;
+    }
+    if (!this.bgmSource.playing) this.startBgmTrack(this.requestedBgm);
+    this.bgmTargetVolume = this.bgmVolume;
+  }
+
+  private updateBgmFade(dt: number) {
+    if (!this.bgmSource) return;
+    const step = this.bgmVolume * dt / this.fadeDuration;
+    const current = this.bgmSource.volume;
+    if (Math.abs(current - this.bgmTargetVolume) > step) {
+      this.bgmSource.volume = current + Math.sign(this.bgmTargetVolume - current) * step;
+      return;
+    }
+    this.bgmSource.volume = this.bgmTargetVolume;
+    if (this.bgmTargetVolume > 0 || !this.bgmSource.playing) return;
+
+    this.rememberActiveBgmPosition();
+    this.bgmSource.stop();
+    if (!this.hallMuted && this.audioUnlocked && this.musicEnabled && this.bgmClips[this.requestedBgm]) {
+      this.startBgmTrack(this.requestedBgm);
+      this.bgmTargetVolume = this.bgmVolume;
+    }
+  }
+
+  private rememberActiveBgmPosition() {
+    if (!this.activeBgm || !this.bgmSource) return;
+    const position = this.bgmSource.currentTime;
+    if (Number.isFinite(position) && position >= 0) this.bgmPositions[this.activeBgm] = position;
+  }
+
+  private startBgmTrack(track: BgmTrack) {
+    const clip = this.bgmClips[track];
+    if (!clip) return;
+    if (this.bgmSource.playing) {
+      this.rememberActiveBgmPosition();
       this.bgmSource.stop();
+    }
+    this.activeBgm = track;
+    this.bgmSource.clip = clip;
+    this.bgmSource.volume = 0;
+    this.bgmSource.play();
+    const duration = this.bgmSource.duration;
+    const resumeAt = this.bgmPositions[track];
+    if (Number.isFinite(duration) && duration > 0 && resumeAt > 0) {
+      this.bgmSource.currentTime = resumeAt % duration;
     }
   }
 }
