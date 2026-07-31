@@ -375,13 +375,14 @@ const ORACLE_GLYPH_ASSET_OVERRIDES: Record<string, OracleGlyphOverride> = {
 
 // These legacy ids remain in the runtime for story compatibility and existing
 // save files, but their oracle image is already represented by a dedicated
-// catalog card. Hiding twenty such visual duplicates gives the public catalog
-// its intended 300-card presentation without deleting playable data.
+// catalog card. Hiding such visual duplicates gives the public catalog its
+// intended 300-card presentation without deleting playable data.
 const CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS = new Set([
   'above-temp', 'below-temp', 'person-temp', 'mouth-temp', 'earth-temp',
   'large-temp', 'woman-temp', 'child-temp', 'small-temp', 'mountain-temp',
   'river-temp', 'fire-temp', 'cow-temp', 'dog-temp', 'king-temp',
   'eye-temp', 'ancestor-temp', 'ritual-temp', 'ear-temp', 'boat-temp',
+  'moon-temp', 'tree-temp', 'water-temp',
 ]);
 type DivinationQuestion = { villager: string; prompt: string; answerId: string; portrait: 'farmer' | 'woman' };
 
@@ -1177,7 +1178,25 @@ export class YinXuCity extends Component {
     quality: card.quality as OracleQuality,
     imageBounds: card.imageBounds as OracleCardData['imageBounds'],
     ...(ORACLE_GLYPH_ASSET_OVERRIDES[card.id] ?? {}),
-}));
+})).filter((card, index, all) => {
+    // 导入字库与内置字卡存在大量同 id/同现代字的重复项。
+    // 图鉴只保留一个，并优先留下已填好释义的版本，避免占位卡挤掉完整资料。
+    const isPlaceholder = (c: OracleCardData) =>
+      (c.meaning ?? '').includes('待正式甲骨资料')
+      || (c.meaning ?? '').includes('待补充')
+      || (c.history ?? '') === '待补充。'
+      || (c.evolution ?? '').includes('占位字形');
+    const bestIndex = all.reduce((best, candidate, candidateIndex) => {
+      if (candidate.id !== card.id && candidate.modern !== card.modern) return best;
+      if (best === -1) return candidateIndex;
+      const bestPlaceholder = isPlaceholder(all[best]);
+      const candidatePlaceholder = isPlaceholder(candidate);
+      if (bestPlaceholder && !candidatePlaceholder) return candidateIndex;
+      if (!bestPlaceholder && candidatePlaceholder) return best;
+      return best;
+    }, -1);
+    return bestIndex === index;
+});
   private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(
     this.oracleCards.filter(card => this.hasRealOracleGlyph(card)),
   );
@@ -1350,6 +1369,10 @@ export class YinXuCity extends Component {
           .filter(card => this.hasRealOracleGlyph(card)
             && !CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS.has(card.id)
             && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
+          .filter((card, index, all) => {
+            const modern = this.oracleModernCharacter(card);
+            return all.findIndex(candidate => this.oracleModernCharacter(candidate) === modern) === index;
+          })
           .map(card => ({
             id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
             quality: card.quality, meaning: card.meaning, evolution: this.learningEvolution(card), history: card.history,
