@@ -515,8 +515,9 @@ export class YinXuCity extends Component {
   /**
    * Continuous north/right shoreline sampled from the painted water edge.
    * It starts west of the bridge, follows every bend, and reaches the lower
-   * edge of the river art. Collision is generated just inside the water so the
-   * grass, mud and stones remain approachable.
+   * edge of the river art. Collision is generated just inside the land (minus
+   * normal direction) so the grass, mud and stones remain approachable while
+   * the player's feet are blocked at the water edge.
    */
   private readonly riverbankNorthShorePoints: Array<[number, number]> = [
     [-5568, -1340], [-5525, -1330], [-5481, -1335], [-5437, -1328],
@@ -3860,6 +3861,7 @@ this.drawCityWallsAndGate();
     }
     this.drawRiverbankPhaseOneRoadAndBridge();
     this.drawRiverbankPhaseOneBoundary();
+    this.drawRiverbankNorthShoreCollision();
     this.worldLabel('洹水河畔', -5470, -430, 25, new Color(226, 242, 206));
   }
 
@@ -3927,6 +3929,181 @@ this.drawCityWallsAndGate();
     );
 
     this.drawRiverbankNorthHighlandEntrance();
+  }
+
+  private drawRiverbankNorthShoreCollision() {
+    const points = this.riverbankNorthShorePoints;
+    const bridge = this.riverbankPhaseOneBridge;
+
+    // Bridge walkway corridor. The rails define the left/right walls, but they
+    // only cover the real water span.  We extend the corridor all the way to
+    // the north road end and the south landing so the player can step on and
+    // off the bridge without hitting the bank barrier at the bridge seams.
+    const railOffset = 48; // 51 - 3 (matches bridge rail placement)
+    const westRailX = bridge.x - railOffset;
+    const eastRailX = bridge.x + railOffset;
+    const corridorLeft = westRailX + this.playerRadius;
+    const corridorRight = eastRailX - this.playerRadius;
+    const corridorTop = bridge.y + bridge.h / 2 + 56;       // reach the north road end (y≈-1335)
+    const corridorBottom = bridge.y - bridge.h / 2 - 200;   // reach the south landing
+
+    // Keep obstacles short and heavily overlapping so they hug every bend
+    // without leaving walkable gaps between consecutive boxes.
+    const shoreThickness = 60;
+    const segmentLength = 24;
+    const overlap = 24;
+
+    const bridgeOpeningRect = {
+      left: corridorLeft,
+      right: corridorRight,
+      bottom: corridorBottom,
+      top: corridorTop,
+    };
+
+    // Track generated obstacles in order so we can post-process gaps.
+    const generated: Array<{
+      name: string; x: number; y: number; w: number; h: number;
+      left: number; right: number; bottom: number; top: number;
+    }> = [];
+
+    this.withObstacleRegion(RegionId.RIVERBANK, () => {
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i];
+        const b = points[i + 1];
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const length = Math.hypot(dx, dy);
+        if (length < 1) continue;
+
+        // Left-hand normal points toward land when the polyline runs
+        // east-then-south along the north bank (clockwise winding).
+        const landNormalX = -dy / length;
+        const landNormalY = dx / length;
+        const LANDWARD_OFFSET = 150;
+
+        const steps = Math.max(1, Math.ceil(length / segmentLength));
+        for (let s = 0; s < steps; s++) {
+          const t0 = s / steps;
+          const t1 = Math.min(1, (s + 1) / steps + overlap / length);
+          const segStartX = a[0] + dx * t0;
+          const segStartY = a[1] + dy * t0;
+          const segEndX = a[0] + dx * t1;
+          const segEndY = a[1] + dy * t1;
+          const segCenterX = (segStartX + segEndX) / 2;
+          const segCenterY = (segStartY + segEndY) / 2;
+          const segLen = Math.hypot(segEndX - segStartX, segEndY - segStartY);
+
+          // Obstacle offset toward land so the player can stand on the
+          // stones/mud at the bank edge but cannot step into water.
+          const obstacleX = segCenterX + landNormalX * LANDWARD_OFFSET;
+          const obstacleY = segCenterY + landNormalY * LANDWARD_OFFSET;
+
+          // Compute the axis-aligned bounds of this segment's obstacle so
+          // we can detect an honest intersection with the bridge corridor
+          // rather than skipping by a crude index-based zone test.
+          const boxLen = segLen + overlap;
+          const halfLen = boxLen / 2;
+          const halfThick = shoreThickness / 2;
+          const obstacleLeft = obstacleX - halfLen;
+          const obstacleRight = obstacleX + halfLen;
+          const obstacleBottom = obstacleY - halfThick;
+          const obstacleTop = obstacleY + halfThick;
+
+          // Only segments that genuinely overlap the bridge walkway are
+          // removed.  The rails themselves provide the side walls, so any
+          // segment outside the rail corridor remains intact and blocks
+          // diagonal shortcuts into the river.
+          const overlapsBridgeOpening =
+            obstacleLeft < bridgeOpeningRect.right
+            && obstacleRight > bridgeOpeningRect.left
+            && obstacleBottom < bridgeOpeningRect.top
+            && obstacleTop > bridgeOpeningRect.bottom;
+
+          if (overlapsBridgeOpening) { continue; }
+
+          const obstacleName = `RiverbankNorthShoreCollision${i}_${s}`;
+          this.addObstacle(
+            obstacleX, obstacleY,
+            boxLen, shoreThickness,
+            obstacleName,
+            RegionId.RIVERBANK
+          );
+          generated.push({
+            name: obstacleName, x: obstacleX, y: obstacleY,
+            w: boxLen, h: shoreThickness,
+            left: obstacleLeft, right: obstacleRight,
+            bottom: obstacleBottom, top: obstacleTop,
+          });
+        }
+      }
+
+      // Auto gap-filling: ensure every pair of consecutive obstacles has
+      // overlapping AABBs.  If two neighbours don't touch along their
+      // chain-direction axis, insert one or more filler boxes between them.
+      const chainDirLen = segmentLength + overlap;
+      for (let g = 1; g < generated.length; g++) {
+        const prev = generated[g - 1];
+        const curr = generated[g];
+
+        // Signed gap along the chain (x axis of the AABB is the primary
+        // axis for chain-walking gaps).  Allow a small negative overlap
+        // tolerance so boxes that already touch pass through.
+        const gapRight = prev.right;
+        const gapLeft = curr.left;
+        const gapX = gapLeft - gapRight;
+        const gapTop = Math.min(prev.top, curr.top);
+        const gapBottom = Math.max(prev.bottom, curr.bottom);
+        const gapYOverlap = gapTop > gapBottom; // boxes already overlap in Y
+
+        // Also check if the two boxes are disjoint in the y-axis (one
+        // sits entirely above the other, e.g. at a sharp bend).  In
+        // that case we also need filler to cover the y-axis gap.
+        const yGapTop = Math.min(prev.top, curr.top);
+        const yGapBottom = Math.max(prev.bottom, curr.bottom);
+        const yGapSize = yGapBottom - yGapTop; // positive means boxes don't overlap in Y
+
+        const needXFiller = gapX > 0;
+        const needYFiller = yGapSize > 0 && !gapYOverlap && gapX <= 0;
+
+        if (!needXFiller && !needYFiller) continue;
+
+        // Insert filler boxes spaced by chainDirLen so the chain stays
+        // continuous across joints and bends.
+        const insertCount = Math.max(1, Math.ceil(Math.max(gapX, yGapSize) / chainDirLen));
+        for (let k = 1; k <= insertCount; k++) {
+          const t = k / (insertCount + 1);
+          const fillX = prev.x + (curr.x - prev.x) * t;
+          const fillY = prev.y + (curr.y - prev.y) * t;
+          const fillLeft = fillX - chainDirLen / 2;
+          const fillRight = fillX + chainDirLen / 2;
+          const fillBottom = fillY - shoreThickness / 2;
+          const fillTop = fillY + shoreThickness / 2;
+
+          // Skip filler that would land in the bridge opening.
+          const fillerOverlapsBridge =
+            fillLeft < bridgeOpeningRect.right
+            && fillRight > bridgeOpeningRect.left
+            && fillBottom < bridgeOpeningRect.top
+            && fillTop > bridgeOpeningRect.bottom;
+          if (fillerOverlapsBridge) continue;
+
+          const fillerName = `RiverbankNorthShoreGapFill${g - 1}_${k}`;
+          this.addObstacle(
+            fillX, fillY,
+            chainDirLen, shoreThickness,
+            fillerName,
+            RegionId.RIVERBANK
+          );
+          generated.splice(g, 0, {
+            name: fillerName, x: fillX, y: fillY,
+            w: chainDirLen, h: shoreThickness,
+            left: fillLeft, right: fillRight,
+            bottom: fillBottom, top: fillTop,
+          });
+          g++;
+        }
+      }
+    });
   }
 
   private drawRiverbankNorthHighlandEntrance() {
@@ -8050,8 +8227,8 @@ this.drawCityWallsAndGate();
   private drawOutdoorCollisionDebug() {
     if (!SHOW_COLLISION_DEBUG) return;
     if ((game.config?.debugMode ?? DebugMode.NONE) === DebugMode.NONE) return;
-    const relevant = this.obstacles.filter(obstacle =>
-      /Wall|SouthGate|Corner|HouseFootprint|StructureFootprint|古树根部|SouthOutskirtsTrial|RiverbankNorthHighland/.test(obstacle.name));
+    const shoreAndBridge = /RiverbankNorth(ShoreCollision|Bridge|BridgeWest|BridgeEast|PureWoodBridge)/;
+    const labeled = /Wall|SouthGate|Corner|HouseFootprint|StructureFootprint|古树根部|SouthOutskirtsTrial|RiverbankNorthHighland/;
     const graphics = this.graphics('OutdoorCollisionDebug', this.world, 170);
     graphics.strokeColor = new Color(255, 72, 72, 225);
     graphics.lineWidth = 2;
@@ -8068,7 +8245,43 @@ this.drawCityWallsAndGate();
       label.horizontalAlign = Label.HorizontalAlign.CENTER;
       label.color = new Color(255, 225, 150);
     };
-    relevant.forEach(obstacle => drawLabeledOutline(obstacle.name, obstacle.x, obstacle.y, obstacle.w, obstacle.h));
+    const drawFilledOutline = (x: number, y: number, w: number, h: number, color: Color) => {
+      graphics.strokeColor = color;
+      graphics.rect(x - w / 2, y - h / 2, w, h);
+    };
+    this.obstacles.forEach(obstacle => {
+      if (labeled.test(obstacle.name)) {
+        drawLabeledOutline(obstacle.name, obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+      } else if (shoreAndBridge.test(obstacle.name)) {
+        // Draw riverbank collision outlines without labels to keep the
+        // scene readable.  Shore collision is green; bridge walls are blue.
+        const isShore = /RiverbankNorthShoreCollision/.test(obstacle.name);
+        const color = isShore
+          ? new Color(80, 230, 120, 200)
+          : new Color(90, 170, 255, 220);
+        drawFilledOutline(obstacle.x, obstacle.y, obstacle.w, obstacle.h, color);
+      }
+    });
+    // Overlay the bridge walkway opening (where collision is lifted so the
+    // player can cross).  This rectangle is purely visual: it shows exactly
+    // where the bank chain is broken for the bridge.
+    if (this.riverbankPhaseOneBridge) {
+      const bridge = this.riverbankPhaseOneBridge;
+      const railOffset = 48;
+      const westRailX = bridge.x - railOffset;
+      const eastRailX = bridge.x + railOffset;
+      const corridorLeft = westRailX + this.playerRadius;
+      const corridorRight = eastRailX - this.playerRadius;
+      const corridorTop = bridge.y + bridge.h / 2;
+      const corridorBottom = bridge.y - bridge.h / 2;
+      const w = corridorRight - corridorLeft;
+      const h = corridorTop - corridorBottom;
+      graphics.strokeColor = new Color(255, 180, 70, 240);
+      graphics.lineWidth = 3;
+      graphics.rect(corridorLeft, corridorBottom, w, h);
+      graphics.stroke();
+    }
+    graphics.stroke();
     this.getUnregisteredStaticStructures().forEach(structure => {
       const size = structure.node.getComponent(UITransform)?.contentSize;
       drawLabeledOutline(`MISSING:${structure.node.name}`, structure.node.position.x, structure.node.position.y,
