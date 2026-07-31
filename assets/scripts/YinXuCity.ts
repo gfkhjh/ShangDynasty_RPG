@@ -1665,7 +1665,7 @@ export class YinXuCity extends Component {
       setPlayerFacing: facing => {
         this.facing = facing;
         this.displayedPlayerFrame = -1;
-        this.showPlayerFrame(0);
+        this.showPlayerFrame(this.getIdleFrameIndex(facing));
       },
       canPlayerStand: position => this.canPlayerStand(position.x, position.y),
       // Scripted RegionEntry spawns are authored static landing points. They
@@ -2723,7 +2723,7 @@ export class YinXuCity extends Component {
       opacity.opacity = 255;
       this.player.setPosition(this.playerPos.x, this.playerPos.y, 80);
       this.displayedPlayerFrame = -1;
-      this.showPlayerFrame(0);
+      this.showPlayerFrame(this.getIdleFrameIndex(this.facing));
     }
     if (this.weatherParticleNode?.isValid) {
       this.weatherParticleNode.active = true;
@@ -4729,15 +4729,15 @@ this.drawCityWallsAndGate();
     // front plinth. The central stair remains approachable; a narrow sill just
     // behind the enter zone prevents crossing into the painted doorway.
     [
-      [0, templeY + 162, 64, 20, 'RearRidge'],
-      [-56, templeY + 150, 72, 22, 'RearLeftEave'], [56, templeY + 150, 72, 22, 'RearRightEave'],
-      [-112, templeY + 123, 70, 28, 'UpperLeftRoof'], [112, templeY + 123, 70, 28, 'UpperRightRoof'],
-      [-155, templeY + 72, 34, 82, 'LeftRoofEdge'], [155, templeY + 72, 34, 82, 'RightRoofEdge'],
-      [-170, templeY - 13, 28, 98, 'LeftOuterWall'], [170, templeY - 13, 28, 98, 'RightOuterWall'],
-      [-151, templeY - 93, 30, 70, 'LeftLowerWall'], [151, templeY - 93, 30, 70, 'RightLowerWall'],
-      [-111, templeY - 143, 122, 22, 'LeftFrontPlinth'], [111, templeY - 143, 122, 22, 'RightFrontPlinth'],
-      [-86, templeY - 96, 106, 14, 'LeftDoorFacade'], [0, templeY - 96, 66, 14, 'DoorSill'],
-      [86, templeY - 96, 106, 14, 'RightDoorFacade'],
+      [0, templeY + 168, 70, 24, 'RearRidge'],
+      [-60, templeY + 152, 76, 24, 'RearLeftEave'], [60, templeY + 152, 76, 24, 'RearRightEave'],
+      [-118, templeY + 125, 74, 30, 'UpperLeftRoof'], [118, templeY + 125, 74, 30, 'UpperRightRoof'],
+      [-158, templeY + 75, 36, 85, 'LeftRoofEdge'], [158, templeY + 75, 36, 85, 'RightRoofEdge'],
+      [-172, templeY - 8, 30, 118, 'LeftOuterWall'], [172, templeY - 8, 30, 118, 'RightOuterWall'],
+      [-155, templeY - 100, 32, 82, 'LeftLowerWall'], [155, templeY - 100, 32, 82, 'RightLowerWall'],
+      [-115, templeY - 145, 125, 24, 'LeftFrontPlinth'], [115, templeY - 145, 125, 24, 'RightFrontPlinth'],
+      [-88, templeY - 98, 108, 14, 'LeftDoorFacade'], [0, templeY - 98, 66, 14, 'DoorSill'],
+      [88, templeY - 98, 108, 14, 'RightDoorFacade'],
     ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
       x as number, y as number, w as number, h as number,
       `StructureFootprint:占卜宗庙PixelArt:${suffix as string}`,
@@ -5679,26 +5679,7 @@ this.drawCityWallsAndGate();
 
     this.clearRoyalTombBurialMoundRecords();
     this.createRoyalTombStaticLandmark('RoyalTombBurialMound', 'royal_tomb_burial_mound', 2860, -3450, 900, 600);
-    // Short, overlapping bodies trace the painted outer lip only.  Together
-    // they form one sealed oval, keeping every visible terrace non-walkable
-    // without a broad horizontal air wall below the mound.
-    [
-      [2700, -3164, 132, 34, 'NorthWest'], [2830, -3158, 132, 34, 'NorthCenterLeft'],
-      [2960, -3164, 132, 34, 'NorthCenterRight'], [3072, -3182, 94, 42, 'NorthEast'],
-      [2588, -3192, 94, 42, 'NorthWestShoulder'], [2490, -3239, 104, 64, 'UpperWest'],
-      [2428, -3316, 46, 92, 'UpperWestSide'], [2394, -3415, 42, 108, 'MidWest'],
-      [2398, -3522, 42, 108, 'LowerWest'], [2442, -3616, 100, 82, 'LowerWestSide'],
-      [2532, -3682, 82, 52, 'SouthWestShoulder'], [2638, -3728, 132, 34, 'SouthWest'],
-      [2769, -3742, 132, 34, 'SouthCenterLeft'], [2900, -3742, 132, 34, 'SouthCenterRight'],
-      [3031, -3728, 132, 34, 'SouthEast'], [3118, -3714, 80, 40, 'SouthEastLowerJoin'],
-      [3192, -3682, 82, 52, 'SouthEastShoulder'], [3278, -3616, 92, 82, 'LowerEastSide'],
-      [3274, -3522, 42, 108, 'LowerEast'],
-      [3278, -3415, 42, 108, 'MidEast'], [3292, -3316, 46, 92, 'UpperEastSide'],
-      [3230, -3239, 104, 64, 'UpperEast'], [3138, -3192, 94, 42, 'NorthEastShoulder'],
-    ].forEach(([x, y, w, h, suffix]) => this.addObstacle(
-      x as number, y as number, w as number, h as number,
-      `RoyalTombBurialMoundRim${suffix as string}Solid`, RegionId.ROYAL_TOMB,
-    ));
+    this.drawRoyalTombBurialMoundCollision();
     this.worldLabel('王陵封土', 2860, -3115, 20, new Color(224, 192, 125));
 
     // Eastern oracle-bone kiln/cellar uses the same low, grounded approach as
@@ -7382,6 +7363,14 @@ this.drawCityWallsAndGate();
     return this.save.avatarId === 'oracle-girl-pixel' ? 'oracle-girl-pixel' : 'oracle-boy-pixel';
   }
 
+  private getIdleFrameIndex(facing: Facing): number {
+    const folder = this.playerCharacterFolder();
+    if (folder === 'oracle-girl-pixel') {
+      return facing === 'left' || facing === 'right' ? 2 : 0;
+    }
+    return facing === 'left' || facing === 'right' ? 1 : 0;
+  }
+
   private loadPlayerCharacterFrames() {
     if (!this.playerSprite?.isValid) return;
     const loadToken = ++this.playerSpriteLoadToken;
@@ -7396,8 +7385,9 @@ this.drawCityWallsAndGate();
         this.requestSpriteFrame(`characters/${folder}/${direction}-${frameIndex}/spriteFrame`, frame => {
           if (loadToken !== this.playerSpriteLoadToken) return;
           this.playerFrames[direction][frameIndex] = frame;
-          if (direction === this.facing && frameIndex === 0 && this.playerSprite.isValid) {
-            this.showPlayerFrame(0);
+          const idleIndex = this.getIdleFrameIndex(direction);
+          if (direction === this.facing && frameIndex === idleIndex && this.playerSprite.isValid) {
+            this.showPlayerFrame(idleIndex);
           }
         });
       }
@@ -7410,7 +7400,7 @@ this.drawCityWallsAndGate();
       // `down-*` is the front-facing sheet in the actual character resource;
       // screen-down is the room entrance direction.
       this.facing = 'down';
-      this.showPlayerFrame(0);
+      this.showPlayerFrame(this.getIdleFrameIndex('down'));
       this.playerVisual.setPosition(0, 24, 4);
       this.playerVisual.setScale(.9, .78, 1);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
@@ -7436,7 +7426,7 @@ this.drawCityWallsAndGate();
       this.playerVisual.setRotationFromEuler(0, 0, 0);
     } else {
       this.walkPhase = 0;
-      this.showPlayerFrame(0);
+      this.showPlayerFrame(this.getIdleFrameIndex(this.facing));
       this.playerVisual.setPosition(0, 30, 4);
       this.playerVisual.setRotationFromEuler(0, 0, 0);
     }
@@ -10065,7 +10055,7 @@ this.drawCityWallsAndGate();
     this.player.setPosition(risePoint.x, risePoint.y, 80);
     this.facing = this.templePreSitFacing;
     this.displayedPlayerFrame = -1;
-    this.showPlayerFrame(0);
+    this.showPlayerFrame(this.getIdleFrameIndex(this.facing));
     this.animatePlayer(false, new Vec2(), 0);
     this.updateTempleSeatDepthOrdering();
     this.destroyOverlayRoot();
@@ -11732,6 +11722,190 @@ this.drawCityWallsAndGate();
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
     });
     return node;
+  }
+
+  /**
+   * Build a sealed collision chain around the royal-tomb burial mound.
+   *
+   * The mound sprite (royal_tomb_burial_mound) is authored as a 512×342 raw
+   * image trimmed to 462×280 and displayed at 900×600.  Visible content
+   * (trimmed) occupies roughly 812×491 game pixels centred on (2860, -3450).
+   * The actual earth mound base — the oval ring of stones visible at the
+   * ground line — sits inside that visible area, not at the 900×600 edges.
+   *
+   * Control points below trace the OUTER EDGE of the mound base stones
+   * (where the mound meets the surrounding yellow earth) as a closed oval
+   * polyline.  We sample densely along this polyline with short, overlapping
+   * AABB obstacles so the player can walk right up to the base but never
+   * step onto a terrace, the entrance, or any painted surface.
+   */
+  private drawRoyalTombBurialMoundCollision() {
+    // Control points tracing the visible mound base (outer edge of stones).
+    // Clockwise from top (back) centre, with the entrance flattened at the
+    // bottom front.  Coordinates are world positions (Cocos y-up).
+    const moundOutline: Array<[number, number]> = [
+      [2860, -3192], // 0  top (back) centre
+      [3058, -3226], // 1  upper-right
+      [3202, -3321], // 2  right-upper
+      [3255, -3450], // 3  right
+      [3202, -3579], // 4  right-lower
+      [3058, -3674], // 5  lower-right
+      [2940, -3708], // 6  entrance-right corner
+      [2860, -3715], // 7  entrance bottom centre
+      [2780, -3708], // 8  entrance-left corner
+      [2662, -3674], // 9  lower-left
+      [2518, -3579], // 10 left-lower
+      [2465, -3450], // 11 left
+      [2518, -3321], // 12 left-upper
+      [2662, -3226], // 13 upper-left
+    ];
+
+    const segmentLength = 28;
+    const overlap = 28;
+    const shellThickness = 50;
+    const generated: Array<{
+      name: string; x: number; y: number; w: number; h: number;
+      left: number; right: number; bottom: number; top: number;
+    }> = [];
+
+    // Close the polyline: append the first point so the last segment wraps
+    // back to the start.
+    const closed = [...moundOutline, moundOutline[0]];
+
+    this.withObstacleRegion(RegionId.ROYAL_TOMB, () => {
+      for (let i = 0; i < closed.length - 1; i++) {
+        const a = closed[i];
+        const b = closed[i + 1];
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const length = Math.hypot(dx, dy);
+        if (length < 1) continue;
+
+        const steps = Math.max(1, Math.ceil(length / segmentLength));
+        for (let s = 0; s < steps; s++) {
+          const t0 = s / steps;
+          const t1 = Math.min(1, (s + 1) / steps + overlap / length);
+          const segStartX = a[0] + dx * t0;
+          const segStartY = a[1] + dy * t0;
+          const segEndX = a[0] + dx * t1;
+          const segEndY = a[1] + dy * t1;
+          const segCenterX = (segStartX + segEndX) / 2;
+          const segCenterY = (segStartY + segEndY) / 2;
+          const segLen = Math.hypot(segEndX - segStartX, segEndY - segStartY);
+
+          const boxLen = segLen + overlap;
+          const halfLen = boxLen / 2;
+          const halfThick = shellThickness / 2;
+
+          const obstacleName = `RoyalTombBurialMoundCollision_${i}_${s}`;
+          this.addObstacle(
+            segCenterX, segCenterY,
+            boxLen, shellThickness,
+            obstacleName,
+            RegionId.ROYAL_TOMB,
+          );
+          generated.push({
+            name: obstacleName,
+            x: segCenterX, y: segCenterY,
+            w: boxLen, h: shellThickness,
+            left: segCenterX - halfLen,
+            right: segCenterX + halfLen,
+            bottom: segCenterY - halfThick,
+            top: segCenterY + halfThick,
+          });
+        }
+      }
+
+      // Auto gap-filling — ensure every consecutive pair of obstacles (and
+      // the wrap-around pair) has overlapping AABBs so no diagonal slits
+      // remain between boxes.
+      const chainDirLen = segmentLength + overlap;
+      for (let g = 1; g < generated.length; g++) {
+        const prev = generated[g - 1];
+        const curr = generated[g];
+
+        const gapX = curr.left - prev.right;
+        const yGapTop = Math.min(prev.top, curr.top);
+        const yGapBottom = Math.max(prev.bottom, curr.bottom);
+        const yGapSize = yGapBottom - yGapTop;
+        const gapYOverlap = yGapTop > yGapBottom;
+
+        const needXFiller = gapX > 0;
+        const needYFiller = yGapSize > 0 && !gapYOverlap && gapX <= 0;
+        if (!needXFiller && !needYFiller) continue;
+
+        const insertCount = Math.max(1, Math.ceil(Math.max(gapX, yGapSize) / chainDirLen));
+        for (let k = 1; k <= insertCount; k++) {
+          const t = k / (insertCount + 1);
+          const fillX = prev.x + (curr.x - prev.x) * t;
+          const fillY = prev.y + (curr.y - prev.y) * t;
+          const fillLeft = fillX - chainDirLen / 2;
+          const fillRight = fillX + chainDirLen / 2;
+          const fillBottom = fillY - shellThickness / 2;
+          const fillTop = fillY + shellThickness / 2;
+
+          const fillerName = `RoyalTombBurialMoundGapFill_${g - 1}_${k}`;
+          this.addObstacle(
+            fillX, fillY,
+            chainDirLen, shellThickness,
+            fillerName,
+            RegionId.ROYAL_TOMB,
+          );
+          generated.splice(g, 0, {
+            name: fillerName,
+            x: fillX, y: fillY,
+            w: chainDirLen, h: shellThickness,
+            left: fillLeft, right: fillRight,
+            bottom: fillBottom, top: fillTop,
+          });
+          g++;
+        }
+      }
+
+      // End-to-end closure check — the chain is a closed loop, so the last
+      // and first obstacles must also overlap.  Fill any gap between them.
+      if (generated.length >= 2) {
+        const last = generated[generated.length - 1];
+        const first = generated[0];
+
+        const gapX = first.left - last.right;
+        const yGapTop = Math.min(last.top, first.top);
+        const yGapBottom = Math.max(last.bottom, first.bottom);
+        const yGapSize = yGapBottom - yGapTop;
+        const gapYOverlap = yGapTop > yGapBottom;
+
+        const needXFiller = gapX > 0;
+        const needYFiller = yGapSize > 0 && !gapYOverlap && gapX <= 0;
+
+        if (needXFiller || needYFiller) {
+          const insertCount = Math.max(1, Math.ceil(Math.max(gapX, yGapSize) / chainDirLen));
+          for (let k = 1; k <= insertCount; k++) {
+            const t = k / (insertCount + 1);
+            const fillX = last.x + (first.x - last.x) * t;
+            const fillY = last.y + (first.y - last.y) * t;
+
+            const fillerName = `RoyalTombBurialMoundGapFill_${generated.length - 1}_end_${k}`;
+            this.addObstacle(
+              fillX, fillY,
+              chainDirLen, shellThickness,
+              fillerName,
+              RegionId.ROYAL_TOMB,
+            );
+          }
+        }
+      }
+    });
+
+    // Debug display (temporarily visible when SHOW_COLLISION_DEBUG is true).
+    if (SHOW_COLLISION_DEBUG) {
+      const debug = this.graphics('RoyalTombBurialMoundCollisionDebug', this.world, 175);
+      debug.strokeColor = new Color(255, 120, 60, 210);
+      debug.lineWidth = 2;
+      generated.forEach(ob => {
+        debug.rect(ob.left, ob.bottom, ob.w, ob.h);
+      });
+      debug.stroke();
+    }
   }
 
   private pixelSprite(name: string, asset: string, parent: Node, x: number, y: number, w: number, h: number, z: number) {
