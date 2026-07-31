@@ -498,6 +498,43 @@ export class YinXuCity extends Component {
     [-4359, -2146], [-4377, -2392], [-4394, -2655], [-4377, -2883],
     [-4333, -3076],
   ];
+  /**
+   * Piecewise shoreline samples from the visible water edge in
+   * huan-river-continuous-v1.png around the north bridge. The third value is
+   * half the local water width. pointInRiverbankNorthBridgeWater() interpolates
+   * the north and south edges separately so bends do not grow circular air-wall
+   * bulges over the painted grass.
+   */
+  private readonly riverbankNorthBridgeWaterPoints: Array<[number, number, number]> = [
+    [-5517, -1402, 68], [-5460, -1413, 73], [-5380, -1389, 76],
+    [-5300, -1380, 73], [-5220, -1368, 75], [-5140, -1358, 86],
+    [-5060, -1354, 96], [-4980, -1348, 96], [-4900, -1359, 92],
+    [-4820, -1370, 95], [-4740, -1425, 97], [-4660, -1488, 89],
+    [-4580, -1549, 96], [-4534, -1590, 106],
+  ];
+  /**
+   * Continuous north/right shoreline sampled from the painted water edge.
+   * It starts west of the bridge, follows every bend, and reaches the lower
+   * edge of the river art. Collision is generated just inside the water so the
+   * grass, mud and stones remain approachable.
+   */
+  private readonly riverbankNorthShorePoints: Array<[number, number]> = [
+    [-5568, -1340], [-5525, -1330], [-5481, -1335], [-5437, -1328],
+    [-5393, -1321], [-5349, -1321], [-5305, -1312], [-5261, -1293],
+    [-5218, -1293], [-5174, -1300], [-5130, -1274], [-5086, -1265],
+    [-5042, -1254], [-4998, -1249], [-4954, -1254], [-4911, -1265],
+    [-4867, -1261], [-4823, -1272], [-4779, -1293], [-4735, -1325],
+    [-4691, -1368], [-4647, -1402], [-4604, -1437], [-4560, -1456],
+    [-4516, -1495], [-4453, -1532], [-4416, -1575], [-4368, -1619],
+    [-4360, -1663], [-4339, -1707], [-4316, -1751], [-4300, -1795],
+    [-4298, -1839], [-4279, -1882], [-4261, -1926], [-4258, -1970],
+    [-4275, -2014], [-4288, -2058], [-4282, -2102], [-4300, -2146],
+    [-4302, -2189], [-4344, -2233], [-4365, -2277], [-4377, -2321],
+    [-4388, -2365], [-4393, -2409], [-4396, -2453], [-4375, -2496],
+    [-4391, -2540], [-4360, -2584], [-4337, -2628], [-4358, -2672],
+    [-4358, -2716], [-4363, -2760], [-4367, -2804], [-4360, -2847],
+    [-4342, -2891], [-4307, -2935], [-4296, -2979], [-4319, -3023],
+  ];
   private readonly riverbankPhaseOneRoadPoints: Array<[number, number]> = [
     [-4900, 790], [-4900, -250], [-4900, -700], [-4920, -1040], [-4900, -1335],
   ];
@@ -3807,6 +3844,11 @@ this.drawCityWallsAndGate();
     );
 
     for (let i = 0; i < riverPoints.length - 1; i++) {
+      // The four broad capsules nearest the bridge used a fixed 150 px radius:
+      // the south half covered visible grass while the north half stopped
+      // inside the shallows.  Replace only that local span with the sampled
+      // shoreline band below.
+      if (i >= 2 && i <= 5) continue;
       const a = riverPoints[i]; const b = riverPoints[i + 1];
       this.waterSegments.push({
         ax: a[0], ay: a[1], bx: b[0], by: b[1],
@@ -3837,8 +3879,20 @@ this.drawCityWallsAndGate();
       'RiverbankNorthPureWoodBridge', 'canal-footbridge-v2',
       this.world, bridgeX, bridgeY, 135, bridgeHeight, 15,
     );
+    // The old water exemption ended exactly at the sprite's south edge
+    // (y=-1470).  The deep-water segment is still active there, so the next
+    // southward step hit an invisible wall before the player's feet reached
+    // grass.  Keep one collision-only passage from the deck through the whole
+    // south landing.  Its effective player-centre width is 60 px after
+    // pointInWater() applies its inset, exactly matching the corridor between
+    // the two rail colliders; water immediately beside the bridge stays solid.
+    const deckNorth = bridgeY + bridgeHeight / 2;
+    const southLandingBottom = bridgeY - bridgeHeight / 2 - 200;
     this.waterCrossings.push({
-      x: bridgeX, y: bridgeY, w: bridgeWalkWidth, h: bridgeHeight,
+      x: bridgeX,
+      y: (deckNorth + southLandingBottom) / 2,
+      w: bridgeWalkWidth - this.playerRadius * 2,
+      h: deckNorth - southLandingBottom,
       name: 'RiverbankNorthPureWoodBridgeDeck',
     });
     // The art has longer timber tails so it reaches both grassy banks.  The
@@ -8623,8 +8677,54 @@ this.drawCityWallsAndGate();
 
   private pointInWater(x: number, y: number, margin = 0) {
     if (this.waterCrossings.some(r => this.pointInRect(x, y, r, -margin * .2))) return false;
+    if (this.pointInRiverbankNorthBridgeWater(x, y, margin)) return true;
+    if (this.pointInRiverbankNorthShoreWater(x, y, margin)) return true;
     if (this.waterCircles.some(c => Math.hypot(x - c.x, y - c.y) < c.radius + margin)) return true;
     return this.waterSegments.some(s => this.pointToSegmentDistance(x, y, s.ax, s.ay, s.bx, s.by) < s.radius + margin);
+  }
+
+  private pointInRiverbankNorthBridgeWater(x: number, y: number, margin = 0) {
+    const samples = this.riverbankNorthBridgeWaterPoints;
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    if (x < first[0] - margin || x > last[0] + margin) return false;
+
+    const sampleX = this.clamp(x, first[0], last[0]);
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i];
+      const b = samples[i + 1];
+      if (sampleX < a[0] || sampleX > b[0]) continue;
+      const t = (sampleX - a[0]) / (b[0] - a[0]);
+      const centerY = a[1] + (b[1] - a[1]) * t;
+      const halfWidth = a[2] + (b[2] - a[2]) * t;
+      return y > centerY - halfWidth - margin && y < centerY + halfWidth + margin;
+    }
+    return false;
+  }
+
+  private pointInRiverbankNorthShoreWater(x: number, y: number, margin = 0) {
+    const points = this.riverbankNorthShorePoints;
+    const waterDepth = 120;
+    const joinOverlap = 8;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const length = Math.hypot(dx, dy);
+      const tangentX = dx / length;
+      const tangentY = dy / length;
+      // Points run east and then south. Their right-hand normal faces water.
+      const inwardX = tangentY;
+      const inwardY = -tangentX;
+      const relativeX = x - a[0];
+      const relativeY = y - a[1];
+      const along = relativeX * tangentX + relativeY * tangentY;
+      const inward = relativeX * inwardX + relativeY * inwardY;
+      if (along >= -joinOverlap && along <= length + joinOverlap
+        && inward > -margin && inward < waterDepth + margin) return true;
+    }
+    return false;
   }
 
   private pointInAnyObstacle(x: number, y: number) {
