@@ -1,3 +1,5 @@
+import { RegionId } from '../regions/RegionTypes';
+
 export type StoryChapterId = string;
 export type StoryStepId = string;
 export type StoryFlagValue = boolean | number | string;
@@ -40,6 +42,8 @@ export type StoryObjective = {
   targetX?: number;
   targetY?: number;
   targetRadius?: number;
+  /** Map region of the destination pit or NPC; drives step-by-step cross-region guidance. */
+  targetRegion?: RegionId;
 };
 
 export type StoryStepDefinition = {

@@ -216,7 +216,7 @@ type FishingCastEffect = {
 type CutPlantRegrowth = { node: Node; timer: number };
 type BackpackTab = 'tools' | 'codex';
 type DugHole = { node: Node; timer: number; x: number; y: number };
-type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement';
+type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal' | 'forest' | 'supplement' | 'trial';
 type ExcavationReward = {
   kind: 'oracle' | 'ink'; quality: OracleQuality | null; cardId: string | null; amount: number;
   tier?: 'story' | 'supplement'; experience?: number; coins?: number;
@@ -224,7 +224,7 @@ type ExcavationReward = {
 type ExcavationVisualState = 'idle' | 'dug';
 type ExcavationSite = {
   id: string; root: Node; sprite: Sprite; glow: Graphics; x: number; y: number;
-  region: ExcavationRegion; active: boolean; revealed: boolean; respawnTimer: number; holeTimer: number;
+  region: ExcavationRegion; mapRegion: RegionId; active: boolean; revealed: boolean; respawnTimer: number; holeTimer: number;
   awaitingStudy: boolean; reward: ExcavationReward; storyTarget?: boolean;
 };
 type PendingExcavation = { site: ExcavationSite; timer: number; rewarded: boolean };
@@ -528,6 +528,11 @@ export class YinXuCity extends Component {
   private readonly mountainRegion = { left: 3000, right: 5700, bottom: -2200, top: -400 };
   private readonly tombRegion = { left: 600, right: 5200, bottom: -4100, top: -2450 };
   private readonly southOutskirtsTrial = { left: -1300, right: 1300, bottom: -960, top: -240 };
+  // 第一章教学坑专用区：出南城门直行即达的城南试炼场中心（OUTSKIRTS 城南，y<-240），
+  // 远离试炼场左右围墙(x=±1284)与城内建筑。玩家无需 teleport、自己走几步就能到，
+  // 彻底绕开 FIELDS 北墙/地面从 x=140 起、南城门洞却在 x=0 导致的"看得见走不到"死区。
+  // 与 field(=FIELDS 内) 完全隔离，绝不污染二/五/九章的 FIELDS 坑池。
+  private readonly trialRegion = { left: -550, right: 450, bottom: -1300, top: 350 };
   /** One source of truth for both authored wall visuals and foot-point collision. */
   private readonly cityBoundary = {
     left: -1300, right: 1300, bottom: -240, top: 1450, thickness: 64,
@@ -650,6 +655,250 @@ export class YinXuCity extends Component {
   // It affects only the 图鉴 display and never writes unlocked cards into the player's save data.
   private readonly unlockAllCatalogForPreview = true;
   private readonly oracleCards: OracleCardData[] = [
+    { id: 'catalog-u65f6', glyph: '时', modern: '时', pinyin: 'shí', quality: 'blue', meaning: '表示时间、时辰，与昼夜更替和农时安排有关。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以干支与时段记录事件，时间观念服务于祭祀、农事与出行。' },
+    { id: 'catalog-u5206', glyph: '分', modern: '分', pinyin: 'fēn', quality: 'blue', asset: 'catalog/ob-u5206', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示划分、分开，与时间单位和分配有关。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代历法以分段记时，分用于安排农事与祭祀。' },
+    { id: 'catalog-u523b', glyph: '刻', modern: '刻', pinyin: 'kè', quality: 'blue', asset: 'catalog/ob-u523b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示雕刻、刻度，也用于记时。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代在龟甲兽骨上契刻卜辞，刻是文字留存的方式。' },
+    { id: 'catalog-u5e74', glyph: '年', modern: '年', pinyin: 'nián', quality: 'blue', asset: 'catalog/ob-u5e74', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示收成、年岁，与农事周期有关。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以谷物成熟记年，年关联丰收与祭祀。' },
+    { id: 'catalog-u5c81', glyph: '岁', modern: '岁', pinyin: 'suì', quality: 'blue', asset: 'catalog/ob-u5c81', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示岁星、年岁，用于记时。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以岁记时，岁关联历法与农事。' },
+    { id: 'catalog-u671d', glyph: '朝', modern: '朝', pinyin: 'zhāo', quality: 'blue', asset: 'catalog/ob-u671d', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示早晨、朝向。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代观察朝旦以安排祭祀与出行。' },
+    { id: 'catalog-u5915', glyph: '夕', modern: '夕', pinyin: 'xī', quality: 'blue', asset: 'catalog/ob-u5915', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示傍晚、夜晚。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以朝夕记时，夕关联夜事与守卫。' },
+    { id: 'catalog-u663c', glyph: '昼', modern: '昼', pinyin: 'zhòu', quality: 'blue', meaning: '表示白昼、白天。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以昼夜安排农事与祭祀。' },
+    { id: 'catalog-u591c', glyph: '夜', modern: '夜', pinyin: 'yè', quality: 'blue', asset: 'catalog/ob-u591c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示夜晚。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代夜事与守卫、祭祀相关。' },
+    { id: 'catalog-u5149', glyph: '光', modern: '光', pinyin: 'guāng', quality: 'blue', asset: 'catalog/ob-u5149', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示光亮、火光。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以火光照明与祭祀，光关联灯烛。' },
+    { id: 'catalog-u5934', glyph: '头', modern: '头', pinyin: 'tóu', quality: 'blue', asset: 'catalog/ob-u5934', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示头部，人体最上的部位。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代在人体部位字中，头为基础构件。' },
+    { id: 'catalog-u9762', glyph: '面', modern: '面', pinyin: 'miàn', quality: 'blue', asset: 'catalog/ob-u9762', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示面部。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以面部表人，面关联容貌与身份。' },
+    { id: 'catalog-u773c', glyph: '眼', modern: '眼', pinyin: 'yǎn', quality: 'blue', meaning: '表示眼睛。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以目表视觉，眼是基础构件。' },
+    { id: 'catalog-u8033', glyph: '耳', modern: '耳', pinyin: 'ěr', quality: 'blue', asset: 'catalog/ob-u8033', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示耳朵。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以耳表听觉，耳关联听闻与命令。' },
+    { id: 'catalog-u53e3', glyph: '口', modern: '口', pinyin: 'kǒu', quality: 'blue', asset: 'catalog/ob-u53e3', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示嘴、口部。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以口表言语与饮食，口是基础构件。' },
+    { id: 'catalog-u9f3b', glyph: '鼻', modern: '鼻', pinyin: 'bí', quality: 'blue', asset: 'catalog/ob-u9f3b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示鼻子。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以鼻表呼吸与嗅觉，鼻关联人面。' },
+    { id: 'catalog-u624b', glyph: '手', modern: '手', pinyin: 'shǒu', quality: 'blue', meaning: '表示手，人体劳作部位。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以手表劳作与持物，手是基础构件。' },
+    { id: 'catalog-u8db3', glyph: '足', modern: '足', pinyin: 'zú', quality: 'blue', meaning: '表示脚、足。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以足表行走，足关联出行与狩猎。' },
+    { id: 'catalog-u5fc3', glyph: '心', modern: '心', pinyin: 'xīn', quality: 'blue', asset: 'catalog/ob-u5fc3', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示心脏，表思维与情感。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以心表内心，心关联思虑与祭祀。' },
+    { id: 'catalog-u8eab', glyph: '身', modern: '身', pinyin: 'shēn', quality: 'blue', asset: 'catalog/ob-u8eab', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示身体、身躯。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以身表人，身关联人的整体。' },
+    { id: 'catalog-u9aa8', glyph: '骨', modern: '骨', pinyin: 'gǔ', quality: 'blue', asset: 'catalog/ob-u9aa8', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示骨头，甲骨文的载体。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以骨记卜，骨是卜辞的物质基础。' },
+    { id: 'catalog-u76ae', glyph: '皮', modern: '皮', pinyin: 'pí', quality: 'blue', asset: 'catalog/ob-u76ae', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示兽皮。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以皮制衣与祭，皮关联狩猎。' },
+    { id: 'catalog-u6bdb', glyph: '毛', modern: '毛', pinyin: 'máo', quality: 'blue', meaning: '表示毛发。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以毛表兽羽，毛关联动物。' },
+    { id: 'catalog-u53d1', glyph: '发', modern: '发', pinyin: 'fà', quality: 'blue', asset: 'catalog/ob-u53d1', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示头发。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以发表人首，发关联容貌。' },
+    { id: 'catalog-u9f7f', glyph: '齿', modern: '齿', pinyin: 'chǐ', quality: 'blue', meaning: '表示牙齿。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以齿表咀嚼，齿关联饮食。' },
+    { id: 'catalog-u820c', glyph: '舌', modern: '舌', pinyin: 'shé', quality: 'blue', asset: 'catalog/ob-u820c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示舌头，表言语。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以舌表言语，舌关联号令与占问。' },
+    { id: 'catalog-u80a9', glyph: '肩', modern: '肩', pinyin: 'jiān', quality: 'blue', asset: 'catalog/ob-u80a9', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示肩膀。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以肩表负重，肩关联劳作。' },
+    { id: 'catalog-u80f8', glyph: '胸', modern: '胸', pinyin: 'xiōng', quality: 'blue', meaning: '表示胸膛。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以胸表身躯前部，胸关联人体。' },
+    { id: 'catalog-u8170', glyph: '腰', modern: '腰', pinyin: 'yāo', quality: 'blue', meaning: '表示腰部。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以腰表身段，腰关联人体。' },
+    { id: 'catalog-u817f', glyph: '腿', modern: '腿', pinyin: 'tuǐ', quality: 'blue', meaning: '表示腿。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以腿表行走，腿关联出行。' },
+    { id: 'catalog-u811a', glyph: '脚', modern: '脚', pinyin: 'jiǎo', quality: 'blue', meaning: '表示脚。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以脚表行走，脚关联出行与狩猎。' },
+    { id: 'catalog-u6307', glyph: '指', modern: '指', pinyin: 'zhǐ', quality: 'blue', meaning: '表示手指，表指向。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以指表指向与计数，指关联手。' },
+    { id: 'catalog-u4e00', glyph: '一', modern: '一', pinyin: 'yī', quality: 'blue', asset: 'catalog/ob-u4e00', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e03', glyph: '七', modern: '七', pinyin: 'qī', quality: 'blue', asset: 'catalog/ob-u4e03', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e07', glyph: '万', modern: '万', pinyin: 'wàn', quality: 'blue', asset: 'catalog/ob-u4e07', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e09', glyph: '三', modern: '三', pinyin: 'sān', quality: 'blue', asset: 'catalog/ob-u4e09', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e0a', glyph: '上', modern: '上', pinyin: 'shàng', quality: 'blue', asset: 'catalog/ob-u4e0a', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e0b', glyph: '下', modern: '下', pinyin: 'xià', quality: 'blue', asset: 'catalog/ob-u4e0b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e2d', glyph: '中', modern: '中', pinyin: 'zhōng', quality: 'blue', asset: 'catalog/ob-u4e2d', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e5d', glyph: '九', modern: '九', pinyin: 'jiǔ', quality: 'blue', asset: 'catalog/ob-u4e5d', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e66', glyph: '书', modern: '书', pinyin: 'shū', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e8c', glyph: '二', modern: '二', pinyin: 'èr', quality: 'blue', asset: 'catalog/ob-u4e8c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e94', glyph: '五', modern: '五', pinyin: 'wǔ', quality: 'blue', asset: 'catalog/ob-u4e94', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4e95', glyph: '井', modern: '井', pinyin: 'jǐng', quality: 'blue', asset: 'catalog/ob-u4e95', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4eba', glyph: '人', modern: '人', pinyin: 'rén', quality: 'blue', asset: 'catalog/ob-u4eba', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4eca', glyph: '今', modern: '今', pinyin: 'jīn', quality: 'blue', asset: 'catalog/ob-u4eca', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4ed6', glyph: '他', modern: '他', pinyin: 'tā', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4eec', glyph: '们', modern: '们', pinyin: 'men', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u4f60', glyph: '你', modern: '你', pinyin: 'nǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5047', glyph: '假', modern: '假', pinyin: 'jiǎ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u513f', glyph: '儿', modern: '儿', pinyin: 'ér', quality: 'blue', asset: 'catalog/ob-u513f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u516b', glyph: '八', modern: '八', pinyin: 'bā', quality: 'blue', asset: 'catalog/ob-u516b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u516d', glyph: '六', modern: '六', pinyin: 'liù', quality: 'blue', asset: 'catalog/ob-u516d', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5173', glyph: '关', modern: '关', pinyin: 'guān', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u518c', glyph: '册', modern: '册', pinyin: 'cè', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5199', glyph: '写', modern: '写', pinyin: 'xiě', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u51ac', glyph: '冬', modern: '冬', pinyin: 'dōng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u51fa', glyph: '出', modern: '出', pinyin: 'chū', quality: 'blue', asset: 'catalog/ob-u51fa', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5200', glyph: '刀', modern: '刀', pinyin: 'dāo', quality: 'blue', asset: 'catalog/ob-u5200', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5230', glyph: '到', modern: '到', pinyin: 'dào', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u524d', glyph: '前', modern: '前', pinyin: 'qián', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u52fa', glyph: '勺', modern: '勺', pinyin: 'sháo', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5341', glyph: '十', modern: '十', pinyin: 'shí', quality: 'blue', asset: 'catalog/ob-u5341', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5343', glyph: '千', modern: '千', pinyin: 'qiān', quality: 'blue', asset: 'catalog/ob-u5343', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5348', glyph: '午', modern: '午', pinyin: 'wǔ', quality: 'blue', asset: 'catalog/ob-u5348', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5367', glyph: '卧', modern: '卧', pinyin: 'wò', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u53bb', glyph: '去', modern: '去', pinyin: 'qù', quality: 'blue', asset: 'catalog/ob-u53bb', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u53eb', glyph: '叫', modern: '叫', pinyin: 'jiào', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u53f3', glyph: '右', modern: '右', pinyin: 'yòu', quality: 'blue', asset: 'catalog/ob-u53f3', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5403', glyph: '吃', modern: '吃', pinyin: 'chī', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u540e', glyph: '后', modern: '后', pinyin: 'hòu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u542c', glyph: '听', modern: '听', pinyin: 'tīng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u54b1', glyph: '咱', modern: '咱', pinyin: 'zán', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u54e5', glyph: '哥', modern: '哥', pinyin: 'gē', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u54ea', glyph: '哪', modern: '哪', pinyin: 'nǎ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u54ed', glyph: '哭', modern: '哭', pinyin: 'kū', quality: 'blue', asset: 'catalog/ob-u54ed', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u558a', glyph: '喊', modern: '喊', pinyin: 'hǎn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u559c', glyph: '喜', modern: '喜', pinyin: 'xǐ', quality: 'blue', asset: 'catalog/ob-u559c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u559d', glyph: '喝', modern: '喝', pinyin: 'hē', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u56db', glyph: '四', modern: '四', pinyin: 'sì', quality: 'blue', asset: 'catalog/ob-u56db', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u56de', glyph: '回', modern: '回', pinyin: 'huí', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u56fe', glyph: '图', modern: '图', pinyin: 'tú', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u571f', glyph: '土', modern: '土', pinyin: 'tǔ', quality: 'blue', asset: 'catalog/ob-u571f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5730', glyph: '地', modern: '地', pinyin: 'dì', quality: 'blue', asset: 'catalog/ob-u5730', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u574f', glyph: '坏', modern: '坏', pinyin: 'huài', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5750', glyph: '坐', modern: '坐', pinyin: 'zuò', quality: 'blue', asset: 'catalog/ob-u5750', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5761', glyph: '坡', modern: '坡', pinyin: 'pō', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5899', glyph: '墙', modern: '墙', pinyin: 'qiáng', quality: 'blue', asset: 'catalog/ob-u5899', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u58f0', glyph: '声', modern: '声', pinyin: 'shēng', quality: 'blue', asset: 'catalog/ob-u58f0', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u590f', glyph: '夏', modern: '夏', pinyin: 'xià', quality: 'blue', asset: 'catalog/ob-u590f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5916', glyph: '外', modern: '外', pinyin: 'wài', quality: 'blue', asset: 'catalog/ob-u5916', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u591a', glyph: '多', modern: '多', pinyin: 'duō', quality: 'blue', asset: 'catalog/ob-u591a', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5927', glyph: '大', modern: '大', pinyin: 'dà', quality: 'blue', asset: 'catalog/ob-u5927', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5929', glyph: '天', modern: '天', pinyin: 'tiān', quality: 'blue', asset: 'catalog/ob-u5929', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5951', glyph: '契', modern: '契', pinyin: 'qì', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5973', glyph: '女', modern: '女', pinyin: 'nǚ', quality: 'blue', asset: 'catalog/ob-u5973', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5976', glyph: '奶', modern: '奶', pinyin: 'nǎi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5979', glyph: '她', modern: '她', pinyin: 'tā', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u597d', glyph: '好', modern: '好', pinyin: 'hǎo', quality: 'blue', asset: 'catalog/ob-u597d', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5988', glyph: '妈', modern: '妈', pinyin: 'mā', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u59b9', glyph: '妹', modern: '妹', pinyin: 'mèi', quality: 'blue', asset: 'catalog/ob-u59b9', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u59d0', glyph: '姐', modern: '姐', pinyin: 'jiě', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5b57', glyph: '字', modern: '字', pinyin: 'zì', quality: 'blue', asset: 'catalog/ob-u5b57', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5b66', glyph: '学', modern: '学', pinyin: 'xué', quality: 'blue', asset: 'catalog/ob-u5b66', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5b69', glyph: '孩', modern: '孩', pinyin: 'hái', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5b83', glyph: '它', modern: '它', pinyin: 'tā', quality: 'blue', asset: 'catalog/ob-u5b83', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5bb6', glyph: '家', modern: '家', pinyin: 'jiā', quality: 'blue', asset: 'catalog/ob-u5bb6', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5c0f', glyph: '小', modern: '小', pinyin: 'xiǎo', quality: 'blue', asset: 'catalog/ob-u5c0f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5c11', glyph: '少', modern: '少', pinyin: 'shǎo', quality: 'blue', asset: 'catalog/ob-u5c11', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5c3a', glyph: '尺', modern: '尺', pinyin: 'chǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5c4b', glyph: '屋', modern: '屋', pinyin: 'wū', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5c71', glyph: '山', modern: '山', pinyin: 'shān', quality: 'blue', asset: 'catalog/ob-u5c71', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5de6', glyph: '左', modern: '左', pinyin: 'zuǒ', quality: 'blue', asset: 'catalog/ob-u5de6', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5df7', glyph: '巷', modern: '巷', pinyin: 'xiàng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5e08', glyph: '师', modern: '师', pinyin: 'shī', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5e8a', glyph: '床', modern: '床', pinyin: 'chuáng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5f00', glyph: '开', modern: '开', pinyin: 'kāi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5f1f', glyph: '弟', modern: '弟', pinyin: 'dì', quality: 'blue', asset: 'catalog/ob-u5f1f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5f80', glyph: '往', modern: '往', pinyin: 'wǎng', quality: 'blue', asset: 'catalog/ob-u5f80', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u5ff5', glyph: '念', modern: '念', pinyin: 'niàn', quality: 'blue', asset: 'catalog/ob-u5ff5', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6012', glyph: '怒', modern: '怒', pinyin: 'nù', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u601d', glyph: '思', modern: '思', pinyin: 'sī', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u60b2', glyph: '悲', modern: '悲', pinyin: 'bēi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u60f3', glyph: '想', modern: '想', pinyin: 'xiǎng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6101', glyph: '愁', modern: '愁', pinyin: 'chóu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u61c2', glyph: '懂', modern: '懂', pinyin: 'dǒng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6211', glyph: '我', modern: '我', pinyin: 'wǒ', quality: 'blue', asset: 'catalog/ob-u6211', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u623f', glyph: '房', modern: '房', pinyin: 'fáng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u626b', glyph: '扫', modern: '扫', pinyin: 'sǎo', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u62ff', glyph: '拿', modern: '拿', pinyin: 'ná', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u638c', glyph: '掌', modern: '掌', pinyin: 'zhǎng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u64e6', glyph: '擦', modern: '擦', pinyin: 'cā', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6500', glyph: '攀', modern: '攀', pinyin: 'pān', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u653e', glyph: '放', modern: '放', pinyin: 'fàng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6570', glyph: '数', modern: '数', pinyin: 'shù', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6587', glyph: '文', modern: '文', pinyin: 'wén', quality: 'blue', asset: 'catalog/ob-u6587', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u65b0', glyph: '新', modern: '新', pinyin: 'xīn', quality: 'blue', asset: 'catalog/ob-u65b0', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u65e7', glyph: '旧', modern: '旧', pinyin: 'jiù', quality: 'blue', asset: 'catalog/ob-u65e7', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u65e9', glyph: '早', modern: '早', pinyin: 'zǎo', quality: 'blue', asset: 'catalog/ob-u65e9', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u660e', glyph: '明', modern: '明', pinyin: 'míng', quality: 'blue', asset: 'catalog/ob-u660e', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u660f', glyph: '昏', modern: '昏', pinyin: 'hūn', quality: 'blue', asset: 'catalog/ob-u660f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6625', glyph: '春', modern: '春', pinyin: 'chūn', quality: 'blue', asset: 'catalog/ob-u6625', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6628', glyph: '昨', modern: '昨', pinyin: 'zuó', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u665a', glyph: '晚', modern: '晚', pinyin: 'wǎn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6668', glyph: '晨', modern: '晨', pinyin: 'chén', quality: 'blue', asset: 'catalog/ob-u6668', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6708', glyph: '月', modern: '月', pinyin: 'yuè', quality: 'blue', asset: 'catalog/ob-u6708', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6728', glyph: '木', modern: '木', pinyin: 'mù', quality: 'blue', asset: 'catalog/ob-u6728', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u672c', glyph: '本', modern: '本', pinyin: 'běn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6765', glyph: '来', modern: '来', pinyin: 'lái', quality: 'blue', asset: 'catalog/ob-u6765', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u676f', glyph: '杯', modern: '杯', pinyin: 'bēi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u679c', glyph: '果', modern: '果', pinyin: 'guǒ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6821', glyph: '校', modern: '校', pinyin: 'xiào', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u684c', glyph: '桌', modern: '桌', pinyin: 'zhuō', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6865', glyph: '桥', modern: '桥', pinyin: 'qiáo', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6905', glyph: '椅', modern: '椅', pinyin: 'yǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u697c', glyph: '楼', modern: '楼', pinyin: 'lóu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6bcd', glyph: '母', modern: '母', pinyin: 'mǔ', quality: 'blue', asset: 'catalog/ob-u6bcd', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c11', glyph: '民', modern: '民', pinyin: 'mín', quality: 'blue', asset: 'catalog/ob-u6c11', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c14', glyph: '气', modern: '气', pinyin: 'qì', quality: 'blue', asset: 'catalog/ob-u6c14', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c34', glyph: '水', modern: '水', pinyin: 'shuǐ', quality: 'blue', asset: 'catalog/ob-u6c34', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c57', glyph: '汗', modern: '汗', pinyin: 'hàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c5f', glyph: '江', modern: '江', pinyin: 'jiāng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c64', glyph: '汤', modern: '汤', pinyin: 'tāng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6c99', glyph: '沙', modern: '沙', pinyin: 'shā', quality: 'blue', asset: 'catalog/ob-u6c99', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6cb9', glyph: '油', modern: '油', pinyin: 'yóu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6cc9', glyph: '泉', modern: '泉', pinyin: 'quán', quality: 'blue', asset: 'catalog/ob-u6cc9', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6cea', glyph: '泪', modern: '泪', pinyin: 'lèi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6d17', glyph: '洗', modern: '洗', pinyin: 'xǐ', quality: 'blue', asset: 'catalog/ob-u6d17', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6d77', glyph: '海', modern: '海', pinyin: 'hǎi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6e38', glyph: '游', modern: '游', pinyin: 'yóu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u6e56', glyph: '湖', modern: '湖', pinyin: 'hú', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u706b', glyph: '火', modern: '火', pinyin: 'huǒ', quality: 'blue', asset: 'catalog/ob-u706b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u706f', glyph: '灯', modern: '灯', pinyin: 'dēng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u70ec', glyph: '烬', modern: '烬', pinyin: 'jìn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u722c', glyph: '爬', modern: '爬', pinyin: 'pá', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7231', glyph: '爱', modern: '爱', pinyin: 'ài', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7236', glyph: '父', modern: '父', pinyin: 'fù', quality: 'blue', asset: 'catalog/ob-u7236', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7237', glyph: '爷', modern: '爷', pinyin: 'yé', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7238', glyph: '爸', modern: '爸', pinyin: 'bà', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u73ed', glyph: '班', modern: '班', pinyin: 'bān', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u74dc', glyph: '瓜', modern: '瓜', pinyin: 'guā', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u751f', glyph: '生', modern: '生', pinyin: 'shēng', quality: 'blue', asset: 'catalog/ob-u751f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7537', glyph: '男', modern: '男', pinyin: 'nán', quality: 'blue', asset: 'catalog/ob-u7537', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u753b', glyph: '画', modern: '画', pinyin: 'huà', quality: 'blue', asset: 'catalog/ob-u753b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u767b', glyph: '登', modern: '登', pinyin: 'dēng', quality: 'blue', asset: 'catalog/ob-u767b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u767e', glyph: '百', modern: '百', pinyin: 'bǎi', quality: 'blue', asset: 'catalog/ob-u767e', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u76c6', glyph: '盆', modern: '盆', pinyin: 'pén', quality: 'blue', asset: 'catalog/ob-u76c6', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u76d0', glyph: '盐', modern: '盐', pinyin: 'yán', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u770b', glyph: '看', modern: '看', pinyin: 'kàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u771f', glyph: '真', modern: '真', pinyin: 'zhēn', quality: 'blue', asset: 'catalog/ob-u771f', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7761', glyph: '睡', modern: '睡', pinyin: 'shuì', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u77e5', glyph: '知', modern: '知', pinyin: 'zhī', quality: 'blue', asset: 'catalog/ob-u77e5', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u77f3', glyph: '石', modern: '石', pinyin: 'shí', quality: 'blue', asset: 'catalog/ob-u77f3', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7897', glyph: '碗', modern: '碗', pinyin: 'wǎn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u79cb', glyph: '秋', modern: '秋', pinyin: 'qiū', quality: 'blue', asset: 'catalog/ob-u79cb', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7a97', glyph: '窗', modern: '窗', pinyin: 'chuāng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7ad9', glyph: '站', modern: '站', pinyin: 'zhàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7b11', glyph: '笑', modern: '笑', pinyin: 'xiào', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7b14', glyph: '笔', modern: '笔', pinyin: 'bǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7b77', glyph: '筷', modern: '筷', pinyin: 'kuài', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7c73', glyph: '米', modern: '米', pinyin: 'mǐ', quality: 'blue', asset: 'catalog/ob-u7c73', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7ca5', glyph: '粥', modern: '粥', pinyin: 'zhōu', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7cd6', glyph: '糖', modern: '糖', pinyin: 'táng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7eb8', glyph: '纸', modern: '纸', pinyin: 'zhǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u7f38', glyph: '缸', modern: '缸', pinyin: 'gāng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8001', glyph: '老', modern: '老', pinyin: 'lǎo', quality: 'blue', asset: 'catalog/ob-u8001', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8089', glyph: '肉', modern: '肉', pinyin: 'ròu', quality: 'blue', asset: 'catalog/ob-u8089', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8239', glyph: '船', modern: '船', pinyin: 'chuán', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u82f1', glyph: '英', modern: '英', pinyin: 'yīng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8336', glyph: '茶', modern: '茶', pinyin: 'chá', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u83dc', glyph: '菜', modern: '菜', pinyin: 'cài', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u852c', glyph: '蔬', modern: '蔬', pinyin: 'shū', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u86cb', glyph: '蛋', modern: '蛋', pinyin: 'dàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8840', glyph: '血', modern: '血', pinyin: 'xuè', quality: 'blue', asset: 'catalog/ob-u8840', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u884c', glyph: '行', modern: '行', pinyin: 'xíng', quality: 'blue', asset: 'catalog/ob-u884c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8857', glyph: '街', modern: '街', pinyin: 'jiē', quality: 'blue', asset: 'catalog/ob-u8857', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8bb0', glyph: '记', modern: '记', pinyin: 'jì', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8bed', glyph: '语', modern: '语', pinyin: 'yǔ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8bf4', glyph: '说', modern: '说', pinyin: 'shuō', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8bfb', glyph: '读', modern: '读', pinyin: 'dú', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8bfe', glyph: '课', modern: '课', pinyin: 'kè', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8c01', glyph: '谁', modern: '谁', pinyin: 'shuí', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8d70', glyph: '走', modern: '走', pinyin: 'zǒu', quality: 'blue', asset: 'catalog/ob-u8d70', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8dd1', glyph: '跑', modern: '跑', pinyin: 'pǎo', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8def', glyph: '路', modern: '路', pinyin: 'lù', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8df3', glyph: '跳', modern: '跳', pinyin: 'tiào', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8f66', glyph: '车', modern: '车', pinyin: 'chē', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8fd9', glyph: '这', modern: '这', pinyin: 'zhè', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u8fdb', glyph: '进', modern: '进', pinyin: 'jìn', quality: 'blue', asset: 'catalog/ob-u8fdb', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9053', glyph: '道', modern: '道', pinyin: 'dào', quality: 'blue', asset: 'catalog/ob-u9053', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u90a3', glyph: '那', modern: '那', pinyin: 'nà', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9152', glyph: '酒', modern: '酒', pinyin: 'jiǔ', quality: 'blue', asset: 'catalog/ob-u9152', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u91cc', glyph: '里', modern: '里', pinyin: 'lǐ', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u91d1', glyph: '金', modern: '金', pinyin: 'jīn', quality: 'blue', asset: 'catalog/ob-u91d1', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u95e8', glyph: '门', modern: '门', pinyin: 'mén', quality: 'blue', asset: 'catalog/ob-u95e8', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9662', glyph: '院', modern: '院', pinyin: 'yuàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u97f3', glyph: '音', modern: '音', pinyin: 'yīn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u98ce', glyph: '风', modern: '风', pinyin: 'fēng', quality: 'blue', asset: 'catalog/ob-u98ce', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u98de', glyph: '飞', modern: '飞', pinyin: 'fēi', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u996d', glyph: '饭', modern: '饭', pinyin: 'fàn', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u997c', glyph: '饼', modern: '饼', pinyin: 'bǐng', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9a6c', glyph: '马', modern: '马', pinyin: 'mǎ', quality: 'blue', asset: 'catalog/ob-u9a6c', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9ad8', glyph: '高', modern: '高', pinyin: 'gāo', quality: 'blue', asset: 'catalog/ob-u9ad8', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
+    { id: 'catalog-u9ea6', glyph: '麦', modern: '麦', pinyin: 'mài', quality: 'blue', meaning: '甲骨文字，待正式甲骨资料到位后补充释义。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '待补充。' },
     {
       id: 'rain', glyph: '雨', modern: '雨', pinyin: 'yǔ', quality: 'blue',
       asset: 'catalog/ob-u96e8', imageBounds: [0, 0, 199, 199], excavatable: true,
@@ -1426,6 +1675,9 @@ export class YinXuCity extends Component {
     const show = !r || r === RegionId.FIELDS;
     this.fieldVisualNodes.forEach(node => { if (node.isValid) node.active = show; });
     this.excavationSites.forEach(site => {
+      // 第一章教学坑(trial)横跨城内南门广场与南门外可达荒地，始终按自身 active 状态可见，
+      // 不参与 FIELDS 的区域显隐（城内/城外的 trial 坑都不受 FIELDS 摄像机显隐控制）。
+      if (site.region === 'trial') { site.root.active = site.active || site.holeTimer > 0; return; }
       if (site.region === 'field' && site.root.isValid) site.root.active = show && (site.active || site.holeTimer > 0);
     });
   }
@@ -1618,9 +1870,20 @@ export class YinXuCity extends Component {
     const started = this.regionTransitionManager.transitionToEntry(location.entryId);
     if (started) {
       this.save.storyLocationId = location.id;
+      this.audioManager.playSfx('map_transition');
+      return true;
     }
-    else console.error('[StoryLocation] entry validation failed; no coordinate fallback will be used.', { locationId, entryId: location.entryId });
-    return started;
+    // 兜底：黑屏状态机被占用（非 IDLE/COOLDOWN）或校验未启动，改用同步直接传送，
+    // 保证小人可靠落到目标着陆点、视觉立即跟随，绝不出现「界面停在上一章、人消失」。
+    console.warn('[StoryLocation] blackout transition unavailable; immediate teleport fallback.', locationId);
+    const ok = this.regionTransitionManager.teleportToEntryImmediate(location.entryId);
+    if (ok) {
+      this.save.storyLocationId = location.id;
+      this.audioManager.playSfx('map_transition');
+    } else {
+      console.error('[StoryLocation] entry validation failed; no fallback available.', { locationId, entryId: location.entryId });
+    }
+    return ok;
   }
 
   /** 玩家实际坐标是否落在指定区域边界内（不依赖可能滞后的 currentRegionId）。 */
@@ -1636,6 +1899,21 @@ export class YinXuCity extends Component {
     return this.inRegion(this.playerPos.x, this.playerPos.y, bounds);
   }
 
+  /** 给定任意地图坐标，反查它落在哪个大区（用于判断挖字碎甲实际所在区域，决定跨区引导）。 */
+  private regionAtPoint(x: number, y: number): RegionId | null {
+    const boundsByRegion: Partial<Record<RegionId, { left: number; right: number; bottom: number; top: number }>> = {
+      [RegionId.HIGHLAND]: this.forestRegion,
+      [RegionId.FIELDS]: this.fieldRegion,
+      [RegionId.RIVERBANK]: this.riverRegion,
+      [RegionId.ROYAL_TOMB]: this.tombRegion,
+    };
+    for (const key of Object.keys(boundsByRegion) as RegionId[]) {
+      const bounds = boundsByRegion[key];
+      if (bounds && this.inRegion(x, y, bounds)) return key;
+    }
+    return null;
+  }
+
   /** 坑坐标离玩家极近（一眼可见、无需过图）时视为"已在目标"，直接指坑不跨区引导。 */
   private isDigSiteNearby(objective: StoryObjective): boolean {
     if (objective.targetX === undefined || objective.targetY === undefined) return false;
@@ -1645,46 +1923,40 @@ export class YinXuCity extends Component {
     return dx * dx + dy * dy < NEAR_DIG_SITE * NEAR_DIG_SITE;
   }
 
-  /** Points at a natural map exit when the chapter's dig site is elsewhere; never starts a transition. */
-  private routeNarrativeExcavationToMapExit(chapterId: string, objective: StoryObjective) {
-    const targetRegions: Record<string, RegionId> = {
-      [CHAPTER_ONE_ID]: RegionId.FIELDS,
-      [CHAPTER_TWO_ID]: RegionId.RIVERBANK,
-      [CHAPTER_THREE_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_FOUR_ID]: RegionId.HIGHLAND,
-      [CHAPTER_FIVE_ID]: RegionId.FIELDS,
-      [CHAPTER_SIX_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_SEVEN_ID]: RegionId.HIGHLAND,
-      [CHAPTER_EIGHT_ID]: RegionId.ROYAL_TOMB,
-      [CHAPTER_NINE_ID]: RegionId.FIELDS,
-    };
+  /**
+   * 统一的挖字 / 寻迹区域引导（宝宝 0731 拍板：同区域内直指坑，跨区先指传送标识、一步一步引导）。
+   * - 优先用 objective.targetRegion（挖字坑自带 mapRegion，最可靠），兜底用坐标反查 regionAtPoint。
+   * - 目标与玩家同区：return false → 由 buildQuestNavigationPath 走可通行路精确直指坑。
+   * - 目标跨区：return true → 箭头改为指向「通往目标区域的下一个传送标识」（QuestGuide 画直线箭头），
+   *   玩家进入该区域后，下一帧 currentRegionId 更新，自动重新判定：同区则直指坑、否则继续指下一段传送点。
+   *   这样无论几步跨区（如 CITY→OUTSKIRTS→FIELDS），都逐级引导，绝不横跳、绝不死路。
+   * - CITY 起点特殊处理：CITY 与 OUTSKIRTS 是连续地面过渡、没有 blackout 出口，故先指向南城门让玩家出城，
+   *   出城进入 OUTSKIRTS 后由通用逻辑接管下一步传送点。
+   */
+  private routeNarrativeExcavationToMapExit(_chapterId: string, objective: StoryObjective, _kind: 'dig' | 'narrative' = 'narrative') {
     const manager = this.regionTransitionManager;
-    const targetRegion = targetRegions[chapterId];
-    if (!manager || !targetRegion) return false;
-    // 双保险①：玩家实际坐标已在目标区域 → 坑就在脚下，保持坑箭头。
-    if (this.playerInRegionBounds(targetRegion)) return false;
-    // 双保险②：坑坐标离玩家极近（一眼可见、无需过图）→ 直接指坑，不跨区引导。
-    // 覆盖"坑在城门口下方可见、但区域判定还差一点"的情形（如第一章教学坑）。
-    const near = this.isDigSiteNearby(objective);
-    if (near) return false;
-    if (manager.currentRegionId === targetRegion) return false;
-    // CITY and OUTSKIRTS share the gate passage rather than a blackout exit.
-    // For the two field-bound chapters, first guide the player through the
-    // east city gate; once OUTSKIRTS becomes active the normal exit routing
-    // below takes over and points to the field loading boundary.
-    if (manager.currentRegionId === RegionId.CITY && targetRegion === RegionId.FIELDS) {
-      objective.targetX = this.cityBoundary.right - 44;
-      objective.targetY = this.cityEastWestRoadCenterY;
-      objective.title = '从东城门前往郊外田野';
-      objective.detail = '先沿道路穿过东城门；到达郊外后，箭头会继续指向田野入口。';
+    if (!manager || objective.targetX === undefined || objective.targetY === undefined) return false;
+    const pitRegion = objective.targetRegion ?? this.regionAtPoint(objective.targetX, objective.targetY);
+    if (!pitRegion) return false; // 无法判定区域，退化直指坑坐标（由 BFS 处理）
+    const current = manager.currentRegionId;
+    if (pitRegion === current) return false; // 同区直指坑
+
+    // 跨区：先指往目标区域的下一步传送标识。
+    if (current === RegionId.CITY) {
+      // CITY 与 OUTSKIRTS 连续过渡、无 blackout 出口：先引玩家出南城门进入 OUTSKIRTS，
+      // 之后若在 OUTSKIRTS 仍与目标区不同，由下方 getExitToward 接管指下一步传送点。
+      objective.targetX = 0;
+      objective.targetY = -300;
+      objective.title = '前往城外';
+      objective.detail = '沿金色箭头穿过南城门；到达城外后，箭头会指引你前往本章调查区。';
       return true;
     }
-    const exit = manager.getExitToward(targetRegion);
+    const exit = manager.getExitToward(pitRegion);
     if (!exit) return false;
     objective.targetX = (exit.triggerBounds.minX + exit.triggerBounds.maxX) / 2;
     objective.targetY = (exit.triggerBounds.minY + exit.triggerBounds.maxY) / 2;
-    objective.title = '循路前往下一片调查区';
-    objective.detail = '沿箭头走到道路尽头；抵达边缘后会按原有方式加载下一张地图。';
+    objective.title = '前往目标区域';
+    objective.detail = '沿金色箭头走到区域边缘的传送标识；进入目标区域后，箭头会精确指向待挖的碎甲。';
     return true;
   }
 
@@ -1766,39 +2038,45 @@ export class YinXuCity extends Component {
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
     const isChapterNineFragment = CHAPTER_NINE_FRAGMENT_CARDS.some(item =>
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
-    if (CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
-      item.seekStepId === step?.id || item.lessonStepId === step?.id)
-      || isChapterTwoFragment || isChapterThreeFragment || isChapterFourFragment
+    const isChapterOneFragment = CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
+      item.seekStepId === step?.id || item.lessonStepId === step?.id);
+    if (isChapterOneFragment || isChapterTwoFragment || isChapterThreeFragment || isChapterFourFragment
       || isChapterFiveFragment || isChapterSixFragment || isChapterSevenFragment
       || isChapterEightFragment || isChapterNineFragment) {
-      const site = isChapterTwoFragment
-        ? this.reserveChapterTwoExcavationSite()
-        : isChapterThreeFragment
-          ? this.reserveChapterThreeExcavationSite()
-          : isChapterFourFragment
-            ? this.reserveChapterFourExcavationSite()
-            : isChapterFiveFragment
-              ? this.reserveStoryExcavationSite(CHAPTER_FIVE_FRAGMENT_CARDS, 'field', CHAPTER_FIVE_ID)
-              : isChapterSixFragment
-                ? this.reserveStoryExcavationSite(CHAPTER_SIX_FRAGMENT_CARDS, 'royal', CHAPTER_SIX_ID)
-                : isChapterSevenFragment
-                  ? this.reserveStoryExcavationSite(CHAPTER_SEVEN_FRAGMENT_CARDS, 'forest', CHAPTER_SEVEN_ID)
-                  : isChapterEightFragment
-                    ? this.reserveStoryExcavationSite(CHAPTER_EIGHT_FRAGMENT_CARDS, 'royal', CHAPTER_EIGHT_ID)
-                    : isChapterNineFragment
-                      ? this.reserveStoryExcavationSite(CHAPTER_NINE_FRAGMENT_CARDS, 'field', CHAPTER_NINE_ID)
-                      : this.reserveChapterOneExcavationSite();
+      const chapterReserve = [
+        { match: isChapterOneFragment, cards: CHAPTER_ONE_FRAGMENT_CARDS, id: CHAPTER_ONE_ID },
+        { match: isChapterTwoFragment, cards: CHAPTER_TWO_FRAGMENT_CARDS, id: CHAPTER_TWO_ID },
+        { match: isChapterThreeFragment, cards: CHAPTER_THREE_FRAGMENT_CARDS, id: CHAPTER_THREE_ID },
+        { match: isChapterFourFragment, cards: CHAPTER_FOUR_FRAGMENT_CARDS, id: CHAPTER_FOUR_ID },
+        { match: isChapterFiveFragment, cards: CHAPTER_FIVE_FRAGMENT_CARDS, id: CHAPTER_FIVE_ID },
+        { match: isChapterSixFragment, cards: CHAPTER_SIX_FRAGMENT_CARDS, id: CHAPTER_SIX_ID },
+        { match: isChapterSevenFragment, cards: CHAPTER_SEVEN_FRAGMENT_CARDS, id: CHAPTER_SEVEN_ID },
+        { match: isChapterEightFragment, cards: CHAPTER_EIGHT_FRAGMENT_CARDS, id: CHAPTER_EIGHT_ID },
+        { match: isChapterNineFragment, cards: CHAPTER_NINE_FRAGMENT_CARDS, id: CHAPTER_NINE_ID },
+      ].find(entry => entry.match);
+      const site = chapterReserve
+        ? this.reserveStoryExcavationSite(chapterReserve.cards, chapterReserve.id)
+        : null;
       if (site && objective) {
         objective.targetX = site.x;
         objective.targetY = site.y;
+        objective.targetRegion = site.mapRegion;
       }
     }
     let routingToMapExit = false;
     if (step && objective && this.isNarrativeExcavationStep(step.id)) {
+      const isFragment = isChapterOneFragment || isChapterTwoFragment || isChapterThreeFragment
+        || isChapterFourFragment || isChapterFiveFragment || isChapterSixFragment
+        || isChapterSevenFragment || isChapterEightFragment || isChapterNineFragment;
       const hint = this.narrativeExcavationHint(step.chapterId);
-      objective.title = `${hint.title} · 寻迹`;
-      objective.detail = hint.detail;
-      routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective);
+      const kind: 'dig' | 'narrative' = isFragment ? 'dig' : 'narrative';
+      // 挖字步骤由上面的 reserve 已锁定坑坐标：跨区时只覆盖为传送标识、
+      // 保留任务标题，不覆盖成“·寻迹”文案；寻迹步骤按原提示展示。
+      if (!isFragment) {
+        objective.title = `${hint.title} · 寻迹`;
+        objective.detail = hint.detail;
+      }
+      routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective, kind);
 
     }
     // 宗庙内部 world 被隐藏，引导箭头节点已切到 templeInterior；改用内部坐标指向占卜席，覆盖外部 storyLocation 坐标。
@@ -1957,6 +2235,7 @@ export class YinXuCity extends Component {
       const openDialogue = () => {
         if (presentationToken !== this.storyPresentationToken
           || this.storyController.currentStep()?.id !== step.id) return;
+        this.audioManager.playSfx('dialog_open');
         this.storyDialogue.open(
           this.withSceneAtmosphere(step, step.dialogue ?? []),
           () => this.completeStoryDialogue(step),
@@ -2176,7 +2455,7 @@ export class YinXuCity extends Component {
    */
   private prepareChapterFreeExploration(chapterId: string) {
     const regions: Record<string, ExcavationRegion[]> = {
-      [CHAPTER_ONE_ID]: ['field'],
+      [CHAPTER_ONE_ID]: ['trial'],
       [CHAPTER_TWO_ID]: ['river', 'lake'],
       [CHAPTER_THREE_ID]: ['royal'],
       [CHAPTER_FOUR_ID]: ['forest'],
@@ -2542,9 +2821,18 @@ export class YinXuCity extends Component {
    * UPPER terrain hysteresis is not a collision at the authored landing point.
    * All other scripted entries retain the normal static terrain validation.
    */
+  /**
+   * 作者手工指定的落点是可信的着陆点，只做全局地图边界检查，跳过水域 / 障碍 /
+   * NPC 碰撞 / 地形高程校验。否则像 chapter-2-riverbank-entry(-5060,-700) 这样落在
+   * 河岸水边 / 礁石旁的落点会被 canStandRadius 的 pointInWater 误拒，导致章末接章的
+   * scripted 传送站立校验失败、玩家被弹回上一章，而章节状态已切到新章——出现
+   * 「视觉还停在上一个界面、小人错位丢失」的脱节。放宽后所有章节的接章落点统一可靠。
+   */
   private canScriptedEntryStand(entry: Readonly<RegionEntry>) {
-    const ignoreSourceElevationHysteresis = entry.id === 'chapter-2-riverbank-entry';
-    return this.canStandRadius(entry.worldPosition.x, entry.worldPosition.y, this.playerRadius, ignoreSourceElevationHysteresis);
+    const hw = this.mapWidth / 2 - 66;
+    const hh = this.mapHeight / 2 - 66;
+    const { x, y } = entry.worldPosition;
+    return x >= -hw && x <= hw && y >= -hh && y <= hh;
   }
 
   // 把一批剧情碎片卡标记为已唤醒（解锁 + 学习进度），用于重测前置章时保持进度面板一致。
@@ -2688,83 +2976,13 @@ export class YinXuCity extends Component {
     this.storyNpcThree = root;
   }
 
-  private reserveChapterOneExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_ONE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_ONE_FRAGMENT_CARDS[fragmentIndex];
-    const fieldSites = this.excavationSites.filter(candidate => candidate.region === 'field');
-    const site = fieldSites[fragmentIndex] ?? fieldSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    // First chapter used to retain whichever generic field point happened to
-    // be first in the array.  Keep all five teaching pits inside the current
-    // field scene rather than a stale/off-map coordinate from an old layout.
-    this.positionStorySiteForChapter(site, CHAPTER_ONE_ID, fragmentIndex);
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 雨/田/云 有卡；水(catalog-u6c34)/土(catalog-u571f) 为待补字暂无卡牌定义。
-      // 待补字仍预留坑位并标引导箭头，挖到后走「未录入」分支连带完成，不卡死、不丢箭头。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
 
-  private reserveChapterTwoExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_TWO_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_TWO_FRAGMENT_CARDS[fragmentIndex];
-    const waterSites = this.excavationSites.filter(candidate =>
-      candidate.region === 'river' || candidate.region === 'lake');
-    const site = waterSites[fragmentIndex] ?? waterSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 待补字（字卡尚未录入）：仍预留坑位并标引导箭头，挖到走「未录入」分支连带完成。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
 
-  // 第三章复用 field 区域（与第一章同源；两章顺序激活、不会同时占用）。
-  // 前/后/里 cardId 为 null（待补字）：不再提前 return null，改为与
-  // reserveStoryExcavationSite 一致地给一个暂定坑位，让引导箭头正常指向；
-  // 挖到后走「未录入」分支连带完成 learning，不卡死、地图有引导点。
-  private reserveChapterThreeExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_THREE_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_THREE_FRAGMENT_CARDS[fragmentIndex];
-    const tombSites = this.excavationSites.filter(candidate => candidate.region === 'royal');
-    const site = tombSites[fragmentIndex % tombSites.length] ?? tombSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
+
+
+
+
+
 
   private markStoryTarget(site: ExcavationSite) {
     this.excavationSites.forEach(candidate => {
@@ -2868,34 +3086,7 @@ export class YinXuCity extends Component {
     this.storyNpcFour = root;
   }
 
-  // 第四章用 forest 区域（与一~三章区域互不冲突；章节顺序激活、不会同时占用）。
-  // 待补字（江湖海爸妈爷奶哥姐孩）cardId 已预填 catalog-u，录库前 oracleCards 查不到 → card 为 undefined，
-  // 但仍 reserve 坑位并标金色引导光环（reward.cardId 写入预填的 catalog-u 非空串），
-  // completeExcavation 会匹配 expectedFragment 并走降级分支连带完成 learning-completed，不卡死、且地图有引导点；
-  // 录库后引擎自动对上、弹出辨识学习面板。
-  private reserveChapterFourExcavationSite() {
-    const stepId = this.storyController.currentStep()?.id;
-    const fragmentIndex = CHAPTER_FOUR_FRAGMENT_CARDS.findIndex(item =>
-      item.seekStepId === stepId || item.lessonStepId === stepId);
-    if (fragmentIndex < 0) return null;
-    const fragment = CHAPTER_FOUR_FRAGMENT_CARDS[fragmentIndex];
-    const forestSites = this.excavationSites.filter(candidate => candidate.region === 'forest');
-    const site = forestSites[fragmentIndex] ?? forestSites.find(candidate => candidate.active) ?? null;
-    if (!site) return null;
-    this.positionStorySiteForChapter(site, CHAPTER_FOUR_ID, fragmentIndex);
-    const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
-    if (!card) {
-      // 待补字（或字卡尚未录入）：仍 reserve + 标引导光环，让玩家有目标点。
-      site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
-      this.storyController.reserveStorySite(site.id);
-      this.markStoryTarget(site);
-      return site;
-    }
-    site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
-    this.storyController.reserveStorySite(site.id);
-    this.markStoryTarget(site);
-    return site;
-  }
+
 
   private updateChapterFourStory() {
     const step = this.storyController?.currentStep();
@@ -3018,11 +3209,10 @@ export class YinXuCity extends Component {
       '大卜·阿圭', 'chapter-9-renew-covenant-reach-npc', 'grand-diviner');
   }
 
-  // 五~九章挖掘预约通用逻辑：与第四章相同，只是区域和字表参数化。
-  // fragmentIndex 取模区域坑位数，让大章（>坑数）也能均匀复用坑位、不会全挤在一个坑。
+  // 全部章节（一~九）统一挖掘预约逻辑：字表参数化，坑由 takeChapterPit 跨区分散分配。
+  // fragmentIndex 取模坑池长度，让大章（>坑数）也能均匀复用坑位、不会全挤在一个坑。
   private reserveStoryExcavationSite(
     fragmentCards: ReadonlyArray<{ seekStepId: string; lessonStepId: string; cardId?: string | null }>,
-    region: ExcavationRegion,
     chapterId: string,
   ) {
     const stepId = this.storyController.currentStep()?.id;
@@ -3030,10 +3220,7 @@ export class YinXuCity extends Component {
       item.seekStepId === stepId || item.lessonStepId === stepId);
     if (fragmentIndex < 0) return null;
     const fragment = fragmentCards[fragmentIndex];
-    const regionSites = this.excavationSites.filter(candidate => candidate.region === region);
-    if (!regionSites.length) return null;
-    const site = regionSites[fragmentIndex % regionSites.length]
-      ?? regionSites.find(candidate => candidate.active) ?? null;
+    const site = this.takeChapterPit(chapterId, fragmentIndex);
     if (!site) return null;
     this.positionStorySiteForChapter(site, chapterId, fragmentIndex);
     const card = fragment.cardId ? this.oracleCards.find(item => item.id === fragment.cardId) : null;
@@ -3055,43 +3242,92 @@ export class YinXuCity extends Component {
    * so reloading a save returns the active story pit to the same place.
    */
   private positionStorySiteForChapter(site: ExcavationSite, chapterId: string, fragmentIndex: number) {
-    const zones: Record<string, { left: number; right: number; bottom: number; top: number }> = {
-      [CHAPTER_ONE_ID]: { left: 420, right: 1260, bottom: -1660, top: -860 },
-      [CHAPTER_THREE_ID]: { left: 260, right: 1280, bottom: -2100, top: -920 },
-      [CHAPTER_FOUR_ID]: { left: 3950, right: 5480, bottom: -2050, top: -580 },
-      [CHAPTER_FIVE_ID]: { left: 1550, right: 2920, bottom: -2050, top: -520 },
-      [CHAPTER_SIX_ID]: { left: 720, right: 2260, bottom: -3980, top: -2700 },
-      [CHAPTER_SEVEN_ID]: { left: 4550, right: 5480, bottom: -2050, top: -620 },
-      [CHAPTER_EIGHT_ID]: { left: 2550, right: 5050, bottom: -3980, top: -2700 },
-      [CHAPTER_NINE_ID]: { left: 280, right: 1420, bottom: -2050, top: -520 },
-    };
-    const zone = zones[chapterId];
-    if (!zone) return;
-    let seed = fragmentIndex + 1;
-    for (let index = 0; index < chapterId.length; index++) seed = (seed * 31 + chapterId.charCodeAt(index)) >>> 0;
-    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let attempt = 0; attempt < 64; attempt++) {
-      const x = Math.round(zone.left + 56 + random() * (zone.right - zone.left - 112));
-      const y = Math.round(zone.bottom + 56 + random() * (zone.top - zone.bottom - 112));
-      if (!this.isExcavationPositionValid(x, y, site.region, site, 170)) continue;
-      site.x = x;
-      site.y = y;
-      site.root.setPosition(x, y, 21);
-      this.redrawExcavationSite(site);
-      return;
-    }
-    // 章节专属区域内遇到密集障碍时，退回该挖掘点所属区域的安全位置；
-    // 绝不保留可能已经被地图改动覆盖的旧坐标。
-    const fallback = this.resolveExcavationPosition(
-      (zone.left + zone.right) / 2,
-      (zone.bottom + zone.top) / 2,
-      site.region,
-      site,
-    );
-    site.x = fallback.x;
-    site.y = fallback.y;
+    void chapterId;
+    void fragmentIndex; // 坑坐标由 reserve 阶段按章确定性分配（跨区域分散），此处只做可通行兜底
+    // 本章的字如今散落在地图各处（reserve 时从跨区域坑池中为每个字挑了
+    // 一个彼此分开、且经过 resolveExcavationPosition 校验可通行的坑位），
+    // 不再把所有字重定位到 zone 中心导致堆叠。这里仅当预生成点意外不可
+    // 通行时，在附近找一个可通行点兜底；绝不再按 zone 中心重排，避免重叠
+    // 或把字锁死在一小块区域。
+    if (this.isExcavationPositionValid(site.x, site.y, site.region, site, 170)) return;
+    const safe = this.resolveExcavationPosition(site.x, site.y, site.region, site);
+    site.x = safe.x;
+    site.y = safe.y;
     site.root.setPosition(site.x, site.y, 21);
     this.redrawExcavationSite(site);
+  }
+
+  // 章节剧情坑分配：一~九所有章统一从“全图可通行坑池”分配，挖掘引导
+  // 由 routeNarrativeExcavationToMapExit 统一处理（同区直指坑、跨区先指传送点），
+  // 与后续章节完全一致。区别仅在取坑偏好：其余章按章名确定性打乱后分散到
+  // 各地；第一章优先取离出生点(chapter-1-city-entry=188,20)近的坑，避免新手章
+  // 过于分散。挖出的字严格绑定本章 fragmentCards（reserve 时写入 site.reward.cardId），
+  // 不会混进他章字。
+  private takeChapterPit(chapterId: string, fragmentIndex: number): ExcavationSite | null {
+    const pool = this.chapterPitPool(chapterId);
+    if (!pool.length) return null;
+    return pool[fragmentIndex % pool.length] ?? null;
+  }
+
+  /** Maps an excavation pit's storage region to the gameplay RegionId used for navigation. */
+  private excavationRegionToMapRegion(region: ExcavationRegion): RegionId {
+    switch (region) {
+      case 'river': return RegionId.RIVERBANK;
+      case 'lake': return RegionId.OUTSKIRTS; // 湖在城南西南方，出南门直行即达，无需 blackout 传送
+      case 'field': return RegionId.FIELDS;
+      case 'royal': return RegionId.ROYAL_TOMB;
+      case 'forest': return RegionId.HIGHLAND;
+      case 'trial': return RegionId.OUTSKIRTS;
+      default: return RegionId.OUTSKIRTS;
+    }
+  }
+
+  private chapterPitPool(chapterId: string): ExcavationSite[] {
+    const all = this.excavationSites.filter(s => s.region !== 'supplement');
+    if (chapterId === CHAPTER_ONE_ID) {
+      // 第一章（新手教学）：坑限定在独立的 trial 区域（城内南门广场 + 南门外可达荒地），
+      // 避免进入 FIELDS 死区，也避免跨 CITY/OUTSKIRTS 边界横跳。按离出生点(188,20)
+      // 的直线距离升序，前几个优先落在城内南门附近，后续逐步向南拉开。
+      const ox = 188, oy = 20;
+      return all.filter(s => s.region === 'trial')
+        .sort((a, b) =>
+          ((a.x - ox) * (a.x - ox) + (a.y - oy) * (a.y - oy)) -
+          ((b.x - ox) * (b.x - ox) + (b.y - oy) * (b.y - oy)));
+    }
+    // 其余章：每章锁定自己的专属 region 坑池（与 prepareChapterFreeExploration 一致），
+    // 字只在本章区域内散落不同位置，绝不会跨到别的章的区域、也不会散落全图导致跨区死路。
+    // 池内按章名确定性 Fisher-Yates 打乱，大章（字数 > 坑数）取模复用坑位均匀分散。
+    const regionsForChapter: Record<string, ExcavationRegion[]> = {
+      [CHAPTER_TWO_ID]: ['river', 'lake'],
+      [CHAPTER_THREE_ID]: ['royal'],
+      [CHAPTER_FOUR_ID]: ['forest'],
+      [CHAPTER_FIVE_ID]: ['field'],
+      [CHAPTER_SIX_ID]: ['royal'],
+      [CHAPTER_SEVEN_ID]: ['forest'],
+      [CHAPTER_EIGHT_ID]: ['royal'],
+      [CHAPTER_NINE_ID]: ['field'],
+    };
+    const allowed = regionsForChapter[chapterId];
+    if (!allowed || !allowed.length) return all.filter(s => s.region !== 'trial');
+    const pool = all.filter(s => allowed.includes(s.region));
+    if (!pool.length) return all.filter(s => s.region !== 'trial');
+    let s = this.hashString(chapterId) >>> 0 || 1;
+    const rand = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    const arr = pool.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  private hashString(str: string): number {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
   }
 
   // 五~九章到达判定通用逻辑：与第四章相同，只是 stepId / NPC 坐标 / npcId 参数化。
@@ -5490,12 +5726,30 @@ this.drawCityWallsAndGate();
         [-5940,-250],[-5590,-255],[-5210,-430],[-4710,-380],[-4090,-620],
         [-4200,-1320],[-5470,-1770],[-4920,-1980],[-4200,-2320],[-5440,-2790],
       ],
+      // field=FIELDS 内田野坑，现供第二/五/九章使用（玩家经脚本化 entry 直接落入 FIELDS）。
+      // 第一章教学坑已迁出 FIELDS，改用下方 trial 区（出南城门直行即达的城南试炼场），
+      // 因 FIELDS 北墙/地面从 x=140 起、南城门洞却在 x=0，玩家无法从 CITY 直行进入 FIELDS，
+      // 原「出南城门直行即达」设计在实际 region 切换下是走不到的死区。
       field: [
-        [600,-600],[1500,-600],[2400,-600],
-        [600,-1300],[1500,-1300],[260,-1860],
-        [600,-2000],[1500,-2000],[2400,-2000],
-        [1100,-900],
-        [2750,-900],[2750,-1600],[2000,-900],[2000,-1600],[1100,-1600],[300,-1600],[2750,-1300],[2000,-1300],[2000,-1900],
+        [200,-1100],[200,-1400],[480,-1100],[200,-1700],[480,-1400],
+        [700,-1150],[1300,-1150],[1900,-1150],[2500,-1150],[2900,-1150],
+        [700,-1500],[1300,-1500],[1900,-1500],[2500,-1500],[2900,-1500],
+        [700,-1850],[1300,-1850],[1900,-1850],[2500,-1850],[2900,-1850],
+      ],
+      // 第一章教学坑(trial)：出南城门直行即达的城南试炼场(OUTSKIRTS 城南)中心 + 城内南门广场。
+      // 玩家从 chapter-1-city-entry(188,20) 出南门后自己走几步即到，无需 teleport、
+      // 不进 FIELDS，彻底避开 FIELDS 北墙/地面从 x=140 起、南城门却在 x=0 导致的死区。
+      // 数组前 5 个（也是离出生点最近的 5 个）为教学坑（雨田水土地云），由
+      // chapterPitPool 距离升序优先取；数组后 3 个（index>=5，城外更南处）为
+      // 「拾遗补充坑」，createExcavationSites 里直接出拾遗字（见 reward 分支），
+      // 让教学章挖完 5 字后还能在城南就近挖到拾遗字、不重复主线字。
+      trial: [
+        // 城内南门广场：让第一章前几字在教学区内就能挖到
+        [-200, 80], [200, 160], [0, 280],
+        // 南门外左侧可达荒地（x<140，避开 FIELDS 死区），逐步往南拉开距离
+        [-250, -400], [80, -520], [-350, -700],
+        // 以下 3 个为拾遗补充坑（index>=5，最远，挖完教学字再往南才到）
+        [0, -900], [-450, -1150],
       ],
       lake: [
         [-1500,-1800],[-1050,-1800],[-600,-1800],
@@ -5522,11 +5776,23 @@ this.drawCityWallsAndGate();
       layouts[region].forEach((seedPoint, index) => {
         const point = this.resolveExcavationPosition(seedPoint[0], seedPoint[1], region);
         const { root, sprite, glow } = this.spawnExcavationSiteNode(`${region}-${index}`, point.x, point.y);
+        // 第一章教学坑(trial)只占用按距离排序后最近的 5 个（见 chapterPitPool）；
+        // 其余 trial 坑作为「城内/城外近处的拾遗补充坑」，直接出拾遗字，避免教学章
+        // 挖来挖去全是重复主线字。region 仍为 'trial'（可见可挖、不受主线后渐进
+        // 揭示控制），仅 reward 走 rollSupplementReward（tier='supplement'）。
+        const reward = (region === 'trial' && index >= 5)
+          ? this.rollSupplementReward()
+          : this.rollExcavationReward(region);
         const site: ExcavationSite = {
           id: `${region}-${index}`, root, sprite, glow, x: point.x, y: point.y,
           region,
+          // trial 区横跨城内(CITY)与城南(OUTSKIRTS)：按坑实际坐标所属大区定 mapRegion，
+          // 否则城内那几个教学坑会被误判成 OUTSKIRTS，导致玩家在城内时箭头却指向南城门、越走越远。
+          mapRegion: region === 'trial'
+            ? (this.inRegion(point.x, point.y, this.cityBoundary) ? RegionId.CITY : RegionId.OUTSKIRTS)
+            : this.excavationRegionToMapRegion(region),
           active: true, revealed: true, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
-          reward: this.rollExcavationReward(region), storyTarget: false,
+          reward, storyTarget: false,
         };
         this.excavationSites.push(site);
         this.redrawExcavationSite(site);
@@ -5566,6 +5832,7 @@ this.drawCityWallsAndGate();
       const site: ExcavationSite = {
         id: `supplement-${index}`, root, sprite, glow, x: point[0], y: point[1],
         region: 'supplement',
+        mapRegion: RegionId.OUTSKIRTS,
         active: false, revealed: false, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
         reward: this.rollExcavationReward('supplement'), storyTarget: false,
       };
@@ -5626,7 +5893,8 @@ this.drawCityWallsAndGate();
   private resolveExcavationPosition(seedX: number, seedY: number, region: ExcavationRegion, ignoreSite: ExcavationSite | null = null) {
     const bounds = region === 'supplement' ? this.supplementRegion
       : region === 'river' ? this.riverRegion : region === 'field' ? this.fieldRegion
-      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion : this.tombRegion;
+      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion
+      : region === 'trial' ? this.trialRegion : this.tombRegion;
     // Authored seeds may sit exactly on a regional seam.  Pull them into the
     // usable interior before probing so world creation remains deterministic
     // and never performs hundreds of expensive full-map collision scans.
@@ -5656,7 +5924,17 @@ this.drawCityWallsAndGate();
         if (this.isExcavationPositionValid(x, y, region, ignoreSite, relaxedSpacing)) return new Vec2(x, y);
       }
     }
-    console.warn(`[YinXuCity] excavation site ${region} used fallback position`, seedX, seedY);
+    // 最后保底：以粗网格扫描整个区域，只要"可站立且不在障碍内"即可（忽略坑间距），
+    // 绝不返回未经校验的坐标，避免土坑落在不可通行处。
+    const gridStep = 80;
+    for (let gy = bounds.bottom + 60; gy <= bounds.top - 60; gy += gridStep) {
+      for (let gx = bounds.left + 60; gx <= bounds.right - 60; gx += gridStep) {
+        if (this.canStandRadius(gx, gy, 24) && !this.pointInAnyObstacle(gx, gy)) {
+          return new Vec2(gx, gy);
+        }
+      }
+    }
+    console.warn(`[YinXuCity] excavation site ${region} NO walkable fallback found`, seedX, seedY);
     return new Vec2(seedX, seedY);
   }
 
@@ -5665,7 +5943,8 @@ this.drawCityWallsAndGate();
   ) {
     const bounds = region === 'supplement' ? this.supplementRegion
       : region === 'river' ? this.riverRegion : region === 'field' ? this.fieldRegion
-      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion : this.tombRegion;
+      : region === 'lake' ? this.lakeRegion : region === 'forest' ? this.forestRegion
+      : region === 'trial' ? this.trialRegion : this.tombRegion;
     if ((region === 'river' || region === 'field') && this.inRegion(x, y, this.southOutskirtsTrial)) return false;
     if (x < bounds.left + 48 || x > bounds.right - 48 || y < bounds.bottom + 48 || y > bounds.top - 48) return false;
     if (!this.canStandRadius(x, y, 24) || this.pointInAnyObstacle(x, y)) return false;
@@ -5686,7 +5965,8 @@ this.drawCityWallsAndGate();
     const previousX = site.x; const previousY = site.y;
     const bounds = site.region === 'supplement' ? this.supplementRegion
       : site.region === 'river' ? this.riverRegion : site.region === 'field' ? this.fieldRegion
-      : site.region === 'lake' ? this.lakeRegion : site.region === 'forest' ? this.forestRegion : this.tombRegion;
+      : site.region === 'lake' ? this.lakeRegion : site.region === 'forest' ? this.forestRegion
+      : site.region === 'trial' ? this.trialRegion : this.tombRegion;
     for (let attempt = 0; attempt < 84; attempt++) {
       const x = Math.round(bounds.left + 70 + Math.random() * (bounds.right - bounds.left - 140));
       const y = Math.round(bounds.bottom + 70 + Math.random() * (bounds.top - bounds.bottom - 140));
@@ -5753,7 +6033,7 @@ this.drawCityWallsAndGate();
     // 这样「发现拾遗」才是一次真正的探索奖励。
     const roll = Math.random();
     let quality: OracleQuality | null = null;
-    if (region === 'river' || region === 'field') {
+    if (region === 'river' || region === 'field' || region === 'trial') {
       if (roll < .70) quality = 'blue';
       else if (roll < .78) quality = 'red';
     } else if (region === 'lake') {
@@ -5798,7 +6078,9 @@ this.drawCityWallsAndGate();
     site.glow.node.setScale(1, 1, 1);
     site.glow.node.setRotationFromEuler(0, 0, 0);
     const currentRegionId = this.regionTransitionManager?.currentRegionId;
-    const hiddenFieldSite = site.region === 'field' && !!currentRegionId && currentRegionId !== RegionId.FIELDS;
+    // 当前章节正在指引的剧情目标坑即便落在其它区域（本章的字散落各区域），
+    // 也始终保持可见，保证金色箭头指向的碎甲不会被跨区隐藏逻辑藏掉。
+    const hiddenFieldSite = site.region === 'field' && !!currentRegionId && currentRegionId !== RegionId.FIELDS && !site.storyTarget;
     site.root.active = true;
     if (!site.active) {
       if (site.holeTimer <= 0) {
@@ -5905,6 +6187,17 @@ this.drawCityWallsAndGate();
     return parts.length > 0 ? `拾遗所得：${parts.join('、')}。` : null;
   }
 
+  /** 统一发放卜官经验；跨段位阈值时播放升级音效。阈值与 LearningHall RANKS 对齐（0/1000/3000/6000/12000）。 */
+  private gainExperience(amount: number) {
+    if (!amount) return;
+    const before = this.save.experience;
+    this.save.experience += amount;
+    const thresholds = [1000, 3000, 6000, 12000];
+    const beforeRank = thresholds.filter(t => before >= t).length;
+    const afterRank = thresholds.filter(t => this.save.experience >= t).length;
+    if (afterRank > beforeRank) this.audioManager.playSfx('level_up');
+  }
+
   private completeExcavation(site: ExcavationSite) {
     site.storyTarget = false;
     const reward = site.reward;
@@ -5914,7 +6207,7 @@ this.drawCityWallsAndGate();
       if (!this.save.excavatedCardIds.includes(reward.cardId)) {
         this.save.excavatedCardIds.push(reward.cardId);
       }
-      const card = this.oracleCards.find(item => item.id === reward.cardId && this.hasRealOracleGlyph(item));
+      const card = this.oracleCards.find(item => item.id === reward.cardId && (this.hasRealOracleGlyph(item) || Boolean(item.modern)));
       const currentStepId = this.storyController?.currentStep()?.id;
       const expectedFragment = this.allStoryFragmentCards.find(item =>
         item.seekStepId === currentStepId && item.cardId === reward.cardId);
@@ -5928,10 +6221,11 @@ this.drawCityWallsAndGate();
       }
       if (card) {
         // 字卡已录入：弹出辨识学习面板，学完再推进「学习完成」。
+        this.audioManager.playSfx('reward_get');
         site.awaitingStudy = true;
         // 拾遗字(supplement)挖到即发放档位奖励(墨料/经验)；主线字 amount/experience 为 0，发放无害。
         if (reward.amount) { this.save.ink += reward.amount; }
-        if (reward.experience) { this.save.experience += reward.experience; }
+        if (reward.experience) { this.gainExperience(reward.experience); }
         this.persistCitySave();
         const rewardNotice = this.supplementRewardNotice(reward);
         if (rewardNotice) this.showStatusNotice(rewardNotice, 3.6);
@@ -5941,7 +6235,7 @@ this.drawCityWallsAndGate();
       // 字卡尚未录入（待补字）：直接连带完成「学习完成」，避免卡死；拾遗档位奖励仍发放。
       site.awaitingStudy = false;
       if (reward.amount) { this.save.ink += reward.amount; }
-      if (reward.experience) { this.save.experience += reward.experience; }
+      if (reward.experience) { this.gainExperience(reward.experience); }
       if (expectedFragment) {
         this.storyController.handle({ type: 'learning-completed', cardId: reward.cardId, correct: true });
       }
@@ -5953,7 +6247,7 @@ this.drawCityWallsAndGate();
     }
     site.awaitingStudy = false;
     this.save.ink += reward.amount;
-    if (reward.experience) { this.save.experience += reward.experience; }
+    if (reward.experience) { this.gainExperience(reward.experience); }
     this.persistCitySave();
     this.createExcavationRewardFlight(site.x, site.y, reward.experience ? '验' : '墨', null);
     let msg = `这处土层没有甲骨文，收集到 ${reward.amount} 份墨料。`;
@@ -6053,7 +6347,11 @@ this.drawCityWallsAndGate();
         site.respawnTimer = Math.max(0, site.respawnTimer - dt);
         if (!site.awaitingStudy && site.respawnTimer <= 0) {
           this.moveExcavationSiteToRandomLocation(site);
-          site.reward = this.rollExcavationReward(site.region);
+          // 拾遗型坑（trial 内的拾遗补充坑，reward.tier==='supplement'）刷新后仍出拾遗字，
+          // 不回落成普通主线字，保证「城内/城外近处也能挖到拾遗」的体验延续。
+          site.reward = site.reward.tier === 'supplement'
+            ? this.rollSupplementReward()
+            : this.rollExcavationReward(site.region);
           site.active = true;
           site.holeTimer = 0;
           site.root.active = true;
@@ -9026,6 +9324,7 @@ this.drawCityWallsAndGate();
     this.currentMasteryStars = 0;
     if (this.divinationText?.isValid) this.divinationText.string = this.currentQuestion.prompt;
     if (this.divinationName?.isValid) this.divinationName.string = this.currentQuestion.villager;
+    this.audioManager.playSfx('card_flip');
     this.buildOracleSelection();
     this.updateRiseButtonState();
   }
@@ -9188,7 +9487,7 @@ this.drawCityWallsAndGate();
     this.currentRewardCoins = Math.round(20 * multiplier);
     this.currentRewardExperience = Math.round(10 * multiplier);
     this.save.coins += this.currentRewardCoins;
-    this.save.experience += this.currentRewardExperience;
+    this.gainExperience(this.currentRewardExperience);
     const previous = this.save.mastery[card.id] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
     this.save.mastery[card.id] = {
       attempts: previous.attempts + this.currentAttempts,
@@ -9303,6 +9602,7 @@ this.drawCityWallsAndGate();
   private showDivinationReview() {
     if (!this.overlayRoot || !this.currentQuestion || this.divinationStage !== 'animating') return;
     this.divinationStage = 'review';
+    this.audioManager.playSfx('divine_success');
     this.overlayRoot.getChildByName('OracleSelectionLayer')?.destroy();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
@@ -9383,6 +9683,7 @@ this.drawCityWallsAndGate();
       this.storyController.setFlag(
         (finishedChapterId && chapterClueFlags[finishedChapterId]) || 'clue.west-river-fragment', true);
       this.storyController.addDestinyPower(1);
+      this.audioManager.playSfx('chapter_clear');
     }
     // handle 之后，若当前步骤仍是「占卜步骤」，说明还有下一轮，保持 overlay 自动续接；
     // 否则（末轮）逼玩家起身查看裂纹。
@@ -11163,7 +11464,11 @@ this.drawCityWallsAndGate();
   ) {
     const fallback = this.createUiLabel(parent, `${name}-Fallback`, '', x, y, maxWidth, maxHeight,
       Math.max(20, Math.round(Math.min(maxWidth, maxHeight) * .52)), tint, 'center', z);
-    if (!card.asset || !card.imageBounds) return fallback.node;
+    if (!card.asset || !card.imageBounds) {
+      // 暂缺甲骨图片时，回退显示现代字占位，避免学习/图鉴面板出现空白字形。
+      fallback.string = card.glyph ?? card.modern ?? '';
+      return fallback.node;
+    }
 
     const [left, top, right, bottom] = card.imageBounds;
     const visibleWidth = Math.max(1, right - left + 1);

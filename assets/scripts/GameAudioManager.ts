@@ -54,6 +54,12 @@ export class GameAudioManager extends Component {
   private activeRain: RainTrack | null = null;
   private digClip: AudioClip | null = null;
   private readonly footstepClips: Array<AudioClip | null> = [null, null, null, null];
+  private readonly sceneSfxVolume = 0.5;
+  private readonly sceneClips: Record<string, AudioClip | null> = {};
+  private readonly sceneSfxNames = [
+    'card_flip', 'reward_get', 'divine_success',
+    'chapter_clear', 'level_up', 'dialog_open', 'map_transition',
+  ];
   private musicEnabled = true;
   private sfxEnabled = true;
   private audioUnlocked = !sys.isBrowser;
@@ -108,6 +114,15 @@ export class GameAudioManager extends Component {
           return;
         }
         this.footstepClips[index] = clip;
+      });
+    });
+    this.sceneSfxNames.forEach((name) => {
+      resources.load(`audio/${name}`, AudioClip, (error, clip) => {
+        if (error || !clip) {
+          console.error(`[GameAudioManager] Failed to load ${name}.wav`, error);
+          return;
+        }
+        this.sceneClips[name] = clip;
       });
     });
   }
@@ -175,6 +190,18 @@ export class GameAudioManager extends Component {
     this.lastFootstepIndex = chosen.index;
     this.footstepSource.playOneShot(chosen.clip, this.footstepVolume);
     this.footstepPlaybackTimer = 0.22;
+  }
+
+  /**
+   * Play a one-shot scene/feedback sound effect by name.
+   * Names: card_flip, reward_get, divine_success, chapter_clear,
+   * level_up, dialog_open, map_transition.
+   */
+  playSfx(name: string, volume: number = this.sceneSfxVolume) {
+    if (!this.audioUnlocked || !this.sfxEnabled) return;
+    const clip = this.sceneClips[name];
+    if (!clip) return;
+    this.sfxSource.playOneShot(clip, volume);
   }
 
   update(dt: number) {
